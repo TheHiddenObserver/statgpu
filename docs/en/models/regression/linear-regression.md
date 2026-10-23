@@ -1,7 +1,7 @@
 # LinearRegression
 
 > Language: English  
-> Last updated: 2026-10-13<br>
+> Last updated: 2026-10-17<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../../cn/models/regression/linear-regression.md)
 
@@ -133,13 +133,13 @@ coefficient intervals, not prediction intervals for new observations.
   `(n_targets,)`, and predictions are `(n_new, n_targets)`. `score` returns the
   mean per-target $R^2$, not an array of scores.
 
-For a single target, pass a one-dimensional response to `score(X, y)`.
-Unlike `fit`, `score` currently does not flatten `(n_samples, 1)` responses;
-subtracting the one-dimensional predictions then broadcasts into a matrix and
-can silently produce an incorrect $R^2$. Flatten only a single-target response
-before scoring; do not flatten a genuine multi-target array.
+For a single target, `score(X, y)` accepts either `(n_samples,)` or
+`(n_samples, 1)` and gives the same $R^2$. A genuine multi-target response must
+match the prediction shape exactly; do not flatten it. Incompatible row counts
+or target dimensions raise `ValueError` before residual arithmetic. Constant
+targets retain a score of 0, including a constant target predicted perfectly.
 
-The following independent six-row example isolates that shape issue; its noiseless response makes the correct score easy to check.
+The following independent six-row example scores a column-shaped response directly; its noiseless response makes the correct score easy to check.
 
 <!-- learner-example: linear-column-target -->
 ```python
@@ -149,7 +149,7 @@ from statgpu.linear_model import LinearRegression
 X = np.arange(6.0)[:, None]
 y_column = 2.0 + 3.0 * X
 model = LinearRegression(device="cpu", compute_inference=False).fit(X, y_column)
-r2 = model.score(X, y_column.ravel())
+r2 = model.score(X, y_column)
 print("R2:", round(float(r2), 3))
 ```
 <!-- example-end: linear-column-target -->
@@ -160,11 +160,12 @@ This prints `R2: 1.0`: the line fits these noiseless observations exactly.
 
 Formula prediction currently drops rows with missing predictors and returns a
 shorter unlabelled array. Resolve missing values and verify prediction length
-before aligning results to the original observations. `score` is also unsafe
-on such a query: one retained prediction can broadcast across several responses
-and produce a finite but wrong R². Flattening y does not repair this separate
-row-alignment problem. Filter deliberately with a retained row index, or reject
-the query; see the [complete missing-row warning](../../reference/linear-model-api.md#missing-prediction-rows-in-ordinary-glms).
+before aligning results to the original observations. `score` raises `ValueError`
+when the shortened predictions do not match the evaluation response rows; it does
+not broadcast the remaining predictions. This check does not restore missing
+predictions or their row labels. Filter deliberately with a retained row index
+and align the response to that filtered frame, or reject the query; see the
+[complete missing-row warning](../../reference/linear-model-api.md#missing-prediction-rows-in-ordinary-glms).
 
 ## Choosing parameters and covariance
 

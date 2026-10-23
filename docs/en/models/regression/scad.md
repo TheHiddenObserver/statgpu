@@ -1,7 +1,7 @@
 # SCAD
 
 > Language: English  
-> Last updated: 2026-10-13<br>
+> Last updated: 2026-10-17<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../../cn/models/regression/scad.md)
 
@@ -161,9 +161,9 @@ with the desired `inference_method` and `compute_inference=True`.
 
 `oracle` reports an unpenalized refit on the selected active set, while prediction
 remains penalized. Those ordinary intervals do not correct for choosing variables
-on the same responses. The oracle interface rejects GPU parent fits, but its child
-currently defaults to `device="auto"`; a CPU parent alone does not guarantee a CPU
-child. Residual `bootstrap` is restricted to unweighted Gaussian fits with
+on the same responses. Oracle inference is CPU-only: it rejects GPU parent fits
+and explicitly keeps the refit on CPU, using NumPy float64 for inference.
+Residual `bootstrap` is restricted to unweighted Gaussian fits with
 `cov_type="nonrobust"`, holds tuning fixed, and supports the fitted numerical
 backend. It does not automatically correct tuning or selection uncertainty.
 See [inference modes](../../guides/inference-modes.md#scadmcp-active-set-inference)

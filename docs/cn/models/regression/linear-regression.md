@@ -1,7 +1,7 @@
 # LinearRegression
 
 > 语言：中文  
-> 最后更新：2026-10-09<br>
+> 最后更新：2026-10-17<br>
 > 页面定位：模型文档  
 > 切换：[English](../../../en/models/regression/linear-regression.md)
 
@@ -122,12 +122,12 @@ print("95% coefficient intervals:\n", np.round(model._conf_int, 3))
   `(n_targets,)`，预测值为 `(n_new, n_targets)`。`score` 返回各目标
   $R^2$ 的平均值，而不是分目标的评分数组。
 
-单目标评分时，应向 `score(X, y)` 传入一维响应。与 `fit` 不同，当前 `score`
-不会自动展平 `(n_samples, 1)` 响应；它与一维预测值相减时会广播成矩阵，
-可能在不报错的情况下给出错误的 $R^2$。因此，评分前应展平单目标响应，
-但不要展平真正的多目标数组。
+单目标评分时，`score(X, y)` 接受 `(n_samples,)` 或 `(n_samples, 1)`，
+两种形状得到相同的 $R^2$。真正的多目标响应必须与预测形状完全一致，
+不要展平。行数或目标维度不匹配时，会在计算残差前抛出 `ValueError`。
+常数目标仍返回 0，即使预测完全正确也是如此。
 
-下面用独立的六行数据单独演示这一形状问题；响应没有噪声，便于核对正确评分。
+下面用独立的六行数据直接对单列响应评分；响应没有噪声，便于核对正确结果。
 
 <!-- learner-example: linear-column-target -->
 ```python
@@ -137,7 +137,7 @@ from statgpu.linear_model import LinearRegression
 X = np.arange(6.0)[:, None]
 y_column = 2.0 + 3.0 * X
 model = LinearRegression(device="cpu", compute_inference=False).fit(X, y_column)
-r2 = model.score(X, y_column.ravel())
+r2 = model.score(X, y_column)
 print("R2:", round(float(r2), 3))
 ```
 <!-- example-end: linear-column-target -->
@@ -147,9 +147,10 @@ print("R2:", round(float(r2), 3))
 ### 公式预测中的缺失行
 
 公式预测目前会删除预测变量缺失的行，返回较短且无行标签的数组。应先处理
-缺失，并在把结果配给原始观测前核对预测长度。这类查询也不能直接用于 `score`：
-唯一保留的预测可能被广播给多个响应，得到有限但错误的 R²。展平 y 无法修复
-这一行对齐问题。若有意筛行，应保留筛选后索引；否则拒绝查询，详见[完整缺失行警告](../../reference/linear-model-api.md#missing-prediction-rows-in-ordinary-glms)。
+缺失，并在把结果配给原始观测前核对预测长度。缩短后的预测行数与评价响应
+不匹配时，`score` 会抛出 `ValueError`，不会广播剩余预测值。这项检查不会
+恢复缺失的预测或行标签。若有意筛行，应保留筛选后索引，并把响应对齐到
+同一 DataFrame；否则拒绝查询，详见[完整缺失行警告](../../reference/linear-model-api.md#missing-prediction-rows-in-ordinary-glms)。
 
 ## 如何选择参数与协方差
 

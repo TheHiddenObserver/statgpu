@@ -17,6 +17,514 @@ if TYPE_CHECKING:
     from ._base import PenalizedGeneralizedLinearModel as _Self
 
 
+class _OracleObservedHessianLoss:
+    """Compatibility shim for the canonical observed-curvature loss API.
+
+    Inverse Gaussian and negative binomial solvers use Fisher curvature in
+    ``hessian``. Their HC0/HC1 bread instead needs the observed derivative of
+    the fitted estimating equation. Delegate every other loss operation so
+    this inference-only adapter cannot change solver or nonrobust behavior.
+    """
+
+    def __init__(self, loss):
+        self._loss = loss
+
+    def __getattr__(self, name):
+        return getattr(self._loss, name)
+
+    def hessian(self, X, y, coef, sample_weight=None):
+        return self._loss.observed_hessian(X, y, coef, sample_weight=sample_weight)
+
+    observed_hessian = hessian
+
+
+def _oracle_observed_curvature(loss, X, y, params):
+    """Existing oracle bread factors, used only to bound weight scaling."""
+    name = loss.name
+    if name == "squared_error":
+        return np.ones(len(y))
+    eta = X @ params
+    if name == "logistic":
+        from statgpu.backends._array_ops import _sigmoid
+        mu = _sigmoid(eta)
+        return np.clip(mu * (1 - mu), 1e-10, 1 - 1e-10)
+    if name == "gamma":
+        clipped_eta, mu = loss._eta_mu(X, params)
+        return 1 / (clipped_eta * clipped_eta) if loss.link == "inverse_power" else y / mu
+    mu = loss._mu_from_eta(eta)
+    if name == "poisson":
+        return mu
+    if name == "inverse_gaussian":
+        return (2 * y - mu) / mu ** 2
+    if name == "negative_binomial":
+        return mu * (1 + loss.alpha * y) / (1 + loss.alpha * mu) ** 2
+    if name == "tweedie":
+        return ((2 - loss.power) * mu ** (2 - loss.power)
+                + (loss.power - 1) * y * mu ** (1 - loss.power))
+    raise NotImplementedError(f"Oracle covariance scaling is unavailable for loss={name!r}.")
+
+
+def _oracle_raw_covariance_products_are_representable(X, gradient, curvature, weights):
+    """Certify raw range and negligible omissions when exponent bounds conflict.
+
+    This checks products only, not covariance or matrix inversion. Original
+    factor exponents bound any terms lost at intermediate multiplication. Lost
+    diagonal mass must be at most eps**2 times retained absolute contributions;
+    Cauchy--Schwarz then bounds cross-entry omissions at ordinary eps scale.
+    This is not a relative-error guarantee after cancellation or inversion.
+    """
+    count_exponent = (len(weights) - 1).bit_length()
+
+    def negligible_omissions(intended, terms, upper_exponents, diagonal):
+        lost = intended & (terms == 0)
+        columns = np.any(lost, axis=0)
+        if not np.any(columns):
+            return True
+        # Each lost term is < 2**B, and D >= 2**(e_D-1). Requiring
+        # max(B)+ceil(log2(n)) <= e_D-1+2*machep bounds loss by eps**2*D.
+        largest = np.max(np.where(lost, upper_exponents, -10000), axis=0)
+        threshold = np.frexp(diagonal)[1] - 1 + 2 * np.finfo(np.float64).machep
+        return bool(np.all(diagonal[columns] > 0)
+                    and np.all(largest[columns] + count_exponent <= threshold[columns]))
+
+    try:
+        with np.errstate(over="raise", invalid="raise", divide="raise", under="ignore"):
+            scores = X * (weights * gradient)[:, None]
+            weighted_design = X * (weights * curvature)[:, None]
+            score_squares = scores * scores
+            absolute_bread_terms = np.abs(X * weighted_design)
+            bread_bound = np.abs(X).T @ np.abs(weighted_design)
+            meat_diagonal = np.sum(score_squares, axis=0)
+            n_eff = np.sum(weights)
+            bread_average_bound = bread_bound / n_eff
+            meat_average_diagonal = meat_diagonal / n_eff
+            weight_exponents = np.frexp(weights)[1][:, None]
+            design_exponents = np.frexp(X)[1]
+            score_upper = 2 * (weight_exponents + design_exponents
+                               + np.frexp(gradient)[1][:, None])
+            bread_upper = weight_exponents + 2 * design_exponents + np.frexp(curvature)[1][:, None]
+            relevant = (weights[:, None] > 0) & (X != 0)
+            intended_scores = relevant & (gradient[:, None] != 0)
+            intended_bread = relevant & (curvature[:, None] != 0)
+            nonzero_score_columns = np.any(intended_scores, axis=0)
+            return bool(
+                np.all(np.isfinite(bread_average_bound))
+                and np.all(np.isfinite(meat_average_diagonal))
+                and np.all((bread_bound == 0) | (bread_average_bound != 0))
+                and np.all(meat_average_diagonal[nonzero_score_columns]
+                           >= np.finfo(np.float64).tiny)
+                and negligible_omissions(intended_scores, score_squares,
+                                         score_upper, meat_diagonal)
+                and negligible_omissions(intended_bread, absolute_bread_terms,
+                                         bread_upper, np.diag(bread_bound))
+            )
+    except FloatingPointError:
+        return False
+
+
+def _oracle_robust_covariance_weights(loss, X, y, params, weights):
+    """Rescale analytic weights without shrinking representable score meat.
+
+    This only selects an exact binary common scale; all covariance arithmetic
+    stays float64. Bounds use exponents, not products that could overflow while
+    deciding how to avoid overflow. Existing subnormal operands are never
+    scaled downward. Zero weights and exactly zero scores remain zero.
+    """
+    positive = weights > 0
+    weight_exponents = np.frexp(weights)[1]
+    min_normal_exponent = np.finfo(np.float64).minexp
+    max_safe_exponent = np.finfo(np.float64).maxexp - 1
+    sum_exponent = int(np.frexp(np.sum(weights))[1])
+    lower_scale_exponent = sum_exponent - max_safe_exponent
+    preferred_scale_exponent = int(np.max(weight_exponents[positive]))
+    scale_exponent = max(
+        0, int(np.min(weight_exponents[positive])) - min_normal_exponent - 1,
+    )
+    design_exponents = np.frexp(X)[1]
+    count_exponent = (len(weights) - 1).bit_length()
+    curvature = _oracle_observed_curvature(loss, X, y, params)
+    gradient = np.asarray(loss.per_sample_gradient(X @ params, y), dtype=np.float64)
+    if not (np.all(np.isfinite(gradient[positive]))
+            and np.all(np.isfinite(curvature[positive]))):
+        raise RuntimeError(
+            "Oracle inference could not compute finite scores and curvature for the selected "
+            "design and weights. Review response/design scaling, or set "
+            "compute_inference=False."
+        )
+    curvature_rows = positive & (curvature != 0)
+    if np.any(curvature_rows):
+        # Bread also consumes the scaled weights. Protect w*h, X*(w*h),
+        # and each term of X.T @ (X*(w*h)); the latter sum is bounded in
+        # absolute value so negative observed curvature cannot hide overflow.
+        curvature_lower = weight_exponents + np.frexp(curvature)[1] - 2
+        lower_scale_exponent = max(lower_scale_exponent,
+            int(np.max(curvature_lower[curvature_rows])) + 2 - max_safe_exponent)
+        scale_exponent = min(scale_exponent, max(
+            0, int(np.min(curvature_lower[curvature_rows])) - min_normal_exponent))
+        rows = curvature_rows & np.any(X != 0, axis=1)
+        if np.any(rows):
+            row_min = np.min(np.where(X != 0, design_exponents, 10000), axis=1)
+            row_max = np.max(np.where(X != 0, design_exponents, -10000), axis=1)
+            product_lower = curvature_lower + row_min - 1
+            term_lower = curvature_lower + 2 * row_min - 2
+            scale_exponent = min(scale_exponent, max(0,
+                int(min(np.min(product_lower[rows]), np.min(term_lower[rows])))
+                - min_normal_exponent))
+            product_upper = curvature_lower + row_max + 2
+            sum_upper = curvature_lower + 2 * row_max + 2 + count_exponent
+            lower_scale_exponent = max(lower_scale_exponent,
+                int(max(np.max(product_upper[rows]), np.max(sum_upper[rows])))
+                - max_safe_exponent)
+    nonzero = positive & (gradient != 0)
+    if np.any(nonzero):
+        gradient_exponents = np.frexp(gradient)[1]
+        # frexp(a) gives 2**(e_a-1) <= abs(a) < 2**e_a.
+        # Thus abs(w*g) >= 2**(e_w+e_g-2). Preserve the normal
+        # range of this intermediate, formed before multiplication by X.
+        weighted_gradient_lower = weight_exponents + gradient_exponents - 2
+        lower_scale_exponent = max(lower_scale_exponent,
+            int(np.max(weighted_gradient_lower[nonzero])) + 2 - max_safe_exponent)
+        scale_exponent = min(scale_exponent, max(
+            0, int(np.min(weighted_gradient_lower[nonzero])) - min_normal_exponent,
+        ))
+        # In each nonzero score column, one |w*g*X_ij| >= 2**t_j,
+        # where t_j = max_i(e_w+e_g+e_X-3). Since sum(w) < 2**e_sum,
+        # the raw meat-average diagonal is >= 2**(2*t_j-e_sum).
+        # Rescaling weights by 2**(-k) divides that diagonal by 2**k.
+        # Keep nonzero meat diagonals normal, including when this requires
+        # upward scaling: a tiny meat value can still give ordinary covariance
+        # after multiplication by a large bread. This does not constrain the
+        # final covariance scale or reject an exactly zero score column.
+        nonzero_score = nonzero[:, None] & (X != 0)
+        columns = np.any(nonzero_score, axis=0)
+        if np.any(columns):
+            score_lower = weighted_gradient_lower[:, None] + design_exponents - 1
+            score_lower = np.where(nonzero_score, score_lower, -10000)
+            largest_score_lower = np.max(score_lower[:, columns], axis=0)
+            meat_lower = 2 * largest_score_lower - sum_exponent
+            scale_exponent = min(scale_exponent,
+                int(np.min(meat_lower)) - min_normal_exponent)
+            # Upward scaling can also destroy finite inference. Bound both
+            # the sum of squared scores and its division by scaled sum(w).
+            # With |score_ij| < 2**B_j and at most n terms, the exponents are
+            # 2*B_j + ceil(log2(n)) - 2*k (sum) and
+            # 2*B_j + ceil(log2(n)) - k - e_sum + 1 (average).
+            score_upper = np.max(score_lower[:, columns], axis=0) + 3
+            square_sum_upper = 2 * score_upper + count_exponent
+            lower_scale_exponent = max(
+                lower_scale_exponent,
+                int(np.max((square_sum_upper - max_safe_exponent + 1) // 2)),
+                int(np.max(square_sum_upper - sum_exponent + 1 - max_safe_exponent)),
+            )
+    if lower_scale_exponent > scale_exponent:
+        # Exponent bounds deliberately discard mantissas. Near the range
+        # boundary they can conflict even though all raw products are safe,
+        # especially when a subnormal weight prevents any downward scaling.
+        if _oracle_raw_covariance_products_are_representable(
+                X, gradient, curvature, weights):
+            return weights
+        raise RuntimeError(
+            "Oracle inference could not choose stable weight scaling for a finite "
+            "covariance. Review response/design scaling, or set compute_inference=False."
+        )
+    scale_exponent = max(lower_scale_exponent, min(preferred_scale_exponent, scale_exponent))
+    return np.ldexp(weights, -scale_exponent)
+
+
+def _oracle_has_boundary_direction(X):
+    """Certify a nonzero nonnegative predictor direction on effective rows.
+
+    This check is only used for all-zero responses (or all-one logistic
+    responses) on the selected CPU design without an intercept. A direction
+    with X d >= 0 and at least one strict inequality makes the corresponding
+    unpenalized loss strictly decrease towards its boundary. Mixed-sign rows
+    can instead have a finite optimum, so response support alone is not enough.
+    """
+    from fractions import Fraction
+    from scipy.optimize import linprog
+
+    # Positive row/column scaling preserves the cone. Zero rows impose no
+    # constraint and cannot supply strict improvement; zero columns do nothing.
+    column_scale = np.max(np.abs(X), axis=0)
+    keep = column_scale > 0
+    if not np.any(keep):
+        return False
+    X = X[:, keep]
+    column_scale = column_scale[keep]
+    nonzero_rows = np.any(X != 0, axis=1)
+    X = X[nonzero_rows]
+    if X.shape[1] == 1:
+        return bool(np.all(X >= 0) or np.all(X <= 0))
+
+    # Retain extended-precision normalization for the independent certificates;
+    # HiGHS itself receives ordinary float64 arrays.
+    X_extended = X.astype(np.longdouble)
+    scale_extended = column_scale.astype(np.longdouble)
+    normalized = X_extended / scale_extended
+    row_scale = np.max(np.abs(normalized), axis=1)
+    normalized = normalized / row_scale[:, None]
+    A = np.asarray(normalized, dtype=np.float64)
+    result = linprog(
+        -A.sum(axis=0), A_ub=-A, b_ub=np.zeros(len(A)),
+        bounds=[(-1., 1.)] * A.shape[1], method="highs",
+    )
+    numerical_error = (
+        "Oracle inference could not determine whether the selected design "
+        "has a finite unpenalized optimum at the response boundary. "
+        "Review the selected design's scaling and linear dependence, or set "
+        "compute_inference=False."
+    )
+    # The bounded problem always has the zero feasible point. Infeasible,
+    # unbounded, failed, or nonfinite results are numerical failures, not proof
+    # that the statistical optimum is finite or that it does not exist.
+    if result.status != 0 or not np.all(np.isfinite(result.x)):
+        raise RuntimeError(numerical_error)
+
+    direction = result.x.astype(np.longdouble) / scale_extended
+    margins = X_extended @ direction
+    rounding_bound = (
+        8 * np.finfo(np.longdouble).eps * X.shape[1]
+        * (np.abs(X_extended) @ np.abs(direction))
+    )
+    signs = []
+    exact_direction = None
+    for row, margin, error in zip(X, margins, rounding_bound):
+        if np.isfinite(margin) and np.isfinite(error) and abs(margin) > error:
+            signs.append(1 if margin > 0 else -1)
+        else:
+            # A tolerance-clipped negative margin can falsely reject a legal
+            # finite fit. Certify cancellation/zero margins on the original
+            # float64 data exactly, including the positive column rescaling.
+            if exact_direction is None:
+                exact_direction = [
+                    Fraction(float(value)) / Fraction(float(scale))
+                    for value, scale in zip(result.x, column_scale)
+                ]
+            exact_margin = sum(
+                (Fraction(float(value)) * step
+                 for value, step in zip(row, exact_direction)), Fraction(0)
+            )
+            signs.append((exact_margin > 0) - (exact_margin < 0))
+    if min(signs) >= 0 and max(signs) > 0:
+        return True
+
+    # A strictly positive w with A.T w = 0 rules out every nonzero nonnegative
+    # A d (Stiemke's alternative). The LP dual supplies a candidate w. Bound
+    # its distance to an exact null vector rather than trusting solver.success
+    # or an approximately zero objective. The singular-value/error margins
+    # deliberately leave numerically unresolved designs without inference.
+    weights = 1. - np.asarray(result.ineqlin.marginals, dtype=np.float64)
+    if not np.all(np.isfinite(weights)) or np.any(weights <= 0):
+        raise RuntimeError(numerical_error)
+    weights /= np.max(weights)
+    singular_values = np.linalg.svd(A, compute_uv=False)
+    eps = np.finfo(np.float64).eps
+    singular_lower = (
+        singular_values[-1]
+        - 32 * eps * max(A.shape) * singular_values[0]
+    )
+    if A.shape[0] < A.shape[1] or singular_lower <= 0:
+        raise RuntimeError(numerical_error)
+    residual = normalized.T @ weights.astype(np.longdouble)
+    roundoff = 32 * eps * max(A.shape) * np.linalg.norm(
+        np.asarray(np.abs(normalized).T @ np.abs(weights), dtype=np.float64)
+    )
+    correction_bound = (
+        np.linalg.norm(np.asarray(residual, dtype=np.float64)) + roundoff
+    ) / singular_lower
+    if np.isfinite(correction_bound) and 4 * correction_bound < np.min(weights):
+        return False
+    raise RuntimeError(numerical_error)
+
+
+def _oracle_pearson_dispersion(loss, X, y, params, sample_weight):
+    """Pearson scale without an absolute floor on the family variance.
+
+    Gamma and Tweedie can have small, ordinary representable means. Flooring
+    their variance changes the statistical model and makes uncertainty depend
+    on response units. Work with weighted standardized residuals, retaining
+    the existing analytic-weight and n-minus-coefficients convention.
+    """
+    from statgpu.panel._covariance import _range_safe_float_product
+    from statgpu.panel._diagnostics import _scaled_residual_variance
+
+    effective = (np.ones(len(y), dtype=bool) if sample_weight is None
+                 else sample_weight > 0)
+    mu = np.asarray(loss._mu_from_eta(X[effective] @ params), dtype=np.float64)
+    power = 2.0 if loss.name == "gamma" else loss.power
+    variance = mu ** power
+    if not np.all(np.isfinite(mu) & (mu > 0)
+                  & np.isfinite(variance) & (variance > 0)):
+        raise RuntimeError(
+            "Oracle inference requires finite positive family variances on "
+            "positive-weight observations. Review response/design scaling, "
+            "or set compute_inference=False."
+        )
+    residual = y[effective] - mu
+    factors = [1.0 / np.sqrt(variance)]
+    if sample_weight is not None:
+        factors.append(np.sqrt(sample_weight[effective]))
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        standardized = _range_safe_float_product(residual, factors, np)
+        dispersion = _scaled_residual_variance(
+            standardized, len(y) - len(params), np,
+        )
+    if not np.isfinite(dispersion):
+        raise RuntimeError(
+            "Oracle inference could not compute a finite Pearson dispersion. "
+            "Review response/design scaling, or set compute_inference=False."
+        )
+    return dispersion
+
+
+class _OracleNBScoreError(RuntimeError):
+    """A failed NB score certificate with a derived child-only tolerance."""
+
+    def __init__(self, message, refit_tol):
+        super().__init__(message)
+        self.refit_tol = refit_tol
+
+
+def _oracle_validate_glm_refit(loss, X, y, params, sample_weight, tol,
+                              cov_type="nonrobust"):
+    """Validate the non-Gaussian oracle model before covariance.
+
+    On every positive-weight row, the reported predictor must be inside the
+    family's unclipped link/mean domain. Covariance-specific floors must also
+    be inactive. Closed bounds have no tolerance margin; mean limits are
+    expressed in eta units to retain their exact floating-point log endpoints.
+
+    Tweedie and negative binomial additionally require relative first-order
+    stationarity: for each coordinate compare abs(sum(w*x*g)) with
+    sum(w*abs(x)*(a+b)), where g=a-b is that family's score. This check cannot
+    pass solely because response units make an absolute Newton gradient
+    small. It is not a coefficient/covariance error or conditioning bound.
+    Normalize each column's positive contributions in exponent space so
+    weight scaling or intermediate overflow cannot hide a material score.
+    """
+    name = loss.name
+    label = {"logistic": "Logistic", "poisson": "Poisson", "gamma": "Gamma",
+             "inverse_gaussian": "Inverse Gaussian",
+             "negative_binomial": "Negative binomial", "tweedie": "Tweedie"}[name]
+    weights = np.ones(len(y)) if sample_weight is None else sample_weight
+    effective = weights > 0
+    X, y, weights = X[effective], y[effective], weights[effective]
+    finite_error = (
+        f"Oracle inference could not verify finite {label} refit scores. "
+        "Review response/design scaling, or set compute_inference=False."
+    )
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        eta = X @ params
+        if not np.all(np.isfinite(eta)):
+            raise RuntimeError(finite_error)
+        lower, upper = -np.inf, np.inf
+        if name == "tweedie":
+            lower, upper = -loss._Z_CLIP, loss._Z_CLIP
+        elif name == "gamma":
+            if loss.link == "inverse_power":
+                lower, upper = loss._ETA_LO, loss._ETA_HI
+            else:
+                lower, upper = loss._LOG_ETA_LO, loss._LOG_ETA_HI
+        elif name == "inverse_gaussian":
+            # This family clips eta to +/-30 before clipping its mean.
+            lower, upper = max(-30., np.log(loss._MU_LO)), min(30., np.log(loss._MU_HI))
+        elif name == "poisson":
+            lower = max(loss._ETA_LO, np.log(loss._MU_LO))
+            upper = min(loss._ETA_HI, np.log(loss._MU_HI))
+        elif name == "negative_binomial":
+            lower, upper = max(-30., np.log(loss._MU_LO)), 30.
+        if np.any((eta < lower) | (eta > upper)):
+            raise RuntimeError(
+                f"{label} oracle inference requires unclipped linear predictors "
+                "and family means on positive-weight observations. Review "
+                "response/design scaling, or set compute_inference=False."
+            )
+        if (name == "negative_binomial" and cov_type == "nonrobust"
+                and np.any(eta < np.log(1e-10))):
+            # NB's model-based hessian floors mu at 1e-10. The HC adapter
+            # uses the observed score derivative and has no such floor.
+            raise RuntimeError(
+                "Negative binomial nonrobust oracle inference requires means "
+                "at or above the covariance curvature floor on positive-weight "
+                "observations. Review response/design scaling, choose HC0/HC1, "
+                "or set compute_inference=False."
+            )
+        if name == "logistic":
+            from statgpu.backends._array_ops import _sigmoid
+            mu = _sigmoid(eta)
+            if np.any(mu * (1 - mu) < 1e-10):
+                raise RuntimeError(
+                    "Logistic oracle inference requires unfloored covariance "
+                    "curvature on positive-weight observations. Review the "
+                    "selected design, or set compute_inference=False."
+                )
+        # Preserve the existing child-convergence criterion for the other
+        # families. Relative stationarity closes demonstrated scale-induced
+        # false convergence in these two families without changing every
+        # solver's stopping convention at the oracle boundary.
+        if name not in ("negative_binomial", "tweedie"):
+            return
+        mu = loss._mu_from_eta(eta)
+        if name == "negative_binomial":
+            score_scale = (mu + y) / (1 + loss.alpha * mu)
+        else:
+            score_scale = mu ** (2 - loss.power) + y * mu ** (1 - loss.power)
+        gradient = loss.per_sample_gradient(eta, y)
+    if not (np.all(np.isfinite(gradient))
+            and np.all(np.isfinite(score_scale) & (score_scale > 0))):
+        raise RuntimeError(finite_error)
+
+    weight_mantissa, weight_exponent = np.frexp(weights)
+    scale_mantissa, scale_exponent = np.frexp(score_scale)
+    design_mantissa, design_exponent = np.frexp(np.abs(X))
+    exponents = weight_exponent[:, None] + scale_exponent[:, None] + design_exponent
+    nonzero = X != 0
+    column_exponents = np.max(np.where(nonzero, exponents, -10000), axis=0)
+    with np.errstate(under="ignore"):
+        mass = np.ldexp(
+            weight_mantissa[:, None] * scale_mantissa[:, None] * design_mantissa,
+            np.where(nonzero, exponents - column_exponents, 0),
+        )
+    total_mass = np.sum(mass, axis=0)
+    score = np.sum(mass * np.sign(X) * (gradient / score_scale)[:, None], axis=0)
+    relative_score = np.divide(
+        np.abs(score), total_mass, out=np.zeros_like(score), where=total_mass > 0,
+    )
+    # Cover factor/division rounding and even sequential n-term summation.
+    # This admits arithmetic-level residuals when tol is below float64
+    # precision; it is far below the scale-induced early-stopping discrepancy.
+    roundoff = 8 * np.finfo(np.float64).eps * len(y)
+    if np.any(relative_score > float(tol) + roundoff):
+        message = (
+            "The unpenalized oracle refit did not converge relative to the "
+            f"{label} response scale. Decrease tol, review response/design "
+            "scaling, or set compute_inference=False."
+        )
+        if name == "negative_binomial":
+            # Newton stops on ||sum(w*x*g)/sum(w)||_2. Translate the
+            # parent's relative tolerance to that absolute convention using
+            # D_j = sum(w*abs(x_j)*score_scale)/sum(w). Combine tol and D_j
+            # before conversion so an intermediate D_j cannot overflow or
+            # underflow. Common weight scaling cancels in exponent space.
+            weight_shift = np.max(weight_exponent)
+            tol_mantissa, tol_exponent = np.frexp(float(tol))
+            with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+                weight_sum = np.sum(np.ldexp(
+                    weight_mantissa, weight_exponent - weight_shift,
+                ))
+                mapped = np.ldexp(
+                    tol_mantissa * total_mass / weight_sum,
+                    column_exponents - weight_shift + tol_exponent,
+                )
+            refit_tol = float(np.min(mapped[total_mass > 0]))
+            if not (np.isfinite(refit_tol) and 0 < refit_tol < float(tol)):
+                raise RuntimeError(
+                    message + " A stricter child-refit tolerance could not be represented."
+                )
+            raise _OracleNBScoreError(message, refit_tol)
+        raise RuntimeError(message)
+
+
 class _PenalizedInferenceMixin:
 
     def _gaussian_fit_state(self, X, y, sample_weight=None):
@@ -1103,152 +1611,346 @@ class _PenalizedInferenceMixin:
         self._inference_result.apply_to(self)
 
     def _compute_oracle_inference(self, X, y, sample_weight=None):
-        """Oracle active-set inference for SCAD/MCP.
+        """Publish oracle inference only after the complete refit succeeds."""
+        try:
+            return self._compute_oracle_inference_impl(X, y, sample_weight)
+        except Exception:
+            # Some typed Gaussian fit wrappers captured an earlier public fit
+            # implementation and bypass the generic inference transaction.
+            # Own this boundary here so every oracle failure clears prediction,
+            # reporting, formula, and backend state, including an earlier fit.
+            from statgpu.linear_model._penalized_glm_inference_fit_transaction import (
+                _invalidate_failed_refit,
+            )
+            _invalidate_failed_refit(self)
+            raise
 
-        The intended target is an unpenalized active-set refit. Current
-        constructor introspection can drop family parameters and retain
-        default regularization in non-Gaussian child models, so those results
-        must not be treated as inference for the requested target. The public
-        interface rejects GPU parents, but child device selection is auto.
-        Explicit diagnostic refits must preserve family settings and device;
-        ordinary intervals still do not adjust for data-driven selection.
+    def _compute_oracle_inference_impl(self, X, y, sample_weight=None):
+        """Refit the selected SCAD/MCP support without regularization on CPU.
+
+        Family parameters, effective intercept, and analytic sample weights
+        match the fitted model. The normal-reference intervals condition on
+        the selected support; they do not adjust for data-driven selection.
+        Refits and covariance use float64; results are NumPy arrays. Boundary
+        checks may use higher precision to certify coefficient directions.
         """
-        import numpy as np
-        from statgpu.backends import _to_numpy, _resolve_backend
-        from statgpu.backends._utils import _get_xp, xp_asarray, xp_ones
-        from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
+        import inspect
+        import warnings
+        from statgpu.solvers._convergence import ConvergenceWarning
+        from statgpu.backends import _resolve_backend
+        from statgpu.inference._sandwich import (
+            m_estimation_inference, _infer_covariance_convention,
+        )
         from statgpu.inference._results import ParameterInferenceResult
-
-        backend = _resolve_backend("auto", X)
-        xp = _get_xp(backend)
-
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
-        y_arr = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
-        coef_arr = xp_asarray(self.coef_, dtype=xp.float64, xp=xp)
-        n, p = X_arr.shape
-
-        # Active set
-        active = xp.abs(coef_arr) > 1e-10
-        n_active = int(xp.sum(active))
-
-        active_cpu = np.asarray(_to_numpy(active))
-        n_active = int(np.sum(active_cpu))
-        coef_cpu = np.asarray(_to_numpy(coef_arr))
-
-        if n_active == 0:
-            full_p = p + (1 if self._effective_intercept else 0)
-            self._params = np.concatenate([[self.intercept_], coef_cpu]) if self._effective_intercept else coef_cpu.copy()
-            self._bse = np.full(full_p, np.nan)
-            self._zvalues = np.full(full_p, np.nan)
-            self._pvalues = np.full(full_p, np.nan)
-            self._conf_int = np.full((full_p, 2), np.nan)
-            self._inference_result = ParameterInferenceResult(
-                method="oracle", params=self._params.copy(), bse=self._bse.copy(),
-                statistic=self._zvalues.copy(), statistic_name="z",
-                pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
-                distribution="normal", metadata={"n_active": 0, "active_set": []})
-            self._inference_result.apply_to(self)
-            return
-
-        # Convert to CPU for refit (model constructors expect numpy)
-        X_cpu = np.asarray(_to_numpy(X_arr), dtype=float)
-        y_cpu = np.asarray(_to_numpy(y_arr), dtype=float).ravel()
-
+        from statgpu.linear_model.wrappers._linear import LinearRegression
+        from statgpu.linear_model.wrappers._logistic import LogisticRegression
         from statgpu.linear_model.wrappers._poisson import PoissonRegression
         from statgpu.linear_model.wrappers._gamma import GammaRegression
         from statgpu.linear_model.wrappers._inverse_gaussian import InverseGaussianRegression
         from statgpu.linear_model.wrappers._negative_binomial import NegativeBinomialRegression
         from statgpu.linear_model.wrappers._tweedie import TweedieRegression
-        from statgpu.linear_model.wrappers._linear import LinearRegression
 
-        _MODEL_MAP = {
-            "squared_error": LinearRegression, "poisson": PoissonRegression,
-            "logistic": None, "gamma": GammaRegression,
+        backend = getattr(self, "_selected_backend_name", None)
+        if backend is None:
+            backend = _resolve_backend("auto", X)
+        if backend != "numpy":
+            raise NotImplementedError(
+                "SCAD/MCP oracle inference requires a CPU active-set refit. "
+                "Use device='cpu'; GPU/Torch fits are not silently moved to CPU."
+            )
+
+        model_classes = {
+            "squared_error": LinearRegression,
+            "logistic": LogisticRegression,
+            "poisson": PoissonRegression,
+            "gamma": GammaRegression,
             "inverse_gaussian": InverseGaussianRegression,
-            "negative_binomial": NegativeBinomialRegression, "tweedie": TweedieRegression}
-        model_cls = _MODEL_MAP.get(self.loss)
-        if model_cls is None:
-            if self.loss == "logistic":
-                from statgpu.linear_model.wrappers._logistic import LogisticRegression as LR
-                model_cls = LR
+            "negative_binomial": NegativeBinomialRegression,
+            "tweedie": TweedieRegression,
+        }
+        if self.loss not in model_classes:
+            raise NotImplementedError(
+                f"Oracle inference is not implemented for loss={self.loss!r}."
+            )
+        model_cls = model_classes[self.loss]
+
+        X_cpu = np.asarray(_to_numpy(X), dtype=np.float64)
+        y_cpu = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
+        coef_cpu = np.asarray(_to_numpy(self.coef_), dtype=np.float64)
+        sw_cpu = (
+            None if sample_weight is None
+            else np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+        )
+        n, p = X_cpu.shape
+        active = np.abs(coef_cpu) > 1e-10
+        n_active = int(np.sum(active))
+        offset = int(self._effective_intercept)
+        full_p = p + offset
+        # These accepted responses can have a boundary infimum even when a
+        # clipped solver reports convergence at finite coefficients. Only
+        # positive-weight observations define that statistical target.
+        if self.loss in ("poisson", "negative_binomial", "tweedie", "logistic"):
+            effective = np.ones(n, dtype=bool) if sw_cpu is None else sw_cpu > 0
+            effective_y = y_cpu[effective]
+            boundary_response = np.all(effective_y == 0) or (
+                self.loss == "logistic" and np.all(effective_y == 1)
+            )
+            if boundary_response and (offset or n_active):
+                if offset or _oracle_has_boundary_direction(X_cpu[effective][:, active]):
+                    raise ValueError(
+                        "The unpenalized oracle refit has no finite optimum: "
+                        "all positive-weight responses are at the family boundary "
+                        "and the selected design admits a strictly improving "
+                        "coefficient direction. Set compute_inference=False "
+                        "to fit without oracle inference."
+                    )
+        if (not n_active and not offset and self.loss == "gamma"
+                and self._loss.link == "inverse_power"):
+            raise ValueError(
+                "Oracle refitting requires a positive inverse-link predictor "
+                "for Gamma regression; empty support without an intercept "
+                "cannot define a finite mean."
+            )
+        params = (
+            np.concatenate([[self.intercept_], coef_cpu])
+            if offset else coef_cpu.copy()
+        )
+        bse = np.full(full_p, np.nan)
+        statistic = np.full(full_p, np.nan)
+        pvalues = np.full(full_p, np.nan)
+        conf_int = np.full((full_p, 2), np.nan)
+        metadata = {
+            "n_active": n_active,
+            "active_set": active.tolist(),
+            "covariance_convention": _infer_covariance_convention(self._cov_type, False),
+            "numerical_backend": "numpy",
+            "numerical_device": "cpu",
+            "numerical_dtype": "float64",
+            "reporting_backend": "numpy",
+            "reporting_boundary": "post_numerical_inference",
+            "refit_penalty": "none",
+            "selection_adjusted": False,
+        }
+
+        # No selected slopes still defines an intercept-only model. Only an
+        # empty support without an intercept has no coefficient to refit.
+        if n_active or offset:
+            # Unknown-scale model-based covariance needs residual information
+            # beyond every refitted coefficient, including the intercept.
+            # Analytic weights neither replicate observations nor let zero-
+            # weight rows supply this information. Keep the existing positive-
+            # df dispersion convention and fixed-scale/robust paths unchanged.
+            n_positive = n if sw_cpu is None else int(np.count_nonzero(sw_cpu > 0))
+            n_refit = n_active + offset
+            if (self._cov_type == "nonrobust"
+                    and self.loss in ("squared_error", "gamma", "inverse_gaussian", "tweedie")
+                    and n_positive <= n_refit):
+                raise ValueError(
+                    "Nonrobust oracle inference requires positive residual "
+                    "degrees of freedom to estimate dispersion: the number "
+                    f"of positive-weight observations ({n_positive}) must "
+                    f"exceed the number of refitted coefficients ({n_refit}), "
+                    "including the intercept. Set compute_inference=False "
+                    "to fit without oracle inference."
+                )
+            X_active = X_cpu[:, active]
+            intercept_only = n_active == 0
+            X_refit = np.ones((n, 1), dtype=np.float64) if intercept_only else X_active
+            kwargs = {
+                "fit_intercept": bool(offset) and not intercept_only,
+                "device": "cpu",
+                "compute_inference": False,
+            }
+            # Runtime constructors are wrapped for cloning/API compatibility.
+            # inspect.signature honors that public contract; co_varnames only
+            # sees a wrapper's *args/**kwargs and silently loses these controls.
+            signature = inspect.signature(model_cls)
+            if self.loss != "squared_error":
+                # In these wrappers C=0 is the exact unpenalized convention.
+                # A large finite C is still penalized, and positive-C IRLS has
+                # different semantics from an explicit smooth solver.
+                kwargs.update(
+                    C=0.0,
+                    solver="irls" if self.loss in ("logistic", "poisson") else "newton",
+                )
+                kwargs.update(max_iter=self.max_iter, tol=self.tol)
+            family_kwargs = {}
+            if self.loss == "gamma":
+                family_kwargs["link"] = self._loss.link
+            elif self.loss == "negative_binomial":
+                family_kwargs["alpha"] = self._loss.alpha
+            elif self.loss == "tweedie":
+                family_kwargs["power"] = self._loss.power
+            kwargs.update(family_kwargs)
+            signature.bind(**kwargs)
+            if intercept_only:
+                X_design = X_refit
+            elif offset:
+                X_design = np.column_stack([np.ones(n), X_active])
             else:
-                raise NotImplementedError(f"Oracle inference not implemented for loss='{self.loss}'")
+                X_design = X_active
 
-        X_active = X_cpu[:, active_cpu]
-        kwargs = {"fit_intercept": self._effective_intercept}
-        loss_kwargs = getattr(self, 'loss_kwargs', None) or {}
-        # Pass through loss-specific kwargs with correct parameter names
-        if self.loss == "negative_binomial" and "alpha" in model_cls.__init__.__code__.co_varnames:
-            kwargs["alpha"] = loss_kwargs.get("alpha", 1.0)
-        elif self.loss == "gamma" and "link" in model_cls.__init__.__code__.co_varnames:
-            kwargs["link"] = loss_kwargs.get("link", "log")
-        elif self.loss == "tweedie" and "power" in model_cls.__init__.__code__.co_varnames:
-            kwargs["power"] = loss_kwargs.get("power", 1.5)
-        elif loss_kwargs and "loss_kwargs" in model_cls.__init__.__code__.co_varnames:
-            kwargs["loss_kwargs"] = loss_kwargs
-        if self.loss == "logistic" and "C" in model_cls.__init__.__code__.co_varnames:
-            kwargs["C"] = 1e9
-        # Oracle refits use Newton solver for accuracy and consistency
-        if "solver" in model_cls.__init__.__code__.co_varnames:
-            kwargs["solver"] = "newton"
-        # Oracle refit runs on CPU with numpy arrays
-        sw_cpu = None
-        if sample_weight is not None:
-            sw_cpu = np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
-        refit = model_cls(**kwargs)
-        refit.fit(X_active, y_cpu, sample_weight=sw_cpu)
+            # A relative NB score can need a stricter absolute child tolerance
+            # even when the first fit met its stopping rule. Allow exactly one
+            # new fit with the derived tolerance, keeping each max_iter budget,
+            # family, design, and original weights. The parent's certificate is
+            # unchanged and is recomputed at the new coefficients.
+            refinement_error = None
+            for attempt in range(2 if self.loss == "negative_binomial" else 1):
+                refit = model_cls(**kwargs)
+                try:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("error", ConvergenceWarning)
+                        refit.fit(X_refit, y_cpu, sample_weight=sw_cpu)
+                except ConvergenceWarning as exc:
+                    message = (
+                        str(refinement_error) + " The bounded tolerance refinement did not converge."
+                        if refinement_error is not None else
+                        "The unpenalized oracle refit did not converge. "
+                        "Review max_iter, tol, and the selected design."
+                    )
+                    raise RuntimeError(message) from exc
+                if getattr(refit, "converged_", True) is False:
+                    message = (
+                        str(refinement_error) + " The bounded tolerance refinement did not converge."
+                        if refinement_error is not None else
+                        "The unpenalized oracle refit did not converge. "
+                        "Review max_iter, tol, and the selected design."
+                    )
+                    raise RuntimeError(message)
 
-        # Sandwich on refit — use backend-aware m_estimation_inference
-        if self._effective_intercept:
-            X_design = np.column_stack([np.ones(n), X_active])
-            params_active = np.concatenate([[refit.intercept_], refit.coef_])
-        else:
-            X_design = X_active
-            params_active = np.asarray(refit.coef_)
+                if offset and not intercept_only:
+                    params_active = np.concatenate([[refit.intercept_], refit.coef_])
+                else:
+                    params_active = np.asarray(refit.coef_, dtype=np.float64)
+                if self.loss != "squared_error":
+                    try:
+                        _oracle_validate_glm_refit(
+                            self._loss, X_design, y_cpu, params_active, sw_cpu,
+                            self.tol, self._cov_type,
+                        )
+                    except _OracleNBScoreError as exc:
+                        if attempt:
+                            raise
+                        refinement_error = exc
+                        kwargs["tol"] = exc.refit_tol
+                        continue
+                    metadata.update(refit_attempts=attempt + 1, refit_tol=kwargs["tol"])
+                break
 
-        loss_obj = refit._resolve_loss_for_inference() if hasattr(refit, '_resolve_loss_for_inference') else self._loss
-        result = m_estimation_inference(
-            loss_obj, X_design, y_cpu, params_active,
-            cov_type=self._cov_type, sample_weight=sw_cpu)
+            # Use the parent's resolved loss, so the estimating equation and
+            # covariance necessarily share its family/link/dispersion/power.
+            inference_loss = self._loss
+            covariance_weight = sw_cpu
+            if self._cov_type in ("hc0", "hc1") and sw_cpu is not None:
+                # Sandwich covariance is invariant to a common weight scale.
+                # Retain positive weights and representable weighted scores;
+                # a blind w/max(w) can silently discard important observations.
+                covariance_weight = _oracle_robust_covariance_weights(
+                    inference_loss, X_design, y_cpu, params_active, sw_cpu,
+                )
+            dispersion = None
+            if self._cov_type == "nonrobust" and self.loss in ("gamma", "tweedie"):
+                dispersion = _oracle_pearson_dispersion(
+                    inference_loss, X_design, y_cpu, params_active, sw_cpu,
+                )
+            result = m_estimation_inference(
+                inference_loss, X_design, y_cpu, params_active,
+                cov_type=self._cov_type, sample_weight=covariance_weight,
+                dispersion=dispersion,
+            )
+            if not np.all(np.isfinite(result["cov_params"])):
+                raise RuntimeError(
+                    "Oracle inference could not compute a finite covariance for "
+                    "the selected design and weights. Review response/design "
+                    "scaling, or set compute_inference=False."
+                )
+            if self._cov_type == "nonrobust":
+                dispersion = result["dispersion"]
+                if (dispersion == 0 and self.loss in
+                        ("squared_error", "gamma", "inverse_gaussian", "tweedie")):
+                    # Match the mean used by the existing RSS/Pearson scale.
+                    # Positive-weight zero-design rows still contribute to
+                    # dispersion, unlike their necessarily zero HC scores.
+                    eta = X_design @ params_active
+                    mu = eta if self.loss == "squared_error" else inference_loss._mu_from_eta(eta)
+                    effective_residual = y_cpu != mu
+                    if sw_cpu is not None:
+                        effective_residual &= sw_cpu > 0
+                    if np.any(effective_residual):
+                        raise RuntimeError(
+                            "Oracle inference could not represent nonzero residual "
+                            "variation in its dispersion. Review response/design "
+                            "scaling, or set compute_inference=False."
+                        )
+                if dispersion > 0 and np.any(np.diag(result["cov_params"]) <= 0):
+                    # Identified Fisher information is positive definite.
+                    # With positive scale every active variance is positive;
+                    # off-diagonal zeros and genuine zero scale remain legal.
+                    raise RuntimeError(
+                        "Oracle inference could not compute positive model-based "
+                        "variances for the selected design and dispersion. Review "
+                        "response/design scaling, or set compute_inference=False."
+                    )
+            if (self._cov_type in ("hc0", "hc1")
+                    and np.all(result["cov_params"] == 0)):
+                # An invertible bread cannot map an entire nonzero score
+                # matrix to zero covariance. Test factors without multiplying
+                # tiny scores away. Individual zero variances remain legal.
+                gradient = inference_loss.per_sample_gradient(X_design @ params_active, y_cpu)
+                effective_score = (gradient != 0) & np.any(X_design != 0, axis=1)
+                if sw_cpu is not None:
+                    effective_score &= sw_cpu > 0
+                if np.any(effective_score):
+                    raise RuntimeError(
+                        "Oracle inference could not represent nonzero score variation "
+                        "in its covariance. Review response/design scaling, or set "
+                        "compute_inference=False."
+                    )
+            # A positive standard error defines z = estimate / SE without an
+            # additive floor: jointly rescaling an estimate and its positive
+            # SE must preserve the test while both remain representable. Keep the shared
+            # engine's existing convention only for exactly zero uncertainty.
+            positive_se = np.asarray(result["bse"]) > 0
+            if np.any(positive_se):
+                from statgpu.inference import get_distribution
+                with np.errstate(over="ignore"):
+                    result["statistic"][positive_se] = (
+                        params_active[positive_se] / result["bse"][positive_se]
+                    )
+                normal = get_distribution("norm", backend="numpy")
+                result["pvalues"][positive_se] = 2 * normal.sf(
+                    np.abs(result["statistic"][positive_se])
+                )
+            active_idx = np.flatnonzero(active) + offset
+            if offset:
+                active_idx = np.concatenate([[0], active_idx])
+            params[active_idx] = params_active
+            bse[active_idx] = np.asarray(result["bse"])
+            statistic[active_idx] = np.asarray(result["statistic"])
+            pvalues[active_idx] = np.asarray(result["pvalues"])
+            conf_int[active_idx] = np.asarray(result["conf_int"])
+            metadata.update(
+                refit_model=model_cls.__name__,
+                refit_solver=kwargs.get("solver", "least_squares"),
+                refit_family_parameters=family_kwargs,
+                dispersion=result["dispersion"],
+            )
 
-        # Map back to full parameter space.
-        # Inactive features keep their original penalized coefficient values
-        # (not NaN), matching the pre-refactor behavior for summary().
-        full_p = p + (1 if self._effective_intercept else 0)
-        offset = 1 if self._effective_intercept else 0
-        # Start from original penalized params, override active with refit
-        self._params = coef_cpu.copy()
-        if self._effective_intercept:
-            self._params = np.concatenate([[self.intercept_], self._params])
-        self._bse = np.full(full_p, np.nan)
-        self._zvalues = np.full(full_p, np.nan)
-        self._pvalues = np.full(full_p, np.nan)
-        self._conf_int = np.full((full_p, 2), np.nan)
-        active_idx = np.where(active_cpu)[0] + offset
-        self._params[active_idx] = params_active[offset:]
-        self._bse[active_idx] = np.asarray(result["bse"])[offset:]
-        self._zvalues[active_idx] = np.asarray(result["statistic"])[offset:]
-        self._pvalues[active_idx] = np.asarray(result["pvalues"])[offset:]
-        self._conf_int[active_idx] = np.asarray(result["conf_int"])[offset:]
-        if self._effective_intercept:
-            self._params[0] = params_active[0]
-            self._bse[0] = np.asarray(result["bse"])[0]; self._zvalues[0] = np.asarray(result["statistic"])[0]
-            self._pvalues[0] = np.asarray(result["pvalues"])[0]; self._conf_int[0] = np.asarray(result["conf_int"])[0]
-
+        # Preserve penalized inactive point estimates, while leaving their
+        # uncertainty undefined. Prediction coefficients remain unchanged.
         self._inference_result = ParameterInferenceResult(
             method="oracle",
-            params=self._params.copy(),
-            bse=self._bse.copy(),
-            statistic=self._zvalues.copy(),
+            params=params,
+            bse=bse,
+            statistic=statistic,
             statistic_name="z",
-            pvalues=self._pvalues.copy(),
-            conf_int=self._conf_int.copy(),
+            pvalues=pvalues,
+            conf_int=conf_int,
+            cov_type=self._cov_type,
             distribution="normal",
-            metadata={
-                "n_active": n_active,
-                "active_set": active.tolist() if hasattr(active, 'tolist') else list(active),
-                "covariance_convention": _infer_covariance_convention(self._cov_type, False),
-            },
+            feature_names=self._inference_feature_names(),
+            metadata=metadata,
         )
         self._inference_result.apply_to(self)
 

@@ -1,7 +1,7 @@
 # 广义线性模型与带惩罚 GLM
 
 > 语言：中文  
-> 最后更新：2026-10-13<br>
+> 最后更新：2026-10-17<br>
 > 页面定位：模型文档  
 > 切换：[英文版](../../../en/models/regression/generalized-linear-model.md)
 
@@ -181,13 +181,15 @@ L-BFGS，仍由直接拟合或交叉验证的调度规则决定，而不是仅�
 
 系数推断用于量化估计的不确定性，与前面评价留出预测是不同的问题。普通 GLM 可通过 `compute_inference=True` 开启支持的系数推断，并用 `cov_type` 选择 `nonrobust`、`hc0` 或 `hc1`。推断与拟合使用相同的分析权重定义；是否支持权重仍取决于具体推断方法。CPU 示例展示了 HC1 系数区间的读取方式。
 
+未发布源码对逆高斯和负二项 HC0/HC1 使用观测损失 Hessian bread；已发布的 0.3.0 在这些路径上使用 Fisher bread。求解器曲率与 nonrobust 协方差不变。跨版本比较标准误前，请参阅 [sandwich 约定与版本差异](../../guides/penalized-glm-inference.md)。
+
 ### 带惩罚模型的推断
 
 对于通用的 `PenalizedGeneralizedLinearModel` 及各类专用的带惩罚 GLM 封装，推荐使用 `inference_method="auto"`。受支持的 M-估计、去偏与残差自助法结果会记录推断方法、目标及调参或选择条件。当前 `post_selection_ols` 即使返回了推断结果，`inference_method_` 和 `inference_target_` 仍可能为空；请读取 `_inference_result.method` 及其元数据，详见[选择后结果报告](../../guides/inference-modes.md#post_selection_ols)。
 
 对于受支持的光滑非高斯 L2/无惩罚模型，`auto` 会选择固定惩罚强度下的 `m_estimation`。正 L2 惩罚对应带惩罚的估计方程；无惩罚设置按惩罚强度为 0 的 L2 处理，对应无惩罚总体参数。当前协方差支持 `nonrobust`、`hc0`、`hc1`；HC2/HC3/HAC 在这一路径中不可用，并会明确报错。
 
-受支持的 M-估计与高斯残差自助法复用拟合的后端和设备。非高斯 L1/ElasticNet 系数推断不受支持。SCAD/MCP `oracle` 需要显式请求，但当前非高斯子模型重建会把分布族设置和正则化重置为默认值，并自动选择子模型设备。不要把这些结果解释为预期的无惩罚活跃集推断，详见 [oracle 限制及诊断性重拟合替代方案](../../guides/penalized-glm-inference.md#current-non-gaussian-oracle-limitation)。分组惩罚目前只提供估计。
+受支持的 M-估计与高斯残差自助法复用拟合的后端和设备。非高斯 L1/ElasticNet 系数推断不受支持。SCAD/MCP `oracle` 需要显式请求，在 CPU 上进行无惩罚活跃集重拟合。非高斯重拟合保留已拟合的分布族设置与收敛控制，使用 `C=0`，并显式选择求解器与 CPU 设备。区间采用正态参考分布，以已选变量集合为条件，不校正变量选择的不确定性，详见 [oracle 分布族设置与重拟合解释](../../guides/penalized-glm-inference.md#current-non-gaussian-oracle-limitation)。分组惩罚目前只提供估计。
 
 ### 高斯稀疏模型的残差自助法
 

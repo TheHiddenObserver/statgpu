@@ -2,14 +2,197 @@
 
 from __future__ import annotations
 
+from collections import UserString
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Sequence, Tuple
+from numbers import Number
+from types import WrapperDescriptorType
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import numpy as np
 
 from statgpu.backends import get_backend, _resolve_backend, _to_float_scalar, _to_numpy, _torch_dev, xp_empty
 import operator
 from functools import reduce
+from inspect import getattr_static
+
+
+_ABSENT_CLUSTER_ATTRIBUTE = object()
+
+
+def _has_custom_cluster_conversion(value):
+    """Detect protocol-owned inputs without evaluating their attributes."""
+    return (
+        getattr_static(type(value), "__getattr__", _ABSENT_CLUSTER_ATTRIBUTE)
+        is not _ABSENT_CLUSTER_ATTRIBUTE
+        or not isinstance(
+            getattr_static(type(value), "__getattribute__", None),
+            WrapperDescriptorType,
+        )
+        or any(
+            getattr_static(value, protocol, _ABSENT_CLUSTER_ATTRIBUTE)
+            is not _ABSENT_CLUSTER_ATTRIBUTE
+            for protocol in (
+                "__array__", "__array_interface__", "__array_struct__",
+                "__cuda_array_interface__", "__dlpack__", "__dlpack_device__",
+                "__array_namespace__",
+            )
+        )
+    )
+
+
+def _is_plain_host_cluster_sequence(value):
+    """Identify sequences without probing custom array/attribute protocols."""
+    if isinstance(value, (np.ndarray, np.generic, Number, Mapping, str, bytes, UserString)):
+        return False
+    return (
+        # ABC registration alone does not give an iterable NumPy's sequence
+        # protocol. Require the actual length/index methods before snapshotting.
+        getattr_static(type(value), "__len__", None) is not None
+        and getattr_static(type(value), "__getitem__", None) is not None
+        and not _has_custom_cluster_conversion(value)
+    )
+
+
+def _snapshot_host_cluster_sequence(value, active=None, *, scalar_leaves, path=()):
+    """Read ordinary sequences once, retaining scalar and nested-array types."""
+    if not _is_plain_host_cluster_sequence(value):
+        if not isinstance(
+            value, (np.ndarray, np.generic, Number, str, bytes, UserString)
+        ) and _has_custom_cluster_conversion(value):
+            # NumPy owns conversion of leaves inside a host sequence. Retain
+            # that one dtype-inferred result so missing numeric labels are
+            # checked before string siblings can promote them to literal IDs.
+            # Do not use backend .get()/.cpu() hooks or coerce to object dtype.
+            converted = np.asarray(value)
+            if converted.ndim == 0:
+                # A 0-D protocol result supplies dtype discovery, but NumPy
+                # packs the original scalar using the final promoted dtype
+                # (for example __float__ or __str__). Retain that distinction
+                # without calling the custom array protocol a second time.
+                scalar_leaves.append((path, value))
+                return np.zeros((), dtype=converted.dtype)
+            return converted
+        return value
+    # Homogeneous buffers retain their exact dtype/shape and do not require
+    # Python iteration (multidimensional memoryviews cannot be iterated).
+    try:
+        buffer = memoryview(value)
+    except TypeError:
+        pass
+    else:
+        return np.asarray(buffer)
+
+    # NumPy requires a usable sequence length. Iteration alone must not make a
+    # previously unsupported object newly acceptable.
+    len(value)
+    active = set() if active is None else active
+    identity = id(value)
+    if identity in active:
+        raise ValueError("clusters must be a non-cyclic sequence of row labels")
+    active.add(identity)
+    try:
+        return [
+            _snapshot_host_cluster_sequence(
+                item, active, scalar_leaves=scalar_leaves, path=path + (index,)
+            )
+            for index, item in enumerate(value)
+        ]
+    finally:
+        active.remove(identity)
+
+
+def _has_masked_cluster_value(value):
+    if not isinstance(value, np.ma.MaskedArray):
+        return False
+    mask = np.ma.getmask(value)
+    # Structured labels have one mask field per record field, possibly with
+    # nested records or subarrays. Reduce those booleans rather than asking
+    # NumPy to cast the structured mask itself to a scalar boolean. Ordinary
+    # boolean masks retain their direct array reduction without a Python walk.
+    if mask.dtype.names is not None:
+        mask = np.ma.flatten_mask(mask)
+    return bool(np.any(mask))
+
+
+def _validate_cluster_snapshot_missing(value):
+    """Check retained ordinary values without coercing custom array leaves."""
+    if _has_masked_cluster_value(value):
+        raise ValueError("missing cluster label")
+    if isinstance(value, list):
+        for item in value:
+            _validate_cluster_snapshot_missing(item)
+        return
+    if isinstance(value, np.ndarray):
+        for item in np.asarray(value).flat:
+            _validate_cluster_snapshot_missing(item)
+        return
+    if value is None:
+        raise ValueError("missing cluster label")
+    if not isinstance(value, (np.generic, Number, str, bytes, UserString)):
+        if _has_custom_cluster_conversion(value):
+            # The normal dtype-inferred conversion owns these values, even
+            # inside an ordinary sequence. Do not request an object conversion
+            # just for validation or evaluate a custom array comparison here.
+            return
+    if bool(value != value):
+        raise ValueError("missing cluster label")
+
+
+def _validate_cluster_labels_before_cast(clusters):
+    """Reject missing host labels and return their reusable conversion input.
+
+    Ordinary host sequences are snapshotted once so validation and backend
+    conversion cannot consume different states of the original sequence.
+    Native arrays and custom conversion protocols retain their existing path.
+    Already-stringified labels remain literal IDs.
+    """
+    # Backend conversion owns top-level .get() and .detach().cpu().numpy()
+    # inputs, including present-but-invalid attributes. Do not execute them or
+    # replace their result/error with sequence iteration. These hooks do not
+    # apply to nested sequences, which NumPy converts through its own protocols.
+    if any(
+        getattr_static(clusters, protocol, _ABSENT_CLUSTER_ATTRIBUTE)
+        is not _ABSENT_CLUSTER_ATTRIBUTE
+        for protocol in ("get", "cpu")
+    ):
+        return clusters
+    snapshot = None
+    scalar_leaves = []
+    if isinstance(clusters, np.ndarray):
+        if _has_masked_cluster_value(clusters):
+            raise ValueError("clusters must contain one nonmissing label per row")
+        if clusters.dtype.kind != "O":
+            return clusters
+        labels = clusters
+    elif _is_plain_host_cluster_sequence(clusters):
+        snapshot = _snapshot_host_cluster_sequence(clusters, scalar_leaves=scalar_leaves)
+    else:
+        return clusters
+    try:
+        if snapshot is not None:
+            _validate_cluster_snapshot_missing(snapshot)
+        elif any(
+            label is None or _has_masked_cluster_value(label) or bool(label != label)
+            for label in labels.flat
+        ):
+            raise ValueError("missing cluster label")
+    except (TypeError, ValueError) as exc:
+        # pandas.NA has ambiguous truth, while NaN/NaT are not self-equal.
+        raise ValueError("clusters must contain one nonmissing label per row") from exc
+    # Infer from the retained raw values, rather than labels.tolist(): object
+    # coercion can widen nested float32 scalars and change mixed string IDs.
+    if snapshot is None:
+        return clusters
+    converted = np.asarray(snapshot)
+    for path, original in scalar_leaves:
+        converted[path] = original
+    if scalar_leaves:
+        try:
+            _validate_cluster_snapshot_missing(converted)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("clusters must contain one nonmissing label per row") from exc
+    return converted
 
 
 def _count_elts(arr):
@@ -401,7 +584,6 @@ def _iter_cluster_bootstrap_index_batches(
 ):
     """Batch cluster bootstrap index generation for uniform cluster sizes."""
     backend = get_backend(backend_name)
-    n = int(state["n_samples"])
     n_clusters = int(state["n_clusters"])
     rows_matrix = state.get("cluster_rows_matrix")
     uniform_size = state.get("cluster_uniform_size")
@@ -410,7 +592,7 @@ def _iter_cluster_bootstrap_index_batches(
         raise ValueError("Batched cluster bootstrap requires uniform cluster sizes")
 
     m = int(uniform_size)
-    draws = int(np.ceil(n / max(1, m)))
+    draws = n_clusters
     total_len = draws * m
 
     if backend_name == "numpy":
@@ -435,7 +617,7 @@ def _iter_cluster_bootstrap_index_batches(
         cur = min(batch_size, n_resamples - start)
         cluster_ids = _rng_integers(rng, 0, n_clusters, size=(cur, draws), backend_name=backend_name, device=device)
         idx_batch = rows_matrix[cluster_ids].reshape(cur, -1)
-        yield backend.astype(idx_batch[:, :n], backend.int64)
+        yield backend.astype(idx_batch, backend.int64)
 
 
 def _iter_non_iid_bootstrap_index_batches(
@@ -740,31 +922,53 @@ def _prepare_bootstrap_state(
     if strategy_n == "cluster":
         if clusters is None:
             raise ValueError("clusters is required when strategy='cluster'")
+        clusters = _validate_cluster_labels_before_cast(clusters)
         clusters_arr = backend.asarray(clusters).reshape(-1)
         if int(clusters_arr.shape[0]) != n:
             raise ValueError("clusters must have the same length as arrays")
-        labels = backend.xp.unique(clusters_arr)
+        if backend_name == "numpy" and clusters_arr.dtype.kind == "O":
+            # Also cover generic host array-likes that only reveal their
+            # object labels through __array__; native GPU arrays never enter.
+            _validate_cluster_labels_before_cast(clusters_arr)
+            # Sorting can still fail for nonmissing, incomparable objects.
+            try:
+                labels = backend.xp.unique(clusters_arr)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "clusters must contain one nonmissing label per row; "
+                    "labels must be mutually comparable"
+                ) from exc
+        else:
+            labels = backend.xp.unique(clusters_arr)
         rows = tuple(backend.astype(backend.xp.where(clusters_arr == label)[0], backend.int64) for label in labels)
         if len(rows) == 0:
             raise ValueError("clusters must contain at least one group")
         sizes = np.asarray([int(_count_elts(r)) for r in rows], dtype=np.int64)
-        avg_size = float(np.mean(sizes)) if sizes.size > 0 else 1.0
-        avg_size = max(avg_size, 1.0)
+        if np.any(sizes == 0) or int(sizes.sum()) != n:
+            raise ValueError("clusters must contain one nonmissing label per row")
         uniform_size = int(sizes[0]) if np.all(sizes == sizes[0]) else None
         rows_matrix = None
         if uniform_size is not None:
             # Uniform clusters can be assembled in dense batched form without padding/masking.
             rows_matrix = backend.astype(backend.xp.stack(rows, axis=0), backend.int64)
-        return {
+        state = {
             "strategy": strategy_n,
             "n_samples": int(n),
             "cluster_rows": rows,
             "cluster_sizes": sizes,
             "n_clusters": len(rows),
-            "avg_cluster_size": avg_size,
             "cluster_uniform_size": uniform_size,
             "cluster_rows_matrix": rows_matrix,
         }
+        if uniform_size is None:
+            state.update(
+                cluster_sizes_array=backend.asarray(sizes, dtype=backend.int64),
+                cluster_starts=backend.asarray(
+                    np.cumsum(sizes) - sizes, dtype=backend.int64
+                ),
+                cluster_rows_flat=backend.concatenate(rows),
+            )
+        return state
 
     if strategy_n == "block":
         if block_size is None:
@@ -814,38 +1018,30 @@ def _bootstrap_indices_cluster(
     backend_name: str,
     device: str = "cuda",
 ):
+    """Draw the original number of whole clusters, allowing varying row counts."""
     backend = get_backend(backend_name)
-    cluster_rows = state["cluster_rows"]
-    cluster_sizes = state["cluster_sizes"]
     n_clusters = int(state["n_clusters"])
-    avg_size = float(state["avg_cluster_size"])
+    ids = _rng_integers(
+        rng, 0, n_clusters, size=(n_clusters,),
+        backend_name=backend_name, device=device,
+    )
+    rows_matrix = state.get("cluster_rows_matrix")
+    if rows_matrix is not None:
+        return rows_matrix[ids].reshape(-1)
 
-    # Sample cluster ids in batches to avoid scalar sync per sampled cluster.
-    selected_ids = []
-    total_size = 0
-    batch = max(4, int(np.ceil(n / avg_size)))
-
-    while total_size < n:
-        ids = _rng_integers(rng, 0, n_clusters, size=batch, backend_name=backend_name, device=device)
-        ids_np = _to_numpy(ids).astype(np.int64, copy=False)
-        selected_ids.extend(ids_np.tolist())
-        total_size += int(cluster_sizes[ids_np].sum())
-        if total_size < n:
-            remaining = n - total_size
-            batch = max(1, int(np.ceil(remaining / avg_size)) + 1)
-
-    chunks = []
-    filled = 0
-    for cid in selected_ids:
-        rows = cluster_rows[int(cid)]
-        chunks.append(rows)
-        filled += int(_count_elts(rows))
-        if filled >= n:
-            break
-
-    _ref = cluster_rows[0] if len(cluster_rows) > 0 else None
-    idx = backend.concatenate(chunks)[:n] if chunks else xp_empty((0,), backend.int64, backend.xp, _ref)
-    return backend.astype(idx, backend.int64)
+    # Expand ragged groups using backend-native offsets. Only the total row
+    # count is synchronized to allocate the variable-length index array; data
+    # and sampled cluster IDs stay on the backend, without padded observations.
+    sizes = state["cluster_sizes_array"][ids]
+    sample_ends = backend.xp.cumsum(sizes, 0)
+    sample_starts = sample_ends - sizes
+    positions = backend.arange(int(sample_ends[-1].item()), dtype=backend.int64)
+    if backend_name == "torch":
+        owners = backend.xp.searchsorted(sample_ends, positions, right=True)
+    else:
+        owners = backend.xp.searchsorted(sample_ends, positions, side="right")
+    offsets = state["cluster_starts"][ids] - sample_starts
+    return state["cluster_rows_flat"][positions + offsets[owners]]
 
 
 def _bootstrap_indices_block(
@@ -917,15 +1113,17 @@ def bootstrap_statistic(
     strategy : {'iid', 'stratified', 'cluster', 'block'}, default='iid'
         Aligned arrays share row indices. IID samples rows with replacement;
         stratified samples within strata; block samples contiguous blocks.
-        Whole-cluster semantics are currently reliable only for equal-size
-        clusters. With unequal sizes the last cluster is truncated to n rows;
-        do not use those intervals as a whole-cluster bootstrap.
+        Cluster bootstrap draws the original number of clusters with replacement
+        and retains every row of each selected cluster. With unequal sizes the
+        number of rows varies between resamples; clusters are never truncated.
     strata : array-like, optional
         One nonmissing label per row for stratified bootstrap. Validate first:
         NaN labels can omit rows and leave uninitialized batch entries.
     clusters : array-like, optional
-        One nonmissing label per row for cluster bootstrap. Validate labels
-        before calling; see the unequal-size limitation under strategy.
+        One nonmissing label per row for cluster bootstrap. All arrays use the
+        same selected clusters, including repeated copies of a selected cluster.
+        Missing labels raise ValueError; literal strings such as "nan" are IDs,
+        not missing values. Validate before converting missing values to strings.
     block_size : int, optional
         Positive moving-block length b, capped at n. Draw ceil(n/b) starts
         independently from 0 through n-b with replacement, concatenate blocks
@@ -946,7 +1144,8 @@ def bootstrap_statistic(
         and equal-size cluster paths. After an accepted probe, a later
         incompatible batch can still fall back to scalar calls, even when True.
         Callbacks should handle every batch size, including a final single row.
-        Unequal-size cluster paths always use scalar calls.
+        Unequal-size cluster paths use scalar calls with variable row counts
+        and reject True unless statistic_hint='mean' supplies the calculation.
     statistic_hint : {'mean', 'pearson_corr'} or None, default=None
         For bootstrap, ``'mean'`` replaces resample callbacks with built-in
         means and requires one one-dimensional input array. Omit the hint for
@@ -957,11 +1156,16 @@ def bootstrap_statistic(
     -------
     BootstrapResult
         Structured bootstrap result with samples and confidence interval.
+        For cluster bootstrap, metadata also records resampling_unit='cluster',
+        n_clusters, clusters_per_resample, and variable_sample_size.
     """
     if not callable(statistic):
         raise TypeError("statistic must be callable")
     n_boot = _validate_n_resamples(n_resamples)
     level = _validate_confidence_level(confidence_level)
+
+    if str(strategy).strip().lower() == "cluster":
+        clusters = _validate_cluster_labels_before_cast(clusters)
 
     backend_name = _resolve_backend(backend, *arrays, strata, clusters)
     backend = get_backend(backend_name)
@@ -978,6 +1182,10 @@ def bootstrap_statistic(
     if not np.isfinite(observed):
         raise ValueError("statistic must return a finite scalar for the observed sample")
     fastpath_hint = _validate_fastpath_hint(statistic_hint)
+    if fastpath_hint == "mean" and (
+        len(arrays_xp) != 1 or arrays_xp[0].ndim != 1
+    ):
+        raise ValueError("statistic_hint='mean' requires a single one-dimensional input array")
     bootstrap_state = _prepare_bootstrap_state(
         n,
         strategy,
@@ -986,6 +1194,17 @@ def bootstrap_statistic(
         block_size,
         backend_name,
     )
+
+    ragged_clusters = (
+        bootstrap_state["strategy"] == "cluster"
+        and bootstrap_state["cluster_rows_matrix"] is None
+    )
+    if ragged_clusters and force_vectorized and fastpath_hint != "mean":
+        raise ValueError(
+            "force_vectorized=True requires equal-size clusters; use "
+            "force_vectorized=False for scalar calls with variable row counts "
+            "or statistic_hint='mean' for a one-dimensional mean"
+        )
 
     if backend_name == "torch":
         rng_device = str(arrays_xp[0].device)
@@ -1131,7 +1350,10 @@ def bootstrap_statistic(
                 device=rng_device,
             )
             sampled_args = [arr[idx] for arr in arrays_xp]
-            samples[i] = _coerce_sample_value(statistic(*sampled_args), backend)
+            if fastpath_hint == "mean":
+                samples[i] = _mean_batch_stat(sampled_args[0], backend)
+            else:
+                samples[i] = _coerce_sample_value(statistic(*sampled_args), backend)
 
     if _to_float_scalar(backend.xp.any(~backend.xp.isfinite(samples))):
         raise ValueError("statistic returned a non-finite value for a bootstrap resample")
@@ -1142,6 +1364,15 @@ def bootstrap_statistic(
         _to_float_scalar(backend.xp.quantile(samples, 1.0 - alpha / 2.0)),
     )
 
+    metadata = {"n_samples": n, "backend": backend_name}
+    if strategy_n == "cluster":
+        metadata.update(
+            resampling_unit="cluster",
+            n_clusters=bootstrap_state["n_clusters"],
+            clusters_per_resample=bootstrap_state["n_clusters"],
+            variable_sample_size=ragged_clusters,
+        )
+
     return BootstrapResult(
         statistic_name=str(statistic_name),
         strategy=bootstrap_state["strategy"],
@@ -1151,7 +1382,7 @@ def bootstrap_statistic(
         confidence_level=level,
         n_resamples=n_boot,
         random_state=random_state,
-        metadata={"n_samples": n, "backend": backend_name},
+        metadata=metadata,
     )
 
 

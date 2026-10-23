@@ -310,8 +310,6 @@ def test_ordinary_formula_prediction_should_reject_missing_query_rows(cls):
     _assert_missing_query_rejected(model, query)
 
 
-@pytest.mark.xfail(strict=True, raises=_DroppedFormulaPredictionRows,
-                   reason='Issue #244: LinearRegression.score can broadcast a formula-shortened prediction over the full response')
 def test_linear_formula_score_should_reject_dropped_rows_before_broadcasting():
     pd = pytest.importorskip('pandas')
     pytest.importorskip('patsy')

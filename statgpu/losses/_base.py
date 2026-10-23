@@ -113,15 +113,25 @@ class LossBase(ABC):
         return val, grad
 
     def hessian(self, X, y, coef, sample_weight=None) -> np.ndarray:
-        """Observed Hessian matrix H = X'WX/n (for Newton solver and sandwich).
+        """Solver curvature matrix H = X'WX/n.
 
-        W is the per-observation second derivative ∂²ℓ/∂η² evaluated at (η_i, y_i).
+        Usually W is the per-observation second derivative ∂²ℓ/∂η².
+        Some GLMs use expected Fisher curvature for optimization instead;
+        inference consumers must use ``observed_hessian`` for robust bread.
 
         Raises NotImplementedError when auto solver falls back to FISTA.
         """
         raise NotImplementedError(
             f"{self.name} does not support Hessian."
         )
+
+    def observed_hessian(self, X, y, coef, sample_weight=None):
+        """Observed average-scale curvature for sandwich inference.
+
+        Defaults to the solver Hessian. Losses using Fisher scoring override
+        this method without altering their optimization curvature.
+        """
+        return self.hessian(X, y, coef, sample_weight=sample_weight)
 
     def fisher_information(self, X, coef, sample_weight=None) -> np.ndarray:
         """Expected Fisher information I(β) = X'WX/n.

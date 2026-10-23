@@ -55,7 +55,8 @@ class BandwidthSelectionResult:
         projection has dimension 1 even for multivariate training samples.
     details : dict
         Method-specific diagnostics. Keys differ by selector; do not assume
-        one fixed details schema for every method.
+        one fixed details schema for every method. A PCA projection vector is
+        an array on the selector backend, not an implicit host-array export.
     """
 
     factor: float
@@ -70,7 +71,7 @@ class BandwidthSelectionResult:
     details: Dict[str, Any]
 
     def to_dict(self) -> Dict[str, Any]:
-        """Return all result fields, with Python scalars and a shallow details copy."""
+        """Return scalar fields and a shallow details copy (arrays stay native)."""
         return {
             "factor": float(self.factor),
             "method": str(self.method),
@@ -1054,8 +1055,9 @@ def select_bandwidth(
     data_cov : backend array, shape (p,p)
         Unscaled weighted sample covariance, before applying the factor.
     xp : module
-        Matching NumPy, CuPy or Torch array module. Some selector calculations
-        and diagnostics use host NumPy arrays.
+        Matching NumPy, CuPy or Torch array module. KDE selectors keep numerical
+        arrays on this backend; PCA projection diagnostics remain backend
+        arrays. Kernel-regression selectors retain their existing host stages.
     enable_r_selectors : bool, default=True
         Allow ucv, bcv and sj variants. False rejects these choices but does
         not disable nrd/nrd0. No external R process is launched.
@@ -1079,9 +1081,39 @@ def select_bandwidth(
     result : BandwidthSelectionResult
         Selected scalar factor and method-specific diagnostics. A scalar
         bandwidth returns diagnostics too, although no search is performed.
+
+    Notes
+    -----
+    NumPy retains its historical sample-tie ordering and eigensolver orientation.
+    Native CuPy/Torch weighted R-style selectors use stable input-order ties and
+    orient the PCA axis with its largest absolute loading positive. These
+    conventions are reported in ``details`` and can change selected factors
+    materially because linear weighted-CDF interpolation is not invariant to
+    axis reflection. A repeated largest eigenvalue still permits different
+    valid backend eigenvectors; ``projection_vector`` reports the chosen axis.
+    Native PCA selectors emit a RuntimeWarning for an exact or near-repeated
+    leading eigenvalue (relative gap at most ``64 * float64_eps * p``), including
+    zero-scale covariance. The gap and threshold are reported in ``details``;
+    native execution is retained. Confidence intervals aggregate these warnings
+    once per successful outer call rather than once per bootstrap refit.
     """
 
     estimator_name = _normalize_estimator_name(estimator)
+    if estimator_name == "kde" and getattr(xp, "__name__", "") in ("cupy", "torch"):
+        from ._native_bandwidth import select_bandwidth_native
+
+        return select_bandwidth_native(
+            bandwidth,
+            n_eff=n_eff,
+            n_features=n_features,
+            samples_2d=samples_2d,
+            weights_1d=weights_1d,
+            data_cov=data_cov,
+            xp=xp,
+            enable_r_selectors=enable_r_selectors,
+            weighted_r_selector_strategy=weighted_r_selector_strategy,
+            multivariate_selector_strategy=multivariate_selector_strategy,
+        )
     if estimator_name == "kde":
         selector = _KDEBandwidthSelector(
             estimator=estimator_name,

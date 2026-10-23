@@ -1,0 +1,3726 @@
+{
+  "schema_version": "statgpu-full-coverage-manifest-v1",
+  "source_base_sha": "efbfb80570eb1632e0605d68d410715dac4d9be8",
+  "inventory_date": "2026-10-20",
+  "claim": "Executable capability map, not exhaustive parameter/backend validation or current physical benchmark evidence",
+  "command_placeholders": {
+    "python": "interpreter path",
+    "output": "unique per-entry output JSON path",
+    "backend": "one of numpy,cupy,torch"
+  },
+  "execution_rules": [
+    "safe_to_execute means local command inspected, not numerical correctness certified",
+    "Never execute remote credential branches; remote environment scheduling is outside this manifest",
+    "A subprocess exit0 is insufficient: inspect JSON success/failure/skip status",
+    "Smoke is a tiny harness check; never use smoke times as performance evidence",
+    "Full required-backend execution fails on unavailable or failed selected entries unless explicitly allowed incomplete",
+    "Keep source/runner hash and actual device/timing scope; no canonical registration here"
+  ],
+  "entries": [
+    {
+      "id": "gaussian-refresh",
+      "family": "gaussian-fit-predict",
+      "script": "dev/benchmarks/benchmark_release_refresh.py",
+      "safe_to_execute": true,
+      "argv": [
+        "{python}",
+        "-m",
+        "dev.benchmarks.benchmark_release_refresh",
+        "--backends",
+        "{backend}",
+        "--shapes",
+        "1024x16",
+        "8192x64",
+        "32768x128",
+        "--dtypes",
+        "float32",
+        "float64",
+        "--output",
+        "{output}"
+      ],
+      "smoke_argv": [
+        "{python}",
+        "-m",
+        "dev.benchmarks.benchmark_release_refresh",
+        "--backends",
+        "{backend}",
+        "--smoke",
+        "--dtypes",
+        "float32",
+        "float64",
+        "--output",
+        "{output}"
+      ],
+      "runner_kind": "correctness-gated-performance-candidate",
+      "execution_status": "source_cli_verified",
+      "result_adapter": "auto",
+      "capabilities": [
+        "LinearRegression",
+        "Ridge"
+      ],
+      "dependencies": [
+        "numpy",
+        "scipy",
+        "statgpu source checkout"
+      ],
+      "evidence_gaps": [
+        "No inference/CV/formula or memory peak in this runner",
+        "Zero/overflow weights, rank-deficient designs and multi-target handled by other entries or remain explicit axes",
+        "GPU not physically tested"
+      ],
+      "case_ids": [
+        "ols",
+        "ridge"
+      ],
+      "case_selection_flag": "--models",
+      "script_sha256": "0693f38691f29d774cec5406b19459377c97743183169e1590959ba31fab1a6e",
+      "invocation_validation": "Source CLI reviewed; initial pilot independent tests and CPU smoke passed"
+    },
+    {
+      "id": "classification-metrics",
+      "family": "binary-evaluation",
+      "script": "dev/benchmarks/benchmark_classification_metrics.py",
+      "safe_to_execute": true,
+      "argv": [
+        "{python}",
+        "-m",
+        "dev.benchmarks.benchmark_classification_metrics",
+        "--backends",
+        "{backend}",
+        "--output",
+        "{output}"
+      ],
+      "smoke_argv": [
+        "{python}",
+        "-m",
+        "dev.benchmarks.benchmark_classification_metrics",
+        "--backends",
+        "{backend}",
+        "--smoke",
+        "--output",
+        "{output}"
+      ],
+      "runner_kind": "correctness-gated-performance-candidate",
+      "execution_status": "source_cli_verified",
+      "result_adapter": "auto",
+      "capabilities": [
+        "binary_confusion_matrix",
+        "binary_classification_table",
+        "binary_roc_curve",
+        "binary_roc_auc_score",
+        "binary_precision_recall_curve",
+        "binary_average_precision_score",
+        "evaluate_binary_classification"
+      ],
+      "dependencies": [
+        "numpy",
+        "scikit-learn",
+        "statgpu source checkout"
+      ],
+      "evidence_gaps": [
+        "API has no sample_weight; no unsupported axis invented",
+        "Input float32 does not imply float32 working precision",
+        "GPU not physically tested"
+      ],
+      "case_ids": [
+        "binary_confusion_matrix",
+        "binary_classification_table",
+        "binary_roc_curve",
+        "binary_roc_auc_score",
+        "binary_precision_recall_curve",
+        "binary_average_precision_score",
+        "evaluate_binary_classification"
+      ],
+      "case_selection_flag": "--operations",
+      "script_sha256": "697ada1e2bec7bf78e303e710c7c2ac9fe6032db59fcc395857658abe08ba678",
+      "invocation_validation": "Source CLI reviewed; initial pilot independent tests and CPU smoke passed"
+    },
+    {
+      "id": "model-families",
+      "family": "direct-fit-inference",
+      "script": "dev/benchmarks/benchmark_model_coverage.py",
+      "safe_to_execute": true,
+      "argv": [
+        "{python}",
+        "-m",
+        "dev.benchmarks.benchmark_model_coverage",
+        "--backends",
+        "{backend}",
+        "--require-backends",
+        "--output",
+        "{output}"
+      ],
+      "smoke_argv": [
+        "{python}",
+        "-m",
+        "dev.benchmarks.benchmark_model_coverage",
+        "--backends",
+        "{backend}",
+        "--smoke",
+        "--output",
+        "{output}"
+      ],
+      "runner_kind": "correctness-gated-performance-candidate",
+      "execution_status": "CPU74passed",
+      "result_adapter": "auto",
+      "capabilities": [
+        "glm:gaussian",
+        "glm:binomial",
+        "glm:poisson",
+        "glm:gamma",
+        "glm:inverse_gaussian",
+        "glm:negative_binomial",
+        "glm:tweedie",
+        "penalty:l1",
+        "penalty:l2",
+        "penalty:elasticnet",
+        "penalty:scad",
+        "penalty:mcp",
+        "penalty:group_lasso",
+        "penalty:group_scad",
+        "penalty:group_mcp",
+        "penalized_glm:logistic",
+        "penalized_glm:poisson",
+        "penalized_glm:gamma",
+        "penalized_glm:inverse_gaussian",
+        "penalized_glm:negative_binomial",
+        "penalized_glm:tweedie",
+        "robust:huber",
+        "robust:fair",
+        "robust:bisquare",
+        "quantile:0.25",
+        "quantile:0.5",
+        "quantile:0.75",
+        "cox:breslow",
+        "cox:efron",
+        "cox:penalized_l2",
+        "panel:pooled",
+        "panel:within",
+        "panel:between",
+        "panel:first_difference",
+        "panel:random_effects",
+        "panel:fama_macbeth",
+        "glm_inference:gaussian:nonrobust",
+        "glm_inference:gaussian:hc0",
+        "glm_inference:binomial:nonrobust",
+        "glm_inference:binomial:hc0",
+        "glm_inference:poisson:nonrobust",
+        "glm_inference:poisson:hc0",
+        "glm_inference:gamma:nonrobust",
+        "glm_inference:gamma:hc0",
+        "glm_inference:inverse_gaussian:nonrobust",
+        "glm_inference:inverse_gaussian:hc0",
+        "glm_inference:negative_binomial:nonrobust",
+        "glm_inference:negative_binomial:hc0",
+        "glm_inference:tweedie:nonrobust",
+        "glm_inference:tweedie:hc0",
+        "inference:nonrobust",
+        "inference:hc0",
+        "inference:hc3",
+        "wrapper:LinearRegression",
+        "wrapper:Ridge",
+        "wrapper:Lasso",
+        "wrapper:ElasticNet",
+        "wrapper:AdaptiveLasso",
+        "wrapper:SCADRegression",
+        "wrapper:MCPRegression",
+        "wrapper:LogisticRegression",
+        "wrapper:PoissonRegression",
+        "wrapper:GammaRegression",
+        "wrapper:InverseGaussianRegression",
+        "wrapper:NegativeBinomialRegression",
+        "wrapper:TweedieRegression",
+        "wrapper:QuantileRegression",
+        "wrapper:PenalizedLinearRegression",
+        "wrapper:PenalizedLogisticRegression",
+        "wrapper:PenalizedPoissonRegression",
+        "wrapper:PenalizedGammaRegression",
+        "wrapper:PenalizedInverseGaussianRegression",
+        "wrapper:PenalizedNegativeBinomialRegression",
+        "wrapper:PenalizedTweedieRegression"
+      ],
+      "dependencies": [
+        "numpy",
+        "scipy",
+        "statsmodels",
+        "statgpu source checkout"
+      ],
+      "evidence_gaps": [
+        "The repaired IG/NB HC0 fixtures pass; broader covariance, weights, links and solver combinations remain uncertified",
+        "All7GLM families have nonrobust/HC0 fixtures, but full covariance/weights/link/solver matrix not certified",
+        "Full physical CUDA model/CV matrix remains unvalidated; targeted IG/NB inference evidence is source-specific, not whole-suite closure"
+      ],
+      "invocation_validation": "74 CPU smoke cases passed after the observed-Hessian repair. The oracle adapter realigns host reporting parameters to native inference design. Targeted P100 IG/NB nonrobust/HC0 cases passed 8/8 at 07f12e2ca10e294153bbfd8da5e449bcfd425cbe; this does not validate the full model/CV matrix or later source changes.",
+      "case_ids": [
+        "glm:gaussian",
+        "glm:binomial",
+        "glm:poisson",
+        "glm:gamma",
+        "glm:inverse_gaussian",
+        "glm:negative_binomial",
+        "glm:tweedie",
+        "penalty:l1",
+        "penalty:l2",
+        "penalty:elasticnet",
+        "penalty:scad",
+        "penalty:mcp",
+        "penalty:group_lasso",
+        "penalty:group_scad",
+        "penalty:group_mcp",
+        "penalized_glm:logistic",
+        "penalized_glm:poisson",
+        "penalized_glm:gamma",
+        "penalized_glm:inverse_gaussian",
+        "penalized_glm:negative_binomial",
+        "penalized_glm:tweedie",
+        "robust:huber",
+        "robust:fair",
+        "robust:bisquare",
+        "quantile:0.25",
+        "quantile:0.5",
+        "quantile:0.75",
+        "cox:breslow",
+        "cox:efron",
+        "cox:penalized_l2",
+        "panel:pooled",
+        "panel:within",
+        "panel:between",
+        "panel:first_difference",
+        "panel:random_effects",
+        "panel:fama_macbeth",
+        "glm_inference:gaussian:nonrobust",
+        "glm_inference:gaussian:hc0",
+        "glm_inference:binomial:nonrobust",
+        "glm_inference:binomial:hc0",
+        "glm_inference:poisson:nonrobust",
+        "glm_inference:poisson:hc0",
+        "glm_inference:gamma:nonrobust",
+        "glm_inference:gamma:hc0",
+        "glm_inference:inverse_gaussian:nonrobust",
+        "glm_inference:inverse_gaussian:hc0",
+        "glm_inference:negative_binomial:nonrobust",
+        "glm_inference:negative_binomial:hc0",
+        "glm_inference:tweedie:nonrobust",
+        "glm_inference:tweedie:hc0",
+        "inference:nonrobust",
+        "inference:hc0",
+        "inference:hc3",
+        "wrapper:LinearRegression",
+        "wrapper:Ridge",
+        "wrapper:Lasso",
+        "wrapper:ElasticNet",
+        "wrapper:AdaptiveLasso",
+        "wrapper:SCADRegression",
+        "wrapper:MCPRegression",
+        "wrapper:LogisticRegression",
+        "wrapper:PoissonRegression",
+        "wrapper:GammaRegression",
+        "wrapper:InverseGaussianRegression",
+        "wrapper:NegativeBinomialRegression",
+        "wrapper:TweedieRegression",
+        "wrapper:QuantileRegression",
+        "wrapper:PenalizedLinearRegression",
+        "wrapper:PenalizedLogisticRegression",
+        "wrapper:PenalizedPoissonRegression",
+        "wrapper:PenalizedGammaRegression",
+        "wrapper:PenalizedInverseGaussianRegression",
+        "wrapper:PenalizedNegativeBinomialRegression",
+        "wrapper:PenalizedTweedieRegression"
+      ],
+      "case_registry_validation": "imported runner registry, not inferred from title",
+      "case_selection_flag": "--cases",
+      "script_sha256": "f6ed53cc4a258a06bbdc7a43036f2c4a6107bf6aab53a73cafca78a6d3d9ff07",
+      "historical_v2_failures": [
+        {
+          "case": "glm_inference:inverse_gaussian:hc0",
+          "status": "failed",
+          "category": "reference_alignment",
+          "max_se_difference": 0.004205,
+          "issue": null
+        },
+        {
+          "case": "glm_inference:negative_binomial:hc0",
+          "status": "failed",
+          "category": "reference_alignment",
+          "max_se_difference": 0.013751,
+          "issue": null
+        }
+      ],
+      "local_repair": "Observed-Hessian HC bread corrected in unreleased working tree; solver/nonrobust Fisher preserved.",
+      "historical_v2_execution_status": "CPU72pass2reference_alignment_failures",
+      "historical_v2_invocation_validation": "CLIverified; worker actual74CPUcases72pass2referencefail; failures not suppressed; independent review required before performance claims",
+      "physical_repair_note": "dev/plans/glm_benchmark_native_params_repair.md"
+    },
+    {
+      "id": "statistical-families",
+      "family": "statistics-utilities",
+      "script": "dev/benchmarks/benchmark_statistical_coverage.py",
+      "safe_to_execute": true,
+      "argv": [
+        "{python}",
+        "-m",
+        "dev.benchmarks.benchmark_statistical_coverage",
+        "--backends",
+        "{backend}",
+        "--require-backends",
+        "--output",
+        "{output}"
+      ],
+      "smoke_argv": [
+        "{python}",
+        "-m",
+        "dev.benchmarks.benchmark_statistical_coverage",
+        "--backends",
+        "{backend}",
+        "--smoke",
+        "--output",
+        "{output}"
+      ],
+      "runner_kind": "correctness-gated-performance-candidate",
+      "execution_status": "CPU138passed",
+      "result_adapter": "auto",
+      "capabilities": [
+        "distributions/norm/cdf",
+        "distributions/norm/sf",
+        "distributions/norm/ppf",
+        "distributions/norm/isf",
+        "distributions/norm/pdf",
+        "distributions/norm/rvs",
+        "distributions/norm/two_sided_pvalue",
+        "distributions/norm/two_sided_critical_value",
+        "distributions/t/cdf",
+        "distributions/t/sf",
+        "distributions/t/ppf",
+        "distributions/t/isf",
+        "distributions/t/pdf",
+        "distributions/t/rvs",
+        "distributions/t/two_sided_pvalue",
+        "distributions/t/two_sided_critical_value",
+        "distributions/chi2/cdf",
+        "distributions/chi2/sf",
+        "distributions/chi2/ppf",
+        "distributions/chi2/isf",
+        "distributions/chi2/pdf",
+        "distributions/chi2/rvs",
+        "distributions/gamma/cdf",
+        "distributions/gamma/sf",
+        "distributions/gamma/ppf",
+        "distributions/gamma/isf",
+        "distributions/gamma/pdf",
+        "distributions/gamma/rvs",
+        "distributions/beta/cdf",
+        "distributions/beta/sf",
+        "distributions/beta/ppf",
+        "distributions/beta/isf",
+        "distributions/beta/pdf",
+        "distributions/beta/rvs",
+        "distributions/f/cdf",
+        "distributions/f/sf",
+        "distributions/f/ppf",
+        "distributions/f/isf",
+        "distributions/f/pdf",
+        "distributions/f/rvs",
+        "distributions/uniform/cdf",
+        "distributions/uniform/sf",
+        "distributions/uniform/ppf",
+        "distributions/uniform/isf",
+        "distributions/uniform/pdf",
+        "distributions/uniform/rvs",
+        "distributions/expon/cdf",
+        "distributions/expon/sf",
+        "distributions/expon/ppf",
+        "distributions/expon/isf",
+        "distributions/expon/pdf",
+        "distributions/expon/rvs",
+        "distributions/cauchy/cdf",
+        "distributions/cauchy/sf",
+        "distributions/cauchy/ppf",
+        "distributions/cauchy/isf",
+        "distributions/cauchy/pdf",
+        "distributions/cauchy/rvs",
+        "distributions/laplace/cdf",
+        "distributions/laplace/sf",
+        "distributions/laplace/ppf",
+        "distributions/laplace/isf",
+        "distributions/laplace/pdf",
+        "distributions/laplace/rvs",
+        "distributions/logistic/cdf",
+        "distributions/logistic/sf",
+        "distributions/logistic/ppf",
+        "distributions/logistic/isf",
+        "distributions/logistic/pdf",
+        "distributions/logistic/rvs",
+        "distributions/weibull_min/cdf",
+        "distributions/weibull_min/sf",
+        "distributions/weibull_min/ppf",
+        "distributions/weibull_min/isf",
+        "distributions/weibull_min/pdf",
+        "distributions/weibull_min/rvs",
+        "distributions/lognorm/cdf",
+        "distributions/lognorm/sf",
+        "distributions/lognorm/ppf",
+        "distributions/lognorm/isf",
+        "distributions/lognorm/pdf",
+        "distributions/lognorm/rvs",
+        "distributions/poisson/cdf",
+        "distributions/poisson/sf",
+        "distributions/poisson/ppf",
+        "distributions/poisson/isf",
+        "distributions/poisson/pmf",
+        "distributions/poisson/rvs",
+        "distributions/binom/cdf",
+        "distributions/binom/sf",
+        "distributions/binom/ppf",
+        "distributions/binom/isf",
+        "distributions/binom/pmf",
+        "distributions/binom/rvs",
+        "multiple-testing/adjust/bh",
+        "multiple-testing/adjust/by",
+        "multiple-testing/adjust/holm",
+        "multiple-testing/adjust/bonferroni",
+        "multiple-testing/adjust/hochberg",
+        "multiple-testing/multipletests/bh",
+        "multiple-testing/multipletests/by",
+        "multiple-testing/multipletests/holm",
+        "multiple-testing/multipletests/bonferroni",
+        "multiple-testing/multipletests/hochberg",
+        "multiple-testing/combine/fisher",
+        "multiple-testing/combine/stouffer",
+        "multiple-testing/combine/cauchy",
+        "resampling/bootstrap/iid",
+        "resampling/bootstrap/stratified",
+        "resampling/bootstrap/cluster",
+        "resampling/bootstrap/block",
+        "resampling/permutation/iid",
+        "resampling/permutation/stratified",
+        "resampling/permutation/grouped",
+        "covariance/EmpiricalCovariance",
+        "covariance/LedoitWolf",
+        "covariance/OAS",
+        "covariance/ShrunkCovariance",
+        "covariance/MinCovDet",
+        "covariance/GraphicalLasso",
+        "covariance/GraphicalLassoCV",
+        "anova/f_oneway",
+        "anova/f_welch",
+        "anova/f_twoway",
+        "anova/tukey_hsd",
+        "anova/bonferroni",
+        "anova/cohens_f",
+        "anova/partial_eta_squared",
+        "ordered/logit",
+        "ordered/probit",
+        "ordered/base-logit",
+        "panel-primitives/clustered_covariance",
+        "panel-primitives/two_way_clustered_covariance",
+        "panel-primitives/hac_covariance",
+        "panel-primitives/driscoll_kraay_covariance",
+        "panel-primitives/hausman_test",
+        "panel-primitives/pooling_f_test",
+        "panel-primitives/breusch_pagan_lm_test"
+      ],
+      "dependencies": [
+        "numpy",
+        "scipy",
+        "statsmodels",
+        "scikit-learn",
+        "statgpu source checkout"
+      ],
+      "evidence_gaps": [
+        "F.rvs parameter mapping is repaired and its CPU fixture passes; distribution tail and repeated-seed Monte Carlo coverage remain separate",
+        "Full physical statistical-family coverage remains unvalidated; targeted distribution evidence does not establish whole-suite closure, and some public APIs retain host stages",
+        "138 cases are representative fixed-parameter fixtures, not exhaustive covariance/tail/Monte Carlo coverage"
+      ],
+      "invocation_validation": "138 CPU smoke cases passed after the unreleased repairs; targeted P100 distribution acceptance is separate source-specific evidence, not full statistical-family GPU closure.",
+      "case_ids": [
+        "distributions/norm/cdf",
+        "distributions/norm/sf",
+        "distributions/norm/ppf",
+        "distributions/norm/isf",
+        "distributions/norm/pdf",
+        "distributions/norm/rvs",
+        "distributions/norm/two_sided_pvalue",
+        "distributions/norm/two_sided_critical_value",
+        "distributions/t/cdf",
+        "distributions/t/sf",
+        "distributions/t/ppf",
+        "distributions/t/isf",
+        "distributions/t/pdf",
+        "distributions/t/rvs",
+        "distributions/t/two_sided_pvalue",
+        "distributions/t/two_sided_critical_value",
+        "distributions/chi2/cdf",
+        "distributions/chi2/sf",
+        "distributions/chi2/ppf",
+        "distributions/chi2/isf",
+        "distributions/chi2/pdf",
+        "distributions/chi2/rvs",
+        "distributions/gamma/cdf",
+        "distributions/gamma/sf",
+        "distributions/gamma/ppf",
+        "distributions/gamma/isf",
+        "distributions/gamma/pdf",
+        "distributions/gamma/rvs",
+        "distributions/beta/cdf",
+        "distributions/beta/sf",
+        "distributions/beta/ppf",
+        "distributions/beta/isf",
+        "distributions/beta/pdf",
+        "distributions/beta/rvs",
+        "distributions/f/cdf",
+        "distributions/f/sf",
+        "distributions/f/ppf",
+        "distributions/f/isf",
+        "distributions/f/pdf",
+        "distributions/f/rvs",
+        "distributions/uniform/cdf",
+        "distributions/uniform/sf",
+        "distributions/uniform/ppf",
+        "distributions/uniform/isf",
+        "distributions/uniform/pdf",
+        "distributions/uniform/rvs",
+        "distributions/expon/cdf",
+        "distributions/expon/sf",
+        "distributions/expon/ppf",
+        "distributions/expon/isf",
+        "distributions/expon/pdf",
+        "distributions/expon/rvs",
+        "distributions/cauchy/cdf",
+        "distributions/cauchy/sf",
+        "distributions/cauchy/ppf",
+        "distributions/cauchy/isf",
+        "distributions/cauchy/pdf",
+        "distributions/cauchy/rvs",
+        "distributions/laplace/cdf",
+        "distributions/laplace/sf",
+        "distributions/laplace/ppf",
+        "distributions/laplace/isf",
+        "distributions/laplace/pdf",
+        "distributions/laplace/rvs",
+        "distributions/logistic/cdf",
+        "distributions/logistic/sf",
+        "distributions/logistic/ppf",
+        "distributions/logistic/isf",
+        "distributions/logistic/pdf",
+        "distributions/logistic/rvs",
+        "distributions/weibull_min/cdf",
+        "distributions/weibull_min/sf",
+        "distributions/weibull_min/ppf",
+        "distributions/weibull_min/isf",
+        "distributions/weibull_min/pdf",
+        "distributions/weibull_min/rvs",
+        "distributions/lognorm/cdf",
+        "distributions/lognorm/sf",
+        "distributions/lognorm/ppf",
+        "distributions/lognorm/isf",
+        "distributions/lognorm/pdf",
+        "distributions/lognorm/rvs",
+        "distributions/poisson/cdf",
+        "distributions/poisson/sf",
+        "distributions/poisson/ppf",
+        "distributions/poisson/isf",
+        "distributions/poisson/pmf",
+        "distributions/poisson/rvs",
+        "distributions/binom/cdf",
+        "distributions/binom/sf",
+        "distributions/binom/ppf",
+        "distributions/binom/isf",
+        "distributions/binom/pmf",
+        "distributions/binom/rvs",
+        "multiple-testing/adjust/bh",
+        "multiple-testing/adjust/by",
+        "multiple-testing/adjust/holm",
+        "multiple-testing/adjust/bonferroni",
+        "multiple-testing/adjust/hochberg",
+        "multiple-testing/multipletests/bh",
+        "multiple-testing/multipletests/by",
+        "multiple-testing/multipletests/holm",
+        "multiple-testing/multipletests/bonferroni",
+        "multiple-testing/multipletests/hochberg",
+        "multiple-testing/combine/fisher",
+        "multiple-testing/combine/stouffer",
+        "multiple-testing/combine/cauchy",
+        "resampling/bootstrap/iid",
+        "resampling/bootstrap/stratified",
+        "resampling/bootstrap/cluster",
+        "resampling/bootstrap/block",
+        "resampling/permutation/iid",
+        "resampling/permutation/stratified",
+        "resampling/permutation/grouped",
+        "covariance/EmpiricalCovariance",
+        "covariance/LedoitWolf",
+        "covariance/OAS",
+        "covariance/ShrunkCovariance",
+        "covariance/MinCovDet",
+        "covariance/GraphicalLasso",
+        "covariance/GraphicalLassoCV",
+        "anova/f_oneway",
+        "anova/f_welch",
+        "anova/f_twoway",
+        "anova/tukey_hsd",
+        "anova/bonferroni",
+        "anova/cohens_f",
+        "anova/partial_eta_squared",
+        "ordered/logit",
+        "ordered/probit",
+        "ordered/base-logit",
+        "panel-primitives/clustered_covariance",
+        "panel-primitives/two_way_clustered_covariance",
+        "panel-primitives/hac_covariance",
+        "panel-primitives/driscoll_kraay_covariance",
+        "panel-primitives/hausman_test",
+        "panel-primitives/pooling_f_test",
+        "panel-primitives/breusch_pagan_lm_test"
+      ],
+      "case_registry_validation": "imported runner registry, not inferred from title",
+      "case_selection_flag": "--cases",
+      "family_selectors": [
+        "all",
+        "distributions",
+        "multiple-testing",
+        "resampling",
+        "covariance",
+        "anova",
+        "ordered",
+        "panel-primitives"
+      ],
+      "script_sha256": "1755b3e347ea9ecd26cd3a8aa9005d0eba422dc276733e01c4b37735be4712d2",
+      "historical_v2_execution_status": "CPU137pass1known_failure173",
+      "historical_v2_invocation_validation": "CLIverified; worker138CPUcases137pass1knownFsamplingfailure#173;149contracttests pass"
+    },
+    {
+      "id": "learning-families",
+      "family": "nonparametric-learning",
+      "script": "dev/benchmarks/benchmark_learning_coverage.py",
+      "safe_to_execute": true,
+      "argv": [
+        "{python}",
+        "-m",
+        "dev.benchmarks.benchmark_learning_coverage",
+        "--backends",
+        "{backend}",
+        "--require-backends",
+        "--output",
+        "{output}"
+      ],
+      "smoke_argv": [
+        "{python}",
+        "-m",
+        "dev.benchmarks.benchmark_learning_coverage",
+        "--backends",
+        "{backend}",
+        "--smoke",
+        "--output",
+        "{output}"
+      ],
+      "runner_kind": "correctness-gated-performance-candidate",
+      "execution_status": "CPU44passed",
+      "result_adapter": "auto",
+      "capabilities": [
+        "kde",
+        "kernel_regression_nw",
+        "kernel_regression_local_linear",
+        "kernel_ridge",
+        "kernel_pca",
+        "nystroem",
+        "spline",
+        "gam",
+        "pca",
+        "incremental_pca",
+        "truncated_svd",
+        "kmeans",
+        "minibatch_kmeans",
+        "dbscan",
+        "agglomerative",
+        "gaussian_mixture",
+        "nmf",
+        "minibatch_nmf",
+        "tsne",
+        "umap",
+        "knockoff_fixed",
+        "knockoff_model",
+        "kernel_ridge_cv",
+        "kde_bootstrap",
+        "bspline_basis",
+        "natural_spline",
+        "cyclic_spline",
+        "thin_plate_spline",
+        "bandwidth_scott",
+        "bandwidth_silverman",
+        "bandwidth_nrd",
+        "bandwidth_nrd0",
+        "bandwidth_ucv",
+        "bandwidth_bcv",
+        "bandwidth_sj",
+        "bandwidth_sj-ste",
+        "bandwidth_sj-dpi",
+        "bandwidth_cv",
+        "smoothing_helpers",
+        "bandwidth_helpers",
+        "pairwise_kernels",
+        "chi2_kernel",
+        "kde_normal_ci",
+        "umap_nndescent"
+      ],
+      "dependencies": [
+        "numpy",
+        "scipy",
+        "scikit-learn",
+        "statgpu source checkout"
+      ],
+      "evidence_gaps": [
+        "Full learning-suite physical acceptance remains unestablished; targeted observer checks passed on P100 at 07f12e2, not whole-suite or subsequent-change validation.",
+        "Torch KDE bootstrap is implemented in the current public native path; physical acceptance of this new source remains pending. Historical learning-suite evidence treated Torch bootstrap as unsupported and does not certify this implementation.",
+        "Targeted bandwidth/knockoff/KDE paths observe selected native numerical operations and explicit host stages, not whole-algorithm GPU residency; instrumented timings remain performance-ineligible.",
+        "Other learning GPU rows retain ownership-only evidence; weak numerical oracles remain diagnostic and selection summaries do not certify FDR."
+      ],
+      "invocation_validation": "44-case CPU smoke previously passed; targeted execution-trace and hybrid P100 checks passed at 07f12e2ca10e294153bbfd8da5e449bcfd425cbe (A–D acceptance). This is source-specific evidence; full learning-suite physical closure and subsequent changes remain separate.",
+      "case_ids": [
+        "kde",
+        "kernel_regression_nw",
+        "kernel_regression_local_linear",
+        "kernel_ridge",
+        "kernel_pca",
+        "nystroem",
+        "spline",
+        "gam",
+        "pca",
+        "incremental_pca",
+        "truncated_svd",
+        "kmeans",
+        "minibatch_kmeans",
+        "dbscan",
+        "agglomerative",
+        "gaussian_mixture",
+        "nmf",
+        "minibatch_nmf",
+        "tsne",
+        "umap",
+        "knockoff_fixed",
+        "knockoff_model",
+        "kernel_ridge_cv",
+        "kde_bootstrap",
+        "bspline_basis",
+        "natural_spline",
+        "cyclic_spline",
+        "thin_plate_spline",
+        "bandwidth_scott",
+        "bandwidth_silverman",
+        "bandwidth_nrd",
+        "bandwidth_nrd0",
+        "bandwidth_ucv",
+        "bandwidth_bcv",
+        "bandwidth_sj",
+        "bandwidth_sj-ste",
+        "bandwidth_sj-dpi",
+        "bandwidth_cv",
+        "smoothing_helpers",
+        "bandwidth_helpers",
+        "pairwise_kernels",
+        "chi2_kernel",
+        "kde_normal_ci",
+        "umap_nndescent"
+      ],
+      "case_registry_validation": "imported runner registry, not inferred from title",
+      "case_selection_flag": "--cases",
+      "script_sha256": "cd005b06e56325889908d8a70840c3292fa9de14efb8f78e77d8185477654ec9",
+      "historical_v2_execution_status": "CPU42pass2known_defect_blocked",
+      "historical_v2_invocation_validation": "CLIverified; worker44CPUcases42pass2knownblockeddefects#191#216;61contracttests pass",
+      "source_dependencies_sha256": {
+        "statgpu/nonparametric/kernel_smoothing/_native_bandwidth.py": "7d7772b7fbcbe9316f5c523513c8aada4436b21207eabbfb699e81e073c19c6d",
+        "statgpu/nonparametric/kernel_smoothing/_native_bootstrap.py": "9235b22cb062eebaec8b286ff8da9bc25cf5816711a78657fd6c6313f34dd7a9",
+        "dev/benchmarks/learning_execution_trace.py": "7e1c13e8fecc72115bd061bf7dd96705fdf2da3e8d1f8f094c984c04a6de6e91",
+        "dev/benchmarks/benchmark_release_refresh.py": "0693f38691f29d774cec5406b19459377c97743183169e1590959ba31fab1a6e"
+      },
+      "execution_evidence_contract": "dev/plans/learning_device_trace_repair.md"
+    },
+    {
+      "id": "workflow-families",
+      "family": "model-workflows",
+      "script": "dev/benchmarks/benchmark_workflow_coverage.py",
+      "safe_to_execute": true,
+      "argv": [
+        "{python}",
+        "-m",
+        "dev.benchmarks.benchmark_workflow_coverage",
+        "--backends",
+        "{backend}",
+        "--sizes",
+        "256",
+        "1024",
+        "--features",
+        "6",
+        "--targets",
+        "4",
+        "--warmup",
+        "1",
+        "--repeats",
+        "3",
+        "--require-backends",
+        "--output",
+        "{output}"
+      ],
+      "smoke_argv": [
+        "{python}",
+        "-m",
+        "dev.benchmarks.benchmark_workflow_coverage",
+        "--backends",
+        "{backend}",
+        "--smoke",
+        "--output",
+        "{output}"
+      ],
+      "runner_kind": "correctness-gated-performance-candidate",
+      "execution_status": "source_cli_and_cpu_smoke_verified",
+      "result_adapter": "auto",
+      "capabilities": [
+        "diagnostics",
+        "stepwise",
+        "multitarget",
+        "formula"
+      ],
+      "dependencies": [
+        "numpy",
+        "scipy",
+        "statsmodels",
+        "pandas",
+        "patsy",
+        "statgpu source checkout"
+      ],
+      "evidence_gaps": [
+        "GPU unrun; diagnostics computation host-side",
+        "Stepwise no sample_weight; all6direction/criterion subcases do not cover all penalties",
+        "Multi-target only LinearRegression; no unsupported Ridge multi-output claimed",
+        "Formula one categorical/interaction/NA fixture, not exhaustive syntax"
+      ],
+      "invocation_validation": "python -m dev.benchmarks.benchmark_workflow_coverage --help; worker CPU smoke4 and25 tests pass",
+      "case_ids": [
+        "diagnostics",
+        "stepwise",
+        "multitarget",
+        "formula"
+      ],
+      "case_registry_validation": "imported runner registry, not inferred from title",
+      "case_selection_flag": "--cases",
+      "script_sha256": "61449d125dbde4af610de3401d1d5661a594c54f867bc272ff73521f6ce7f0ee"
+    },
+    {
+      "id": "six-family-cv",
+      "family": "cross-validation",
+      "script": "dev/benchmarks/benchmark_cv_coverage.py",
+      "safe_to_execute": true,
+      "argv": [
+        "{python}",
+        "-m",
+        "dev.benchmarks.benchmark_cv_coverage",
+        "--backends",
+        "{backend}",
+        "--sizes",
+        "240",
+        "1024",
+        "--features",
+        "16",
+        "--warmup",
+        "1",
+        "--repeats",
+        "3",
+        "--require-backends",
+        "--output",
+        "{output}"
+      ],
+      "smoke_argv": [
+        "{python}",
+        "-m",
+        "dev.benchmarks.benchmark_cv_coverage",
+        "--backends",
+        "{backend}",
+        "--smoke",
+        "--output",
+        "{output}"
+      ],
+      "runner_kind": "correctness-gated-performance-candidate",
+      "execution_status": "scoped_adapter_CPU_smoke_verified",
+      "result_adapter": "common-v2",
+      "capabilities": [
+        "RidgeCV",
+        "LassoCV",
+        "ElasticNetCV",
+        "LogisticRegressionCV",
+        "PenalizedGLM_CV",
+        "CoxPHCV"
+      ],
+      "dependencies": [
+        "numpy",
+        "scipy",
+        "scikit-learn",
+        "statgpu source checkout"
+      ],
+      "evidence_gaps": [
+        "Grid/folds fixed representative profile; full n/p/grid/folds/cache sweep not claimed",
+        "Physical GPU unrun; adapter current-device0 scope, no other ordinal claim",
+        "Legacy canonical CV source runner/schema preserved; new output not directly dashboard-registered"
+      ],
+      "invocation_validation": "new scoped adapter --help verified; worker6CPUcases17tests pass; legacy schema not modified",
+      "case_ids": [
+        "RidgeCV",
+        "LassoCV",
+        "ElasticNetCV",
+        "LogisticRegressionCV",
+        "PenalizedGLM_CV",
+        "CoxPHCV"
+      ],
+      "case_selection_flag": null,
+      "script_sha256": "5aa7e73a3d36e7d3c18cdbf94776215a0b6867ba3eeec74fc6257d3cd258ffe5"
+    }
+  ],
+  "capabilities": [
+    {
+      "api": "statgpu.get_device",
+      "export_name": "get_device",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.set_device",
+      "export_name": "set_device",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.Device",
+      "export_name": "Device",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.BaseEstimator",
+      "export_name": "BaseEstimator",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.LinearRegression",
+      "export_name": "LinearRegression",
+      "operations": [
+        "weighted/unweighted fit",
+        "predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "wrapper:LinearRegression",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.LogisticRegression",
+      "export_name": "LogisticRegression",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "wrapper:LogisticRegression",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.LogisticRegressionCV",
+      "export_name": "LogisticRegressionCV",
+      "operations": [
+        "CV selection",
+        "final full-data refit"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU6families passed; physicalGPU unrun",
+      "entry_id": "six-family-cv",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "LogisticRegressionCV",
+      "reason": "Scoped adapter uses existing numerical runner without requiring unrequested backend rows"
+    },
+    {
+      "api": "statgpu.PoissonRegression",
+      "export_name": "PoissonRegression",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "wrapper:PoissonRegression",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.GammaRegression",
+      "export_name": "GammaRegression",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "wrapper:GammaRegression",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.InverseGaussianRegression",
+      "export_name": "InverseGaussianRegression",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "wrapper:InverseGaussianRegression",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.NegativeBinomialRegression",
+      "export_name": "NegativeBinomialRegression",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "wrapper:NegativeBinomialRegression",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.TweedieRegression",
+      "export_name": "TweedieRegression",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "wrapper:TweedieRegression",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.GeneralizedLinearModel",
+      "export_name": "GeneralizedLinearModel",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Representative CPU direct-fit and all 14 nonrobust/HC0 inference fixtures passed after repair; full physical model/CV coverage remains unvalidated",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "glm:gaussian",
+      "additional_cases": [
+        "glm_inference:gaussian:nonrobust",
+        "glm_inference:gaussian:hc0",
+        "glm_inference:binomial:nonrobust",
+        "glm_inference:binomial:hc0",
+        "glm_inference:poisson:nonrobust",
+        "glm_inference:poisson:hc0",
+        "glm_inference:gamma:nonrobust",
+        "glm_inference:gamma:hc0",
+        "glm_inference:inverse_gaussian:nonrobust",
+        "glm_inference:inverse_gaussian:hc0",
+        "glm_inference:negative_binomial:nonrobust",
+        "glm_inference:negative_binomial:hc0",
+        "glm_inference:tweedie:nonrobust",
+        "glm_inference:tweedie:hc0"
+      ],
+      "inference_status": "14passed-cpu-reference-aligned",
+      "inference_failures": [],
+      "inference_note": "IG/NB HC0 uses observed-Hessian bread matching the independent oracle; optimizer and nonrobust Fisher conventions remain unchanged. Targeted IG/NB P100 cases passed at 07f12e2; broader covariance, weights, link and solver combinations are not certified.",
+      "historical_v2_evidence_status": "Direct fit case CPU passed; IG/NB HC0 inference reference failed; physicalGPU unrun",
+      "historical_v2_inference_status": "12passed2failed-reference-alignment",
+      "historical_v2_inference_failures": [
+        {
+          "case": "glm_inference:inverse_gaussian:hc0",
+          "status": "failed",
+          "category": "reference_alignment",
+          "max_se_difference": 0.004205,
+          "issue": null
+        },
+        {
+          "case": "glm_inference:negative_binomial:hc0",
+          "status": "failed",
+          "category": "reference_alignment",
+          "max_se_difference": 0.013751,
+          "issue": null
+        }
+      ],
+      "historical_v2_inference_note": "Mismatch does not itself establish which sandwich convention public contract requires; independent observed-Hessian oracle matched statsmodels, actual fits use Fisher bread. No issue matching found in bounded live search."
+    },
+    {
+      "api": "statgpu.OrderedGeneralizedLinearModel",
+      "export_name": "OrderedGeneralizedLinearModel",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "ordered/base-logit"
+    },
+    {
+      "api": "statgpu.OrderedLogitRegression",
+      "export_name": "OrderedLogitRegression",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "ordered/logit"
+    },
+    {
+      "api": "statgpu.OrderedProbitRegression",
+      "export_name": "OrderedProbitRegression",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "ordered/probit"
+    },
+    {
+      "api": "statgpu.PenalizedGeneralizedLinearModel",
+      "export_name": "PenalizedGeneralizedLinearModel",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "penalty:l2",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.PenalizedGLM_CV",
+      "export_name": "PenalizedGLM_CV",
+      "operations": [
+        "CV selection",
+        "final full-data refit"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU6families passed; physicalGPU unrun",
+      "entry_id": "six-family-cv",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "PenalizedGLM_CV",
+      "reason": "Scoped adapter uses existing numerical runner without requiring unrequested backend rows"
+    },
+    {
+      "api": "statgpu.PenalizedLinearRegression",
+      "export_name": "PenalizedLinearRegression",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "wrapper:PenalizedLinearRegression",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.PenalizedLogisticRegression",
+      "export_name": "PenalizedLogisticRegression",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "wrapper:PenalizedLogisticRegression",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.PenalizedPoissonRegression",
+      "export_name": "PenalizedPoissonRegression",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "wrapper:PenalizedPoissonRegression",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.PenalizedQuantileRegression",
+      "export_name": "PenalizedQuantileRegression",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "quantile:0.5",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.QuantileRegression",
+      "export_name": "QuantileRegression",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "wrapper:QuantileRegression",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.PenalizedRobustRegression",
+      "export_name": "PenalizedRobustRegression",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "robust:huber",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.PenalizedCoxPHModel",
+      "export_name": "PenalizedCoxPHModel",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "cox:penalized_l2",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.ApproximateCVWarning",
+      "export_name": "ApproximateCVWarning",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.Ridge",
+      "export_name": "Ridge",
+      "operations": [
+        "weighted/unweighted fit",
+        "predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "wrapper:Ridge",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.RidgeCV",
+      "export_name": "RidgeCV",
+      "operations": [
+        "CV selection",
+        "final full-data refit"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU6families passed; physicalGPU unrun",
+      "entry_id": "six-family-cv",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "RidgeCV",
+      "reason": "Scoped adapter uses existing numerical runner without requiring unrequested backend rows"
+    },
+    {
+      "api": "statgpu.Lasso",
+      "export_name": "Lasso",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "wrapper:Lasso",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.LassoCV",
+      "export_name": "LassoCV",
+      "operations": [
+        "CV selection",
+        "final full-data refit"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU6families passed; physicalGPU unrun",
+      "entry_id": "six-family-cv",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "LassoCV",
+      "reason": "Scoped adapter uses existing numerical runner without requiring unrequested backend rows"
+    },
+    {
+      "api": "statgpu.ElasticNet",
+      "export_name": "ElasticNet",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "wrapper:ElasticNet",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.ElasticNetCV",
+      "export_name": "ElasticNetCV",
+      "operations": [
+        "CV selection",
+        "final full-data refit"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU6families passed; physicalGPU unrun",
+      "entry_id": "six-family-cv",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "ElasticNetCV",
+      "reason": "Scoped adapter uses existing numerical runner without requiring unrequested backend rows"
+    },
+    {
+      "api": "statgpu.CoxPH",
+      "export_name": "CoxPH",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "cox:breslow",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.CoxPHCV",
+      "export_name": "CoxPHCV",
+      "operations": [
+        "CV selection",
+        "final full-data refit"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU6families passed; physicalGPU unrun",
+      "entry_id": "six-family-cv",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "CoxPHCV",
+      "reason": "Scoped adapter uses existing numerical runner without requiring unrequested backend rows"
+    },
+    {
+      "api": "statgpu.CoxFitNumericalError",
+      "export_name": "CoxFitNumericalError",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.LossBase",
+      "export_name": "LossBase",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.QuantileLoss",
+      "export_name": "QuantileLoss",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": "model-families",
+      "support_status": "indirect_numerical_consumer_coverage",
+      "case": "quantile:0.5",
+      "reason": "Loss contract exercised through public fitted estimator, no standalone loss microbenchmark"
+    },
+    {
+      "api": "statgpu.HuberLoss",
+      "export_name": "HuberLoss",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": "model-families",
+      "support_status": "indirect_numerical_consumer_coverage",
+      "case": "robust:huber",
+      "reason": "Loss contract exercised through public fitted estimator, no standalone loss microbenchmark"
+    },
+    {
+      "api": "statgpu.CoxPartialLikelihoodLoss",
+      "export_name": "CoxPartialLikelihoodLoss",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": "model-families",
+      "support_status": "indirect_numerical_consumer_coverage",
+      "case": "cox:breslow",
+      "reason": "Loss contract exercised through public fitted estimator, no standalone loss microbenchmark"
+    },
+    {
+      "api": "statgpu.PanelOLS",
+      "export_name": "PanelOLS",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "panel:within",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.FixedEffects",
+      "export_name": "FixedEffects",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "source_alias_of_direct_case",
+      "case": "panel:within",
+      "alias_of": "statgpu.PanelOLS",
+      "alias_evidence": "source assignment in panel/_fixed_effects.py:788 or panel/_random_effects.py:582",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.RandomEffects",
+      "export_name": "RandomEffects",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "panel:random_effects",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.RandomEffectsOLS",
+      "export_name": "RandomEffectsOLS",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "source_alias_of_direct_case",
+      "case": "panel:random_effects",
+      "alias_of": "statgpu.RandomEffects",
+      "alias_evidence": "source assignment in panel/_fixed_effects.py:788 or panel/_random_effects.py:582",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.PooledOLS",
+      "export_name": "PooledOLS",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "panel:pooled",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.BetweenOLS",
+      "export_name": "BetweenOLS",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "panel:between",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.FirstDifferenceOLS",
+      "export_name": "FirstDifferenceOLS",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "panel:first_difference",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.FamaMacBeth",
+      "export_name": "FamaMacBeth",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "model-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "panel:fama_macbeth",
+      "historical_v2_evidence_status": "Named direct-fit case CPU passed; overall model matrix72pass2HC0reference-fail; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.PanelTestResult",
+      "export_name": "PanelTestResult",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.PanelFitStatistics",
+      "export_name": "PanelFitStatistics",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.hausman_test",
+      "export_name": "hausman_test",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "panel-primitives/hausman_test",
+      "existing_scripts": [
+        "dev/benchmarks/validate_panel_stage_b_gpu.py",
+        "dev/benchmarks/validate_panel_stage_c_gpu.py"
+      ]
+    },
+    {
+      "api": "statgpu.pooling_f_test",
+      "export_name": "pooling_f_test",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "panel-primitives/pooling_f_test",
+      "existing_scripts": [
+        "dev/benchmarks/validate_panel_stage_b_gpu.py",
+        "dev/benchmarks/validate_panel_stage_c_gpu.py"
+      ]
+    },
+    {
+      "api": "statgpu.breusch_pagan_lm_test",
+      "export_name": "breusch_pagan_lm_test",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "panel-primitives/breusch_pagan_lm_test",
+      "existing_scripts": [
+        "dev/benchmarks/validate_panel_stage_b_gpu.py",
+        "dev/benchmarks/validate_panel_stage_c_gpu.py"
+      ]
+    },
+    {
+      "api": "statgpu.hac_covariance",
+      "export_name": "hac_covariance",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "panel-primitives/hac_covariance",
+      "existing_scripts": [
+        "dev/benchmarks/validate_panel_stage_b_gpu.py",
+        "dev/benchmarks/validate_panel_stage_c_gpu.py"
+      ]
+    },
+    {
+      "api": "statgpu.driscoll_kraay_covariance",
+      "export_name": "driscoll_kraay_covariance",
+      "operations": [
+        "representative direct fit or numerical operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "panel-primitives/driscoll_kraay_covariance",
+      "existing_scripts": [
+        "dev/benchmarks/validate_panel_stage_b_gpu.py",
+        "dev/benchmarks/validate_panel_stage_c_gpu.py"
+      ]
+    },
+    {
+      "api": "statgpu.get_backend",
+      "export_name": "get_backend",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.NumpyBackend",
+      "export_name": "NumpyBackend",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.CuPyBackend",
+      "export_name": "CuPyBackend",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.TorchBackend",
+      "export_name": "TorchBackend",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.evaluate_binary_classification",
+      "export_name": "evaluate_binary_classification",
+      "operations": [
+        "binary metric evaluation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": "classification-metrics",
+      "support_status": "runner_cpu_smoke_verified",
+      "case": "evaluate_binary_classification"
+    },
+    {
+      "api": "statgpu.FixedXKnockoffSelector",
+      "export_name": "FixedXKnockoffSelector",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "knockoff_fixed",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.KnockoffSelector",
+      "export_name": "KnockoffSelector",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "knockoff_model",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.fixed_x_knockoff_filter",
+      "export_name": "fixed_x_knockoff_filter",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "knockoff_fixed",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.knockoff_filter",
+      "export_name": "knockoff_filter",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "knockoff_model",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.model_x_knockoff_filter",
+      "export_name": "model_x_knockoff_filter",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "knockoff_model",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.StepwiseSelector",
+      "export_name": "StepwiseSelector",
+      "operations": [
+        "search/diagnostic workflow"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": "workflow-families",
+      "support_status": "runner_cpu_smoke_verified",
+      "case": "stepwise"
+    },
+    {
+      "api": "statgpu.stepwise_selection",
+      "export_name": "stepwise_selection",
+      "operations": [
+        "search/diagnostic workflow"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": "workflow-families",
+      "support_status": "runner_cpu_smoke_verified",
+      "case": "stepwise"
+    },
+    {
+      "api": "statgpu.RegressionDiagnostics",
+      "export_name": "RegressionDiagnostics",
+      "operations": [
+        "search/diagnostic workflow"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": "workflow-families",
+      "support_status": "runner_cpu_smoke_verified",
+      "case": "diagnostics"
+    },
+    {
+      "api": "statgpu.diagnose_model",
+      "export_name": "diagnose_model",
+      "operations": [
+        "search/diagnostic workflow"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": "workflow-families",
+      "support_status": "runner_cpu_smoke_verified",
+      "case": "diagnostics"
+    },
+    {
+      "api": "statgpu.adjust_pvalues",
+      "export_name": "adjust_pvalues",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "multiple-testing/adjust/bh"
+    },
+    {
+      "api": "statgpu.combine_pvalues",
+      "export_name": "combine_pvalues",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "multiple-testing/combine/fisher"
+    },
+    {
+      "api": "statgpu.multipletests",
+      "export_name": "multipletests",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "multiple-testing/multipletests/bh"
+    },
+    {
+      "api": "statgpu.bootstrap_statistic",
+      "export_name": "bootstrap_statistic",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "resampling/bootstrap/iid"
+    },
+    {
+      "api": "statgpu.permutation_test",
+      "export_name": "permutation_test",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "resampling/permutation/iid"
+    },
+    {
+      "api": "statgpu.f_oneway",
+      "export_name": "f_oneway",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "anova/f_oneway"
+    },
+    {
+      "api": "statgpu.f_twoway",
+      "export_name": "f_twoway",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "anova/f_twoway"
+    },
+    {
+      "api": "statgpu.f_welch",
+      "export_name": "f_welch",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "anova/f_welch"
+    },
+    {
+      "api": "statgpu.tukey_hsd",
+      "export_name": "tukey_hsd",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "anova/tukey_hsd"
+    },
+    {
+      "api": "statgpu.bonferroni",
+      "export_name": "bonferroni",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "anova/bonferroni"
+    },
+    {
+      "api": "statgpu.cohens_f",
+      "export_name": "cohens_f",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "anova/cohens_f"
+    },
+    {
+      "api": "statgpu.partial_eta_squared",
+      "export_name": "partial_eta_squared",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "anova/partial_eta_squared"
+    },
+    {
+      "api": "statgpu.BandwidthSelectionResult",
+      "export_name": "BandwidthSelectionResult",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.KernelDensityEstimator",
+      "export_name": "KernelDensityEstimator",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "kde",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.KDE",
+      "export_name": "KDE",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "source_alias_subclass_of_direct_case",
+      "case": "kde",
+      "alias_of": "statgpu.KernelDensityEstimator",
+      "alias_evidence": "empty documented alias subclass in kernel_smoothing source",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.KDEBootstrapResult",
+      "export_name": "KDEBootstrapResult",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "not_physically_validated_for_new_runner",
+      "entry_id": null,
+      "support_status": "not_separate_numerical_benchmark",
+      "reason": "configuration/base/result/exception infrastructure; exercised by numerical consumers, not timed as estimator"
+    },
+    {
+      "api": "statgpu.KernelRegression",
+      "export_name": "KernelRegression",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "kernel_regression_nw",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.KernelRegressionRegressor",
+      "export_name": "KernelRegressionRegressor",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "source_alias_subclass_of_direct_case",
+      "case": "kernel_regression_nw",
+      "alias_of": "statgpu.KernelRegression",
+      "alias_evidence": "empty documented alias subclass in kernel_smoothing source",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.KernelRidge",
+      "export_name": "KernelRidge",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "kernel_ridge",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.KernelRidgeCV",
+      "export_name": "KernelRidgeCV",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "kernel_ridge_cv",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.fit_kde",
+      "export_name": "fit_kde",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "smoothing_helpers",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.fit_kernel_regression",
+      "export_name": "fit_kernel_regression",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "smoothing_helpers",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.kde_pdf",
+      "export_name": "kde_pdf",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "smoothing_helpers",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.kde_confidence_interval",
+      "export_name": "kde_confidence_interval",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "kde_normal_ci",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.kernel_regression_predict",
+      "export_name": "kernel_regression_predict",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "smoothing_helpers",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.kde_bootstrap_confidence_interval",
+      "export_name": "kde_bootstrap_confidence_interval",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "kde_bootstrap",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.select_bandwidth",
+      "export_name": "select_bandwidth",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "bandwidth_helpers",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.select_bandwidth_factor",
+      "export_name": "select_bandwidth_factor",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "bandwidth_helpers",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.bspline_basis",
+      "export_name": "bspline_basis",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "bspline_basis",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.natural_cubic_spline_basis",
+      "export_name": "natural_cubic_spline_basis",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "natural_spline",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.SplineTransformer",
+      "export_name": "SplineTransformer",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "spline",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.cyclic_cubic_spline_basis",
+      "export_name": "cyclic_cubic_spline_basis",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed after repair; targeted P100 production/benchmark checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. This does not certify the full physical suite or later changes; published 0.3.0 historical failure evidence is unchanged.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_with_unreleased_repair",
+      "case": "cyclic_spline",
+      "known_issues": [
+        {
+          "number": 216,
+          "url": "https://github.com/TheHiddenObserver/statgpu/issues/216",
+          "state_as_of_20261020": "open",
+          "local_fix": "unreleased candidate; issue not closed by this task"
+        }
+      ],
+      "historical_v2_status": "runnable_known_defect_blocked"
+    },
+    {
+      "api": "statgpu.thin_plate_spline_basis",
+      "export_name": "thin_plate_spline_basis",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "thin_plate_spline",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.chi2_kernel",
+      "export_name": "chi2_kernel",
+      "operations": [],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "chi2_kernel",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.Nystroem",
+      "export_name": "Nystroem",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "nystroem",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.KernelPCA",
+      "export_name": "KernelPCA",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "kernel_pca",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.GAM",
+      "export_name": "GAM",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "gam",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.EmpiricalCovariance",
+      "export_name": "EmpiricalCovariance",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "covariance/EmpiricalCovariance"
+    },
+    {
+      "api": "statgpu.LedoitWolf",
+      "export_name": "LedoitWolf",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "covariance/LedoitWolf"
+    },
+    {
+      "api": "statgpu.OAS",
+      "export_name": "OAS",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "covariance/OAS"
+    },
+    {
+      "api": "statgpu.ShrunkCovariance",
+      "export_name": "ShrunkCovariance",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "covariance/ShrunkCovariance"
+    },
+    {
+      "api": "statgpu.MinCovDet",
+      "export_name": "MinCovDet",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "covariance/MinCovDet"
+    },
+    {
+      "api": "statgpu.GraphicalLasso",
+      "export_name": "GraphicalLasso",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "covariance/GraphicalLasso"
+    },
+    {
+      "api": "statgpu.GraphicalLassoCV",
+      "export_name": "GraphicalLassoCV",
+      "operations": [
+        "representative reference-aligned operation"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "CPU smoke passed; physical GPU unrun",
+      "entry_id": "statistical-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "covariance/GraphicalLassoCV"
+    },
+    {
+      "api": "statgpu.PCA",
+      "export_name": "PCA",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "pca",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.IncrementalPCA",
+      "export_name": "IncrementalPCA",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "incremental_pca",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.TruncatedSVD",
+      "export_name": "TruncatedSVD",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "truncated_svd",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.KMeans",
+      "export_name": "KMeans",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "kmeans",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.MiniBatchKMeans",
+      "export_name": "MiniBatchKMeans",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "minibatch_kmeans",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.DBSCAN",
+      "export_name": "DBSCAN",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "dbscan",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.GaussianMixture",
+      "export_name": "GaussianMixture",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "gaussian_mixture",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.NMF",
+      "export_name": "NMF",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "nmf",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.MiniBatchNMF",
+      "export_name": "MiniBatchNMF",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "minibatch_nmf",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.AgglomerativeClustering",
+      "export_name": "AgglomerativeClustering",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "agglomerative",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.UMAP",
+      "export_name": "UMAP",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "umap",
+      "additional_cases": [
+        "umap_nndescent"
+      ],
+      "known_issues": [
+        {
+          "number": 191,
+          "url": "https://github.com/TheHiddenObserver/statgpu/issues/191",
+          "scope": "NumPy2 NNDescent dispatch; exact method fixture passes"
+        }
+      ],
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.TSNE",
+      "export_name": "TSNE",
+      "operations": [
+        "representative fit/transform/predict"
+      ],
+      "backend_contract": "follow public API; host reporting is not GPU-native execution",
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "entry_id": "learning-families",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "case": "tsne",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.metrics.binary_confusion_matrix",
+      "entry_id": "classification-metrics",
+      "case": "binary_confusion_matrix",
+      "support_status": "runner_cpu_smoke_verified",
+      "operations": [
+        "evaluation"
+      ],
+      "evidence_status": "GPU unrun"
+    },
+    {
+      "api": "statgpu.metrics.binary_classification_table",
+      "entry_id": "classification-metrics",
+      "case": "binary_classification_table",
+      "support_status": "runner_cpu_smoke_verified",
+      "operations": [
+        "evaluation"
+      ],
+      "evidence_status": "GPU unrun"
+    },
+    {
+      "api": "statgpu.metrics.binary_roc_curve",
+      "entry_id": "classification-metrics",
+      "case": "binary_roc_curve",
+      "support_status": "runner_cpu_smoke_verified",
+      "operations": [
+        "evaluation"
+      ],
+      "evidence_status": "GPU unrun"
+    },
+    {
+      "api": "statgpu.metrics.binary_roc_auc_score",
+      "entry_id": "classification-metrics",
+      "case": "binary_roc_auc_score",
+      "support_status": "runner_cpu_smoke_verified",
+      "operations": [
+        "evaluation"
+      ],
+      "evidence_status": "GPU unrun"
+    },
+    {
+      "api": "statgpu.metrics.binary_precision_recall_curve",
+      "entry_id": "classification-metrics",
+      "case": "binary_precision_recall_curve",
+      "support_status": "runner_cpu_smoke_verified",
+      "operations": [
+        "evaluation"
+      ],
+      "evidence_status": "GPU unrun"
+    },
+    {
+      "api": "statgpu.metrics.binary_average_precision_score",
+      "entry_id": "classification-metrics",
+      "case": "binary_average_precision_score",
+      "support_status": "runner_cpu_smoke_verified",
+      "operations": [
+        "evaluation"
+      ],
+      "evidence_status": "GPU unrun"
+    },
+    {
+      "api": "statgpu.inference.norm",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
+    },
+    {
+      "api": "statgpu.inference.t",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
+    },
+    {
+      "api": "statgpu.inference.chi2",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
+    },
+    {
+      "api": "statgpu.inference.f",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_with_unreleased_repair",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "known_issues": [
+        {
+          "number": 173,
+          "url": "https://github.com/TheHiddenObserver/statgpu/issues/173",
+          "state_as_of_20261020": "open",
+          "scope": "native F rvs uses wrong NumPy keyword names; rvs dtype discarded across families",
+          "local_fix": "unreleased candidate; issue not closed by this task"
+        }
+      ],
+      "evidence_status": "CPU smoke passed after repair; targeted P100 production/benchmark checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. This does not certify the full physical suite or later changes; published 0.3.0 historical failure evidence is unchanged.",
+      "historical_v2_status": "direct_case_cpu_smoke_known_failure"
+    },
+    {
+      "api": "statgpu.inference.beta",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
+    },
+    {
+      "api": "statgpu.inference.gamma",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
+    },
+    {
+      "api": "statgpu.inference.poisson",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
+    },
+    {
+      "api": "statgpu.inference.binom",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
+    },
+    {
+      "api": "statgpu.inference.expon",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
+    },
+    {
+      "api": "statgpu.inference.uniform",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
+    },
+    {
+      "api": "statgpu.inference.cauchy",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
+    },
+    {
+      "api": "statgpu.inference.laplace",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
+    },
+    {
+      "api": "statgpu.inference.logistic",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
+    },
+    {
+      "api": "statgpu.inference.lognorm",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
+    },
+    {
+      "api": "statgpu.inference.weibull_min",
+      "entry_id": "statistical-families",
+      "case": "distributions",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "cdf",
+        "sf",
+        "ppf",
+        "isf",
+        "pdf-or-pmf",
+        "rvs"
+      ],
+      "explicit_uncovered_axes": [
+        "exhaustive tails and parameter combinations",
+        "sampling goodness-of-fit beyond moment/shape checks",
+        "legacy alias entrypoints not independently timed"
+      ],
+      "evidence_status": "Representative CPU smoke passed; targeted P100 checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. Evidence is limited to the recorded distribution/UMAP fixtures, not full physical-suite or subsequent-change validation."
+    },
+    {
+      "api": "statgpu.nonparametric.pairwise_kernels",
+      "entry_id": "learning-families",
+      "case": "pairwise_kernels",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "kernel matrix"
+      ],
+      "evidence_status": "Mapped CPU case passed on the unreleased repair candidate; aliases/indirect-consumer classifications unchanged; physical GPU unrun.",
+      "historical_v2_evidence_status": "Named case CPU passed unless known_issues states otherwise; overall learning42pass2knownblocked; physicalGPU unrun"
+    },
+    {
+      "api": "statgpu.LinearRegression multi-target workflow",
+      "entry_id": "workflow-families",
+      "case": "multitarget",
+      "support_status": "runner_cpu_smoke_verified",
+      "operations": [
+        "fit",
+        "predict"
+      ],
+      "explicit_uncovered_axes": [
+        "GPU physical verification",
+        "multi-output inference unsupported here"
+      ]
+    },
+    {
+      "api": "formula model-matrix workflow",
+      "entry_id": "workflow-families",
+      "case": "formula",
+      "support_status": "runner_cpu_smoke_verified",
+      "operations": [
+        "patsy preparation",
+        "fit parity"
+      ],
+      "explicit_uncovered_axes": [
+        "full R-formula grammar",
+        "all model families"
+      ]
+    },
+    {
+      "api": "statgpu.panel.clustered_covariance",
+      "entry_id": "statistical-families",
+      "case": "panel-primitives/clustered_covariance",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "covariance"
+      ],
+      "evidence_status": "GPU unrun"
+    },
+    {
+      "api": "statgpu.panel.two_way_clustered_covariance",
+      "entry_id": "statistical-families",
+      "case": "panel-primitives/two_way_clustered_covariance",
+      "support_status": "direct_case_implemented_cpu_smoke",
+      "operations": [
+        "covariance"
+      ],
+      "evidence_status": "GPU unrun"
+    },
+    {
+      "api": "UMAP NNDescent path",
+      "entry_id": "learning-families",
+      "case": "umap_nndescent",
+      "support_status": "direct_case_with_unreleased_repair",
+      "operations": [
+        "approximate neighbor construction via UMAP"
+      ],
+      "known_issues": [
+        {
+          "number": 191,
+          "url": "https://github.com/TheHiddenObserver/statgpu/issues/191",
+          "local_fix": "unreleased candidate; issue not closed by this task"
+        }
+      ],
+      "explicit_uncovered_axes": [
+        "standalone neighbor recall/time matrix independent of embedding",
+        "NumPy1 versus2 and physicalGPU rerun"
+      ],
+      "historical_v2_status": "runnable_known_defect_blocked",
+      "evidence_status": "CPU smoke passed after repair; targeted P100 production/benchmark checks passed at 9a6145d187da1000703bc4a20d990ef72d44b893. This does not certify the full physical suite or later changes; published 0.3.0 historical failure evidence is unchanged."
+    }
+  ],
+  "legacy_runners": [
+    {
+      "script": "dev/benchmarks/benchmark_penalized_glm.py",
+      "scope": "penalized GLM 7 loss × 10 penalty legacy matrix",
+      "safe_to_execute": false,
+      "disposition": "legacy protocol and private import must be reviewed; no automatic execution",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--remote",
+        "--output",
+        "--no-precision",
+        "--no-performance",
+        "--skip-large"
+      ],
+      "sha256": "3cc2b7d21fa556e978d93dcd1d95e6b09c76d504f955c23b6889cbea8ec2ac1b"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_glm_solver.py",
+      "scope": "GLM solver matrix",
+      "safe_to_execute": false,
+      "disposition": "security_review_required: tracked remote credential constants; do not execute remote route",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--precision",
+        "--performance",
+        "--all",
+        "--output",
+        "-o"
+      ],
+      "sha256": "565cac95d6202388e2f5d721d67e632020df1011bfe70ff2a6e411c73ca0f981"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_new_modules.py",
+      "scope": "Panel / GAM / ANOVA",
+      "safe_to_execute": false,
+      "disposition": "security_review_required: tracked remote credential constants; use new safe runners",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--module",
+        "--backend",
+        "--scale",
+        "--output",
+        "-o"
+      ],
+      "sha256": "ea7ff56250a8ba321d7728949966cb00c0f6cbaffdf3baaf56dc50d643d757b0"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_distributions.py",
+      "scope": "Distribution API",
+      "safe_to_execute": false,
+      "disposition": "security_review_required: tracked remote credential constants; use new safe runner",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--remote",
+        "--output",
+        "--no-precision",
+        "--no-performance",
+        "--large-only",
+        "--skip-large"
+      ],
+      "sha256": "e2bf38a702d4e4a3e88fa38f875d2fbe44af888b22572f0f1011f35920677872"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_survival_completion.py",
+      "scope": "Cox fit/CV/inference/prediction",
+      "safe_to_execute": false,
+      "disposition": "three-backend gate and required physical execution; not tiny smoke",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--scale",
+        "--seed",
+        "--repeats",
+        "--warmups",
+        "--output"
+      ],
+      "sha256": "7200241b77b984983c31afef3e3dae24e284f530bf4b13779cdd37e9c35f13d2"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_exact_ties_scaling.py",
+      "scope": "Cox exact ties, delayed entry and strata",
+      "safe_to_execute": false,
+      "disposition": "R optional, slow combinatorial scaling; separate physical lane",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--sizes",
+        "--features",
+        "--seed",
+        "--scaling-scenario",
+        "--strata-count",
+        "--repeats",
+        "--largest-repeats",
+        "--reduced-repeat-from",
+        "--devices",
+        "--include-r",
+        "--r-alignment-size",
+        "--skip-r-alignment",
+        "--r-timeout",
+        "--r-repeats",
+        "--output"
+      ],
+      "sha256": "b92df19066d9475b8bed60436ca6103d155e29130c22625c0d9366313b8fe115"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_exact_strata_count_scaling.py",
+      "scope": "Cox strata scaling",
+      "safe_to_execute": false,
+      "disposition": "physical lane; configurable devices",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--strata-counts",
+        "--rows-per-stratum",
+        "--features",
+        "--seed",
+        "--repeats",
+        "--devices",
+        "--output"
+      ],
+      "sha256": "7e3c374d51e13b8ce741df342ff5445ec966530efe552158a7d5be7da0caa8c6"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_penalized_cox_trusted_gradient.py",
+      "scope": "SCAD/MCP Cox derivative/fit",
+      "safe_to_execute": false,
+      "disposition": "correctness-oriented; not generic performance coverage",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--devices",
+        "--ties",
+        "--penalties",
+        "--alpha",
+        "--output"
+      ],
+      "sha256": "a6754d02ef0d24b793229dcec5c9e18d9784fd1299800f0f3759619a6d03b5f1"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_pr80_final_gpu_suite.py",
+      "scope": "penalized Cox final physical acceptance",
+      "safe_to_execute": false,
+      "disposition": "exact-source physical validator; not generic runtime benchmark",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--output"
+      ],
+      "sha256": "8977e52006f29b1ff43fbb58fb44ca6e39889153cdb4a40a095cf4f821be8f10"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_group_nonconvex_weighted_gpu.py",
+      "scope": "weighted group MCP/SCAD direct/CV",
+      "safe_to_execute": false,
+      "disposition": "physical correctness gate; not performance proof",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--output"
+      ],
+      "sha256": "ef81ed44d53c062ef3066ac41967b5a3ecc9885a30c4dbf361a2014535a39408"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_group_cv_object_gpu.py",
+      "scope": "group CV object semantics",
+      "safe_to_execute": false,
+      "disposition": "physical correctness gate; not performance proof",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--output"
+      ],
+      "sha256": "4ff0003be88340b468d5d2fd2128dc6b6766e6e52338237c445ffcf04493cbcf"
+    },
+    {
+      "script": "dev/benchmarks/run_quantile_smooth_fista_gpu_gate.py",
+      "scope": "quantile smooth FISTA",
+      "safe_to_execute": false,
+      "disposition": "clean exact-source gate; not performance proof",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--output"
+      ],
+      "sha256": "9acbc4b89aa853ea78aa0d3653523f09a6e9542ccfa60aa21462eb322bbd4a78"
+    },
+    {
+      "script": "dev/benchmarks/run_quantile_group_lla_gpu_gate.py",
+      "scope": "quantile group LLA",
+      "safe_to_execute": false,
+      "disposition": "clean exact-source gate; not performance proof",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--output"
+      ],
+      "sha256": "9e5886fa8b6ff19b83f73082acd17e70c7dcbb9e3dd4d65ca8daf8cdc1386e1e"
+    },
+    {
+      "script": "dev/benchmarks/run_quantile_solver_provenance_gpu_gate.py",
+      "scope": "quantile solver provenance",
+      "safe_to_execute": false,
+      "disposition": "clean exact-source gate; not performance proof",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--output"
+      ],
+      "sha256": "2b4d54a51edf11cc30c2d30870ba23f7dbf8ec872b7beca296b280f585595cd9"
+    },
+    {
+      "script": "dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py",
+      "scope": "Gaussian backend-native inference",
+      "safe_to_execute": false,
+      "disposition": "physical correctness gate; not performance proof",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--out",
+        "--expected-sha",
+        "--validation-tier",
+        "--backends"
+      ],
+      "sha256": "bd104cb8577927c537b4bd7d7d8eca369e579d8bd181ebb87b7bd14b9946d3d2"
+    },
+    {
+      "script": "dev/benchmarks/validate_penalized_glm_inference_gpu.py",
+      "scope": "penalized GLM inference",
+      "safe_to_execute": false,
+      "disposition": "physical correctness gate; not performance proof",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--output"
+      ],
+      "sha256": "36bb30844ca8cc68939e177299aa16297c52257632094642f194fe088eca0ec1"
+    },
+    {
+      "script": "dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py",
+      "scope": "Gaussian residual bootstrap",
+      "safe_to_execute": false,
+      "disposition": "physical correctness gate; not performance proof",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--output"
+      ],
+      "sha256": "9b170b812c86a9671b6047ac3932b59264cafcad209fb874c7a9acb4a944de19"
+    },
+    {
+      "script": "dev/benchmarks/validate_nodewise_alpha_gpu.py",
+      "scope": "nodewise alpha",
+      "safe_to_execute": false,
+      "disposition": "physical correctness gate; not performance proof",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--output"
+      ],
+      "sha256": "2c0158ca7292eb13495734d144ff1266e0b2b049b46aec96799b3d7ac37ac9e7"
+    },
+    {
+      "script": "dev/benchmarks/validate_post_selection_ols_gpu.py",
+      "scope": "post-selection OLS",
+      "safe_to_execute": false,
+      "disposition": "physical correctness gate; not performance proof",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--backends",
+        "--output"
+      ],
+      "sha256": "f0c2a3389d1dd9f8460cc61eed9508f895e7fea1de7fcd75de06c084f68ddd0e"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_panel_stage_c_covariance.py",
+      "scope": "Panel covariance paths",
+      "safe_to_execute": false,
+      "disposition": "expected SHA required, physical performance separate from numerical gate",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--out",
+        "--expected-sha",
+        "--backends",
+        "--scales",
+        "--high-t-scale",
+        "--two-way-unbalanced-scale",
+        "--repeats"
+      ],
+      "sha256": "3d8b336686a40e9dcc1b1a0f7f84b5f7bd87640e34a1831a29afdfe142367eca"
+    },
+    {
+      "script": "dev/benchmarks/validate_panel_stage_c_gpu.py",
+      "scope": "Panel Stage C covariance and prediction identifiability",
+      "safe_to_execute": false,
+      "disposition": "expected SHA required physical correctness gate",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--out",
+        "--expected-sha",
+        "--validation-tier",
+        "--backends",
+        "--rtol",
+        "--atol"
+      ],
+      "sha256": "cf85d76d9549d803f8120074f1ccbe6027b0f71399dca5cb88f078b46b874306"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py",
+      "scope": "FamaMacBeth scaling",
+      "safe_to_execute": false,
+      "disposition": "expected SHA and explicit validation tier; physical lane",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--out",
+        "--expected-sha",
+        "--validation-tier",
+        "--backends",
+        "--warmup",
+        "--repeats"
+      ],
+      "sha256": "aff154b4d736ca40839a3f8bea1bdcdf630f7ea6116c6fc17b96c7abeb9318eb"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_hc2_hc3_hac_gate.py",
+      "scope": "OLS/logit HC2 HC3 HAC",
+      "safe_to_execute": false,
+      "disposition": "focused existing inference gate",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--model",
+        "--n",
+        "--p",
+        "--seed",
+        "--cov-types",
+        "--hac-maxlags",
+        "--repeats",
+        "--skip-statsmodels",
+        "--skip-gpu",
+        "--skip-torch",
+        "--json-out"
+      ],
+      "sha256": "b4b2e20a41aef2b8b2fb6224118c3bdf43691f1866a8688e8e75cbb99a91a10b"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_inference_backends.py",
+      "scope": "multiple testing and resampling",
+      "safe_to_execute": false,
+      "disposition": "fixed historical scales, output tag not output path; protocol adapter required",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--strict-scalar",
+        "--output-tag"
+      ],
+      "sha256": "9de22416f628393f9675026c26bf805aecf2c5157ce3cb790d5b9482b357430e"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_resampling_strategy_and_external.py",
+      "scope": "resampling strategy/external",
+      "safe_to_execute": false,
+      "disposition": "fixed historical scales, protocol adapter required",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--strict-scalar",
+        "--output-tag"
+      ],
+      "sha256": "399ea9726b79ee5912a128efa7608748c7969584c5e4ff5f8ad3b4b4fc2f9fde"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_nonparametric_comparison_suite.py",
+      "scope": "KDE/kernel regression Python and R",
+      "safe_to_execute": false,
+      "disposition": "composed external suite; R optional; not all nonparametric public APIs",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--n-samples",
+        "--n-eval",
+        "--repeats",
+        "--warmup",
+        "--ci-resamples",
+        "--ci-confidence-level",
+        "--ci-repeats",
+        "--ci-warmup",
+        "--n-ci-eval",
+        "--seed",
+        "--bandwidth-abs",
+        "--skip-r",
+        "--json-out"
+      ],
+      "sha256": "f5467e154f1ff269b6b11c16ac5c3466e0d5b0dd69ec575711269d65478f6ae6"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_kde_vs_scipy.py",
+      "scope": "KDE weighted and unweighted",
+      "safe_to_execute": false,
+      "disposition": "existing parameterized reference benchmark",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--n-samples",
+        "--n-eval",
+        "--dim",
+        "--bandwidth",
+        "--weighted",
+        "--repeats",
+        "--warmup",
+        "--seed",
+        "--json-out"
+      ],
+      "sha256": "297459122180751637df1e6a500ecdfabb2b2a5726719f5fde14daff9d9689b7"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py",
+      "scope": "kernel regression NW/local linear",
+      "safe_to_execute": false,
+      "disposition": "existing parameterized reference benchmark",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--n-samples",
+        "--n-eval",
+        "--dim",
+        "--noise-scale",
+        "--bandwidth-abs",
+        "--kernel",
+        "--regression",
+        "--kernel-metric",
+        "--repeats",
+        "--warmup",
+        "--seed",
+        "--json-out"
+      ],
+      "sha256": "4218e343a742451997d9d54ae7f129f8eefb8d19d299bd576af4b2e3964ae91b"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_unsupervised_external_matrix.py",
+      "scope": "PCA/KMeans external matrix",
+      "safe_to_execute": false,
+      "disposition": "PCA/KMeans only, R optional",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--seed",
+        "--n",
+        "--p",
+        "--k-data",
+        "--components",
+        "--ks",
+        "--devices",
+        "--pca-solver",
+        "--methods",
+        "--preload-device-data",
+        "--warmup-runs",
+        "--repeats",
+        "--r-timeout",
+        "--kmeans-max-iter",
+        "--json-out"
+      ],
+      "sha256": "337b3a6993618e5ae1c2bf810291fbb88d5de675428a0422d99fcac91288c7ee"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_unsupervised_phase2.py",
+      "scope": "DBSCAN/GMM/NMF/Agglomerative",
+      "safe_to_execute": false,
+      "disposition": "legacy fixed cases; inspect convergence and actual device prior to publication",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--seed",
+        "--devices",
+        "--repeats",
+        "--warmup-runs",
+        "--json-out"
+      ],
+      "sha256": "04e18fd2f9fad83ec460be35aaa4175151c63bf5014b3f342915b0320a93344a"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_unsupervised_phase3.py",
+      "scope": "MiniBatchKMeans/TruncatedSVD/TSNE/UMAP",
+      "safe_to_execute": false,
+      "disposition": "external R optional, slow manifold cases",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--n",
+        "--p",
+        "--k",
+        "--components",
+        "--neighbors",
+        "--batch-size",
+        "--mb-iter",
+        "--manifold-epochs",
+        "--tsne-iter",
+        "--perplexity",
+        "--svd-algorithm",
+        "--seed",
+        "--warmup",
+        "--repeats",
+        "--json-out",
+        "--md-out",
+        "--devices",
+        "--skip-external",
+        "--skip-r",
+        "--print-json",
+        "--debug-timeout"
+      ],
+      "sha256": "46c3ec93251321f0c6e4a851817413d7adf39a89666217945bc84a252490b965"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_unsupervised_phase3b.py",
+      "scope": "GMM/Agglomerative",
+      "safe_to_execute": false,
+      "disposition": "duplicate historical extension; use specific case identity",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--n",
+        "--p",
+        "--k",
+        "--seed",
+        "--gmm-iter",
+        "--tol",
+        "--warmup",
+        "--repeats",
+        "--devices",
+        "--skip-r",
+        "--json-out",
+        "--md-out",
+        "--print-json"
+      ],
+      "sha256": "f3a064e228f38a0c1a076ad62b7d1eb432ebe3476721405ae21c7e84d30f3e58"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_unsupervised_phase3c.py",
+      "scope": "IncrementalPCA/MiniBatchNMF",
+      "safe_to_execute": false,
+      "disposition": "legacy batch scale matrix",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--n",
+        "--p",
+        "--components",
+        "--batch-size",
+        "--max-iter",
+        "--seed",
+        "--warmup",
+        "--repeats",
+        "--devices",
+        "--json-out",
+        "--md-out",
+        "--print-json"
+      ],
+      "sha256": "17da594117ce167bc2fd4b453c25c8b86bab2372a9859f70649f2fa215fe6655"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_knockoff_fdr_calibration.py",
+      "scope": "Knockoff FDR/power",
+      "safe_to_execute": false,
+      "disposition": "Monte Carlo uncertainty and seeds retained; not replaced by one fit smoke",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--n-samples",
+        "--n-features",
+        "--n-signal",
+        "--n-seeds",
+        "--q",
+        "--method",
+        "--rho-values",
+        "--noise-scales",
+        "--include-gpu",
+        "--include-torch",
+        "--json-out",
+        "--md-out"
+      ],
+      "sha256": "52cf9cc3a0f8889ae14f7058220143351bc73bd4449ed2de5aa22ed6163cb88a"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_knockoff_same_xk_parity.py",
+      "scope": "Knockoff same-Xk parity",
+      "safe_to_execute": false,
+      "disposition": "fixed-data cross-backend correctness",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--seed",
+        "--n-samples",
+        "--n-features",
+        "--n-signal",
+        "--rho",
+        "--noise-scale",
+        "--q",
+        "--method",
+        "--lasso-cv-impl",
+        "--output"
+      ],
+      "sha256": "97ca1a89269d38d41ea9722546f81347101369f1e25304a9f369b2e52f9eaf21"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_multitarget_sklearn_r.py",
+      "scope": "Multi-target OLS",
+      "safe_to_execute": false,
+      "disposition": "CPU-only one-shot legacy runner; new workflow suite preferred",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--seed",
+        "--n-samples",
+        "--n-features",
+        "--n-targets",
+        "--noise-std",
+        "--test-ratio",
+        "--json-out",
+        "--skip-r"
+      ],
+      "sha256": "e51d0ef7d3d3351cc694a537e92d09957eec5a2ab878a799a28a70408b968c2b"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_gpu_memory_cleanup.py",
+      "scope": "post-fit memory cleanup",
+      "safe_to_execute": false,
+      "disposition": "pool snapshots are not peak-memory measurements",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--n_samples",
+        "--n_features",
+        "--seed",
+        "--models",
+        "--repeats",
+        "--warmup_runs"
+      ],
+      "sha256": "b17388f776d1856d1a7adf05a46883a124d22794808341d693a70cbd50b0a0eb"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_torch_compile_maintenance.py",
+      "scope": "torch.compile correctness and cold/warm paths",
+      "safe_to_execute": false,
+      "disposition": "torch physical dependency; separate compile protocol",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--output",
+        "--repeats",
+        "--child",
+        "--mode",
+        "--child-output"
+      ],
+      "sha256": "f3d68f29f6b96b5133130dbb884dca657844b07aff1838a5cd9f712c56368412"
+    },
+    {
+      "script": "dev/benchmarks/benchmark_torch_compile_scale.py",
+      "scope": "torch.compile scaling",
+      "safe_to_execute": false,
+      "disposition": "physical dependency and subprocess protocol",
+      "invocation_validation": "CLI declarations and source read, not executed; no remote access",
+      "declared_cli_flags": [
+        "--output",
+        "--summary-output",
+        "--preset",
+        "--scales",
+        "--cases",
+        "--repeats",
+        "--child",
+        "--mode",
+        "--case",
+        "--n-samples",
+        "--n-features",
+        "--child-output"
+      ],
+      "sha256": "027a78c606ead7097a54d228f436d95a16ba843e3e6db3ab97aad79348f87a25"
+    }
+  ],
+  "global_uncovered_axes": [
+    "All combinations of loss × penalty × solver × dtype × backend × size × inference × CV are not claimed",
+    "Full seven-suite physical CUDA acceptance and R validation remain unestablished; targeted P100 evidence is source- and scope-specific",
+    "Full Monte Carlo coverage/FDR/power distributions need independent repeated-seed runs",
+    "Nondefault GPU ordinal, multi-GPU, MPS, compiled-extension parity, peak-memory and OOM capacity remain separate hardware/protocol lanes",
+    "Current release dashboard parser/manifest registration remains pending after physical validation"
+  ],
+  "inventory_scope": {
+    "top_level_exports": 124,
+    "top_level_export_source": "statgpu/__init__.py:__all__",
+    "additional_module_apis": "binary metric functions,distribution families,pairwise kernels,Panel covariance primitives and explicit workflows",
+    "coverage_definition": "Each top-level export inventoried; result/base/config types exempt. An inventory row is not numerical closure. Exact cases and public aliases must be distinguished."
+  },
+  "local_repair_state": {
+    "status": "local-cpu-validated-unreleased",
+    "base_sha": "efbfb80570eb1632e0605d68d410715dac4d9be8",
+    "physical_cuda_validation": "Targeted P100 regression passed at 07f12e2ca10e294153bbfd8da5e449bcfd425cbe; full seven-suite physical acceptance remains unestablished",
+    "prior_failed_evidence": "v2 artifacts remain historical and unchanged",
+    "publication": "branch publication authorized on 2026-10-20; not merged or released",
+    "cpu_smoke": "316/316 cases passed; see repair artifact summary for exact source fingerprints"
+  },
+  "historical_v2_runtime_limits": [
+    {
+      "issue": 173,
+      "url": "https://github.com/TheHiddenObserver/statgpu/issues/173",
+      "entry_id": "statistical-families",
+      "case": "distributions/f/rvs",
+      "outcome": "failed"
+    },
+    {
+      "issue": 216,
+      "url": "https://github.com/TheHiddenObserver/statgpu/issues/216",
+      "entry_id": "learning-families",
+      "case": "cyclic_spline",
+      "outcome": "blocked-known-defect"
+    },
+    {
+      "issue": 191,
+      "url": "https://github.com/TheHiddenObserver/statgpu/issues/191",
+      "entry_id": "learning-families",
+      "case": "umap_nndescent",
+      "outcome": "blocked-known-defect"
+    }
+  ]
+}

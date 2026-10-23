@@ -1,8 +1,10 @@
 # StatGPU Documentation
 
 > Language: English  
-> Last updated: 2026-10-17  
+> Last updated: 2026-10-20  
 > Switch: [Chinese](../cn/README.md)
+
+Website and online documentation: [statgpu.github.io](https://statgpu.github.io/).
 
 ## Getting Started
 
@@ -41,6 +43,7 @@ Each family entry leads to its tutorials and complete API reference.
 - [Distribution API](guides/distribution-api.md) — statistical distribution functions
 - [Regression Diagnostics](guides/regression-diagnostics.md) — residuals, leverage, Cook’s distance, and VIF
 - [Inference Modes](guides/inference-modes.md) — choosing and interpreting coefficient-inference methods
+- [Native KDE bootstrap](guides/native-kde-bootstrap.md) — pointwise density intervals, backend selection, bandwidths, and interpretation
 - [Multiple Testing overview](models/testing/multiple-testing.md) — choose a family, error criterion, or global test
 - [P-value adjustment and combination API](guides/multiple-testing-combine-pvalues.md) — complete signatures, shapes, and numerical limits
 - [Benchmarks](guides/benchmarks.md) — benchmark methodology and comparison notes

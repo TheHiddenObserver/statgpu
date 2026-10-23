@@ -4,10 +4,8 @@ Reference comparisons use scalar parameters, float64 NumPy outputs and moderate
 probabilities. They do not establish GPU accuracy or an extreme-tail guarantee.
 """
 
-import linecache
 import re
 import warnings
-from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -183,52 +181,14 @@ def test_native_family_methods_match_scipy_and_moderate_inverse_identities(name,
         np.testing.assert_allclose(fixed.sf(fixed.isf(q, **parameters), **parameters), q, atol=1e-12)
 
 
-class _FSamplingKeywordMismatch(Exception):
-    """The F sampler passes the two known wrong NumPy keywords."""
-
-
-@contextmanager
-def _known_f_sampling_failure():
-    try:
-        yield
-    except TypeError as error:
-        # Require the exact NumPy error and its direct _rvs_f call boundary.
-        # A fixture, backend, or unrelated sampler TypeError must fail normally.
-        traceback = error.__traceback__
-        caller = None
-        while traceback.tb_next is not None:
-            caller, traceback = traceback, traceback.tb_next
-        if (
-            str(error) == "f() got an unexpected keyword argument 'dfn'"
-            and caller is not None
-            and caller.tb_frame.f_code is distributions._rvs_f.__code__
-            and linecache.getline(caller.tb_frame.f_code.co_filename, caller.tb_lineno).strip()
-            == "out = np.random.f(dfn=float(dfn), dfd=float(dfd), size=size)"
-            and traceback.tb_frame.f_code.co_filename == "numpy/random/mtrand.pyx"
-            and traceback.tb_frame.f_code.co_name == "numpy.random.mtrand.RandomState.f"
-        ):
-            raise _FSamplingKeywordMismatch(str(error)) from error
-        raise
-
-
-# This describes an intended successful call, not a desired TypeError contract.
-# Remove the expected failure and the guide limitation after the production fix.
-_F_SAMPLING_BUG = pytest.mark.xfail(
-    strict=True,
-    raises=_FSamplingKeywordMismatch,
-    reason="Existing _rvs_f bug: np.random.f expects dfnum/dfden, not dfn/dfd",
-)
-
-
 @pytest.mark.parametrize(
     "name, parameters",
-    [pytest.param(name, parameters, id=name, marks=[_F_SAMPLING_BUG] if name == "f" else [])
+    [pytest.param(name, parameters, id=name)
      for name, parameters, _ in _FAMILIES],
 )
 def test_native_sampling_shapes_and_finite_observations(name, parameters):
     fixed = inference.get_distribution(name, backend="numpy")
-    with _known_f_sampling_failure():
-        draws = fixed.rvs(size=(2, 3), **parameters)
+    draws = fixed.rvs(size=(2, 3), **parameters)
     assert draws.shape == (2, 3)
     assert np.all(np.isfinite(draws))
 
@@ -320,7 +280,7 @@ def test_retained_r_wrappers_match_keyword_shape_object_calls(suffix, name, para
 
 @pytest.mark.parametrize(
     "suffix, name, parameters",
-    [pytest.param(suffix, name, parameters, id=suffix, marks=[_F_SAMPLING_BUG] if name == "f" else [])
+    [pytest.param(suffix, name, parameters, id=suffix)
      for suffix, name, parameters in _R_FAMILIES],
 )
 def test_retained_r_sampling_wrapper_matches_object_call(suffix, name, parameters):
@@ -328,12 +288,10 @@ def test_retained_r_sampling_wrapper_matches_object_call(suffix, name, parameter
         warnings.simplefilter("always", DeprecationWarning)
         np.random.seed(123)
         old_sampler = getattr(inference, f"r{suffix}_gpu")
-        with _known_f_sampling_failure():
-            old_sample = old_sampler(size=5, **parameters)
+        old_sample = old_sampler(size=5, **parameters)
         np.random.seed(123)
         new_sampler = getattr(inference, name).rvs
-        with _known_f_sampling_failure():
-            new_sample = new_sampler(size=5, **parameters)
+        new_sample = new_sampler(size=5, **parameters)
         np.testing.assert_array_equal(old_sample, new_sample)
     assert not [warning for warning in caught if issubclass(warning.category, DeprecationWarning)]
 

@@ -18,7 +18,7 @@ def read(path):
 
 
 @pytest.mark.parametrize("language", ["en", "cn"])
-def test_ridge_reference_keeps_current_support_boundary_and_external_cv_alternative(language):
+def test_ridge_reference_keeps_exact_split_contract_and_preprocessing_guidance(language):
     text = read(f"docs/{language}/reference/linear-model-api.md")
     section = text.split("### Custom RidgeCV training subsets" if language == "en"
                          else "### RidgeCV 自定义训练子集", 1)[1]
@@ -26,13 +26,15 @@ def test_ridge_reference_keeps_current_support_boundary_and_external_cv_alternat
     section = " ".join(section.split())
     assert "sample_weight" in section
     required = (
-        ("is omitted", "cover every row exactly once", "full complement",
-         "not reliably honored", "incorrect validation scores or alpha selection", "without an error",
-         "external CV loop", "fit `Ridge`", "intended training subset",
-         "designated validation rows", "ordinary K-fold CV") if language == "en" else
-        ("未提供", "恰好覆盖每一行一次", "完整补集", "较小的训练子集", "得到可靠采用",
-         "即使未报错，验证评分或 alpha 选择也可能不正确", "外部交叉验证循环", "拟合 `Ridge`",
-         "指定训练子集", "验证行上评估", "普通 K 折交叉验证")
+        ("exactly the supplied training rows", "with or without", "full complement",
+         "every row exactly once", "need not cover all observations", "ValueError",
+         "external CV loop", "final refit uses all rows", "designated validation rows",
+         "ordinary K-fold CV", "fewer than four observations", "one alpha candidate",
+         "`cv>=2`", "positive total sample weight", "individual zero weights") if language == "en" else
+        ("无论是否提供", "恰好覆盖每一行一次", "完整补集", "指定训练行", "验证集不必",
+         "覆盖全部观测", "ValueError", "外部交叉验证循环", "最终重拟合",
+         "全部行", "验证行上评估", "普通 K 折交叉验证", "不足四行", "一个 alpha 候选",
+         "`cv>=2`", "权重总量都必须为正", "权重可以为零")
     )
     for term in required:
         assert term in section, term

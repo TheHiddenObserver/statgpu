@@ -1,7 +1,7 @@
 # Ridge
 
 > 语言：中文  
-> 最后更新：2026-10-09<br>
+> 最后更新：2026-10-17<br>
 > 页面定位：模型文档  
 > 切换：[English](../../../en/models/regression/ridge.md)
 
@@ -257,8 +257,9 @@ Ridge 只接受单一响应，不提供 LinearRegression 的多目标接口。
 及[可独立运行的 CPU 调参示例](../../reference/linear-model-api.md#ridgecv-and-lassocv-cpu-example)
 见 API 参考。直接模型与交叉验证的构造参数并不相同。
 
-自定义非互补训练子集应先阅读 [RidgeCV 限制](../../reference/linear-model-api.md#custom-ridgecv-training-subsets)，
-并使用外部交叉验证循环。
+`RidgeCV` 无论是否带样本权重，都严格采用自定义训练子集，支持空窗或隔离期。
+验证集不必覆盖全部观测，最终重拟合仍使用传给 `fit` 的全部行。索引验证与
+预处理说明见 [RidgeCV 划分约定](../../reference/linear-model-api.md#custom-ridgecv-training-subsets)。
 
 ## 与外部实现的对照
 

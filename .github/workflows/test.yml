@@ -219,7 +219,8 @@ jobs:
 
   torch-cpu-covariance-conversion:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # This job runs the complete test tree after its focused ownership checks.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

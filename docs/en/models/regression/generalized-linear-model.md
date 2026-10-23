@@ -1,7 +1,7 @@
 # GeneralizedLinearModel and Penalized GLM
 
 > Language: English  
-> Last updated: 2026-10-13<br>
+> Last updated: 2026-10-17<br>
 > This page: Model documentation  
 > Switch: [Chinese](../../../cn/models/regression/generalized-linear-model.md)
 
@@ -189,13 +189,15 @@ or L-BFGS; weights alone do not select the solver.
 
 Coefficient inference quantifies estimation uncertainty; it answers a different question from held-out predictive evaluation. For ordinary GLMs, enable supported coefficient inference with `compute_inference=True` and choose `nonrobust`, `hc0`, or `hc1` through `cov_type`. Ordinary inference uses the same fitted analytic-weight convention as estimation; weight support still depends on the chosen inference method. The CPU example shows how to read HC1 coefficient intervals.
 
+In the unreleased source, inverse-Gaussian and negative-binomial HC0/HC1 use observed loss-Hessian bread; published 0.3.0 instead uses Fisher bread on these routes. Solver curvature and nonrobust covariance are unchanged. See the [sandwich conventions and release boundary](../../guides/penalized-glm-inference.md) before comparing standard errors across versions.
+
 ### Penalized-model inference
 
 Generic and typed penalized GLM estimators use `inference_method="auto"` as the recommended public request. Supported M-estimation, debiased and residual-bootstrap results report the procedure, target and tuning/selection conditions. The current `post_selection_ols` path can leave `inference_method_` and `inference_target_` unset despite returning inference; read `_inference_result.method` and its metadata as described in [post-selection reporting](../../guides/inference-modes.md#post_selection_ols).
 
 Unsupported loss × penalty × inference-method combinations raise. For supported smooth non-Gaussian L2/no-penalty models, `auto` resolves to fixed-penalty `m_estimation`. Positive L2 fits target the penalized estimating equation; no-penalty aliases are canonicalized to zero-strength L2 and target the unpenalized population parameter. Current covariance support is `nonrobust`, `hc0`, and `hc1`; HC2/HC3/HAC are not available on this penalized non-Gaussian path and raise instead of being substituted silently.
 
-Supported M-estimation and Gaussian residual-bootstrap calculations reuse the fitted backend and device. Non-Gaussian L1/ElasticNet coefficient inference is unsupported. SCAD/MCP `oracle` is explicit, but its current non-Gaussian child reconstruction can silently reset family settings and regularization and use an automatic child device. Do not interpret those results as the intended unpenalized active-set inference; see the [oracle limitation and diagnostic-refit alternative](../../guides/penalized-glm-inference.md#current-non-gaussian-oracle-limitation). Group-penalty paths remain estimation-only where noted.
+Supported M-estimation and Gaussian residual-bootstrap calculations reuse the fitted backend and device. Non-Gaussian L1/ElasticNet coefficient inference is unsupported. SCAD/MCP `oracle` must be requested explicitly and performs an unpenalized active-set refit on CPU. Non-Gaussian refits preserve the fitted family settings and convergence controls, use `C=0`, and explicitly select the solver and CPU device. The normal-reference intervals condition on the selected support and do not adjust for selection uncertainty; see [oracle family settings and refit interpretation](../../guides/penalized-glm-inference.md#current-non-gaussian-oracle-limitation). Group-penalty paths remain estimation-only where noted.
 
 ### Residual bootstrap for sparse Gaussian models
 

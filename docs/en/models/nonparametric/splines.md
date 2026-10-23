@@ -133,7 +133,7 @@ The example above uses the sklearn-style `SplineTransformer` to save and reuse t
 
 - `bspline_basis`, which evaluates B-spline basis matrices using De Boor's recursive algorithm.
 - `natural_cubic_spline_basis`, which projects a cubic basis using numerical constraints that approximate zero endpoint curvature.
-- `cyclic_cubic_spline_basis`, which attempts a periodic projection. Its current boundary approximation is unreliable; read the limitation below before using it.
+- `cyclic_cubic_spline_basis`, which enforces periodic endpoint values and first/second derivatives in the unreleased source; see the compatibility note below.
 - `thin_plate_spline_basis`, which constructs multi-dimensional radial basis functions using the thin plate spline kernel.
 
 These functions accept NumPy, CuPy, or Torch through an explicit `xp`; `xp=None` uses NumPy, rather than inferring the input backend.
@@ -173,13 +173,15 @@ A summand with a zero denominator is defined as zero, including at repeated boun
 
 **Natural cubic spline** basis: a cubic B-spline basis is projected onto the null space of numerical boundary second-derivative constraints, approximating $f'' = 0$ at the two endpoints. Two independent constraints reduce the basis dimension by 2; in general the reduction equals their numerical rank.
 
-**Cyclic cubic spline** ideally imposes
+**Cyclic cubic spline** in the unreleased source imposes
 
 $$
 f(a)=f(b),\qquad f'(a)=f'(b),\qquad f''(a)=f''(b),
 $$
 
-at the evaluation-range endpoints $a=\min(x)$ and $b=\max(x)$, with knots strictly inside. Three independent constraints would reduce the cubic basis dimension by 3. The current function estimates derivatives using points outside the range, where its B-spline basis is zero. The returned basis can therefore fail the true one-sided derivative constraints and can have a different column count. **Do not rely on this function for periodic continuity.** For periodic predictors, a manually constructed sine/cosine basis is an alternative when that model is appropriate.
+at the evaluation-range endpoints $a=\min(x)$ and $b=\max(x)$. Supply at least one finite, strictly increasing interior knot. Analytic one-sided cubic endpoint derivatives define three constraints; projection onto their null space returns `n_knots + 1` float64 columns. The constant function is retained, but no column is a dedicated intercept. A numerically unresolved constraint rank raises `ValueError`; backend SVD failures propagate rather than silently switching to a CPU SVD.
+
+Published 0.3.0 instead uses outside-range finite differences that can violate periodic derivatives and return a different column count. Do not rely on that version for periodic continuity. Refit any downstream model when moving to the repaired basis; its columns and orientation are not interchangeable with the old basis.
 
 **Thin plate spline** basis: for input dimensionality $d$ and penalty order $m$, the radial basis functions are
 
@@ -255,7 +257,7 @@ feature, custom knots may also be a length-`n_knots` vector.
 
 ## Numerical accuracy and boundary conditions
 
-Spline basis computation has no strict/approx mode. Explicit backend selection does not change the documented numerical limitations of the natural/cyclic boundary projections.
+Spline basis computation has no strict/approx mode. Explicit backend selection does not remove the natural-basis limitations. Cyclic constraints are evaluated in finite precision, and unresolved rank fails explicitly.
 
 ## Complete model-specific calls
 
@@ -369,7 +371,7 @@ print(B.shape)  # (500, 14)
 
 ### Compare boundary projections
 
-Reuse this section's `x` and `knots`. The natural basis approximates zero endpoint curvature; the cyclic basis does not reliably satisfy true one-sided derivative constraints. These calls illustrate returned matrices, not a validation of their boundary conditions.
+Reuse this section's `x` and `knots`. The natural basis approximates zero endpoint curvature; the unreleased cyclic basis uses analytic one-sided endpoint constraints. These calls illustrate returned matrices, not a validation of their boundary conditions.
 
 ```python
 from statgpu.nonparametric.splines import (
@@ -378,7 +380,7 @@ from statgpu.nonparametric.splines import (
 
 B_nat = natural_cubic_spline_basis(x, knots, xp=np)
 B_cyc = cyclic_cubic_spline_basis(x, knots, xp=np)
-print(B_nat.shape, B_cyc.shape)  # (500, 12), (500, 12) on this grid
+print(B_nat.shape, B_cyc.shape)  # (500, 12), (500, 11) with the unreleased cyclic repair
 ```
 
 ### Construct radial thin-plate features
@@ -438,7 +440,7 @@ print(B_t.shape)
 ```
 <!-- example-end: spline-raw-torch -->
 
-Other low-level functions follow the same backend-array and matching-`xp` convention. Backend selection does not remove the natural/cyclic boundary limitations above; measure GPU benefit at your actual scale. For multi-feature `SplineTransformer`, keep the opening fit/transform workflow: each input feature is expanded separately, with column counts given in the parameter and output reference.
+Other low-level functions follow the same backend-array and matching-`xp` convention. Backend selection does not remove the natural-basis numerical limits above; measure GPU benefit at your actual scale. For multi-feature `SplineTransformer`, keep the opening fit/transform workflow: each input feature is expanded separately, with column counts given in the parameter and output reference.
 
 ## Outputs
 
@@ -446,7 +448,7 @@ Other low-level functions follow the same backend-array and matching-`xp` conven
 
 **natural_cubic_spline_basis**: normally returns `(n, n_knots + 2)` when the two boundary constraints are independent; in general, width is `n_knots + 4 - numerical_rank`. SVD chooses an arbitrary basis orientation, so the first column is not a dedicated intercept. The function recomputes its boundaries and projection from each supplied evaluation grid: do not fit coefficients on one grid and assume the same knots alone reproduce that basis on another. It has no saved training state or linear-extrapolation API; use `SplineTransformer` when a reusable fitted transform is needed.
 
-**cyclic_cubic_spline_basis**: returns `(n, n_knots + 4 - numerical_rank)`; the illustrated grid returns `n_knots + 2`, not the ideal `n_knots + 1`. A returned basis does not establish periodic boundary continuity.
+**cyclic_cubic_spline_basis**: the unreleased source returns `(n, n_knots + 1)` in float64. Each call derives its endpoints and projection from the supplied grid, with arbitrary SVD orientation. There is no saved training projection or extrapolation API: the same knots alone do not establish a reusable transform on another grid. Check represented functions or subspaces, not individual basis columns.
 
 **thin_plate_spline_basis**: returns a basis matrix $B$ of shape `(n, m + d + 1)` where $m$ is the number of knots and $d$ is the input dimensionality. Includes $m$ radial basis function columns plus $d + 1$ polynomial columns (intercept + linear terms).
 
@@ -474,14 +476,14 @@ Other low-level functions follow the same backend-array and matching-`xp` conven
 ## FAQ
 
 - **Natural vs regular B-spline?** The natural basis approximates zero endpoint curvature. This can restrict boundary wiggles, but does not guarantee less overfitting or provide a reusable linear extrapolation rule.
-- **When to use cyclic cubic splines?** Periodic structure, such as day-of-year or angle, calls for a periodic model. The current function does not reliably enforce periodic derivatives; use a verified periodic basis instead.
+- **When to use cyclic cubic splines?** Periodic structure, such as day-of-year or angle, calls for a periodic model. Use the repaired cyclic basis only with its evaluation-grid boundary convention; published 0.3.0 does not reliably enforce periodic derivatives.
 - **When to use thin plate splines?** Thin plate splines are designed for multi-dimensional smoothing. Unlike B-splines, which are inherently 1-D, thin plate splines naturally handle $d$-dimensional inputs using radial basis functions.
 - **SplineTransformer vs calling bspline_basis directly?** `SplineTransformer` provides an sklearn-compatible API that handles multiple features, automatic knot placement, and pipeline integration. Use it when building preprocessing pipelines or when you need `fit`/`transform` semantics.
 - **GPU speedup for splines?** Speedup depends on sample size, degree, knot count, backend, and actual array placement. Check placement as described above and measure your workload.
 
 ## Validation guidance
 
-Compare B-spline values and boundary derivatives with `scipy.interpolate.BSpline` using identical augmented knots and degree. For a transformer, align knot placement, `include_bias`, degree, and extrapolation before comparing with scikit-learn. Compare represented functions or subspaces for natural bases; SVD column signs and orientations need not agree. Check true one-sided boundary derivatives for periodicity, rather than reusing the implementation's outside-range finite differences. A CPU check does not establish GPU accuracy or speed.
+Compare B-spline values and boundary derivatives with `scipy.interpolate.BSpline` using identical augmented knots and degree. For a transformer, align knot placement, `include_bias`, degree, and extrapolation before comparing with scikit-learn. Compare represented functions or subspaces for natural bases; SVD column signs and orientations need not agree. Check true one-sided boundary derivatives for periodicity, rather than inferring continuity from the number of columns. A CPU check does not establish GPU accuracy or speed.
 
 ## References
 

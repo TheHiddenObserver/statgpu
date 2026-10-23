@@ -1,7 +1,7 @@
 # Penalized GLM Inference
 
 > Language: English  
-> Last updated: 2026-10-12  
+> Last updated: 2026-10-18<br>
 > This page: statistical targets and supported coefficient-inference behavior  
 > Switch: [Chinese](../../cn/guides/penalized-glm-inference.md)
 
@@ -19,8 +19,8 @@ Check the supported loss and penalty combinations below before choosing an infer
 | squared error + L1/ElasticNet | de-biased inference; `post_selection_ols` when explicitly selected | `debiased` |
 | smooth non-Gaussian GLM + L2/no penalty | fixed-penalty M-estimation | `m_estimation` |
 | squared error + L1/ElasticNet/SCAD/MCP | residual bootstrap when explicitly requested; not available for L2 | not selected automatically |
-| squared error + SCAD/MCP | active-set oracle refit after a CPU parent fit when explicitly requested; see child-device caveat | not selected automatically |
-| non-Gaussian SCAD/MCP | `oracle` accepts scalar GLM families but currently may change the refit model; see the limitation below | not selected automatically |
+| squared error + SCAD/MCP | unpenalized active-set oracle refit on CPU when explicitly requested | not selected automatically |
+| non-Gaussian SCAD/MCP | unpenalized active-set oracle refit on CPU, preserving the fitted family settings | not selected automatically |
 | non-Gaussian L1/ElasticNet | coefficient inference not implemented | unsupported request raises |
 | group penalties | estimation only | inference request raises |
 | `PenalizedCoxPHModel` / Cox branch of `PenalizedGLM_CV` | estimation only | inference request raises |
@@ -48,13 +48,15 @@ penalty_conditioning_ = "fixed_penalty"
 
 For an unpenalized fit (`alpha=0` or the corresponding no-penalty configuration), the target is the ordinary unpenalized population coefficient.
 
-With score contribution $\psi_i$, average Hessian $H$, L2 curvature $P''$, and average score outer product $J$, the HC0 covariance is
+With score contribution $\psi_i$, average observed loss Hessian $H$, L2 curvature $P''$, and average score outer product $J$, the HC0 covariance is
 
 $$
 \widehat{\mathrm{Var}}(\hat\beta)
 =
 (H+P'')^{-1}J(H+P'')^{-1}/n.
 $$
+
+The unreleased source uses the observed loss Hessian for inverse-Gaussian and negative-binomial HC0/HC1 bread, rather than their expected Fisher scoring curvature. Optimizer Hessians and `nonrobust` covariance remain unchanged. Analytic weights enter the bread linearly and the score-outer-product meat quadratically; the intercept has no penalty curvature. This also applies to supported selected-final-refit CV inference, conditional on the selected tuning. Published 0.3.0 uses Fisher bread on these ordinary/smooth M-estimation routes and can return different robust standard errors; its separate oracle route already uses observed bread. The derivative interpretation applies inside the unclipped mean range; clipping is not made differentiable by this repair.
 
 For HC1, multiply this covariance by $n/(n-k)$ when $n>k$, where $n$ is the observation count and $k$ counts fitted parameters, including the intercept when present. This is a finite-sample multiplier, not a correction for penalty selection. The current implementation omits that multiplier when $n\le k$; do not interpret such a result as a valid HC1 degrees-of-freedom correction. With analytic weights, this multiplier still uses the row count rather than the sum of weights.
 
@@ -108,7 +110,7 @@ Supported non-Gaussian M-estimation follows the backend/device used by the succe
 
 An explicit `device="cuda"` or `device="torch"` request is not silently replaced by NumPy inference. Small reporting arrays may be converted to NumPy after numerical inference is complete; that reporting boundary does not change where the numerical procedure ran.
 
-Some inference methods have narrower backend support than the parent estimator. For example, the SCAD/MCP oracle interface rejects an already-executed GPU fit. Its child refit currently defaults to `device="auto"`, however, so a CPU parent does not guarantee a CPU child on a GPU-equipped system. See the oracle limitation below; an explicit separate refit lets you control the device as well as the statistical model.
+Some inference methods have narrower backend support than the parent estimator. SCAD/MCP oracle inference requires a CPU parent fit and explicitly uses `device="cpu"` for the active-set refit, even on a GPU-equipped system. Its inference calculations use NumPy float64. An executed GPU fit is rejected rather than silently moved to CPU; select `device="cpu"` when requesting oracle inference.
 
 ## Residual bootstrap scope
 
@@ -148,29 +150,185 @@ not remove shrinkage bias or establish valid hypothesis tests.
 
 `inference_method="oracle"` is explicit because it conditions on the active set selected by the penalized fit. `auto` does not silently choose that interpretation.
 
-The intended procedure refits the selected active set without the original
-non-convex penalty. Even a correct unpenalized refit does not automatically
-adjust for selecting variables on the same data. Inactive coefficients have
-unavailable (`NaN`) uncertainty; if no feature is selected, uncertainty is
-unavailable for all parameters, including the intercept.
+The procedure refits the selected active set without regularization. The
+reported active coefficients and intercept come from that refit; prediction
+continues to use the original penalized coefficients. Inactive coefficients
+retain their penalized point estimates and have unavailable (`NaN`)
+uncertainty. If no slope is selected and the model includes an intercept,
+oracle inference refits an intercept-only model and reports its uncertainty
+only when a finite unpenalized solution exists.
+With neither selected slopes nor an intercept, there is no coefficient to
+refit. Inverse-link Gamma rejects that empty model because its zero linear
+predictor cannot define a finite mean.
 
-### Current non-Gaussian oracle limitation
+For `cov_type="nonrobust"`, Gaussian, Gamma, inverse-Gaussian, and Tweedie
+oracle refits must estimate an unknown dispersion. The number of observations
+with positive sample weight must therefore exceed the number of selected
+slopes plus the effective intercept, if present. Without weights, every
+observation counts; weight magnitudes or zero-weight padding do not add
+observations. Otherwise the request raises `ValueError` rather than reporting
+zero standard errors or point-width intervals. Use `compute_inference=False`
+when only the penalized point fit is needed. This requirement does not apply
+to fixed-dispersion Poisson/negative-binomial `nonrobust` covariance or to HC0;
+the separately documented HC1 behavior is unchanged. Having enough observations
+alone does not guarantee an identifiable or converged refit. This is an
+admission check, not a change to the dispersion denominator: after admission,
+the existing Pearson convention divides the weighted sum of squared Pearson
+residuals by `n - k`, where `n` counts rows in the refit data, including
+zero-weight rows, and `k` counts refitted coefficients.
+Zero-weight padding can therefore still affect this denominator. Gamma/Tweedie
+Pearson dispersion uses the actual family variance, without an absolute
+variance floor, so representable small response scales do not artificially
+shrink the reported uncertainty. Required nonrepresentable numerical
+quantities still raise rather than producing an interval.
+
+These normal-reference intervals condition on the selected support. They do
+not adjust for choosing variables or tuning parameters on the same data.
+
+<a id="current-non-gaussian-oracle-limitation"></a>
+
+### Unpenalized refits and family settings
 
 The interface accepts `squared_error`, `logistic`, `poisson`, `gamma`,
-`inverse_gaussian`, `negative_binomial`, and `tweedie` with SCAD/MCP. Currently,
-the non-Gaussian refit can silently use constructor defaults instead of the
-original model configuration: logistic uses `C=1` rather than an unpenalized
-refit, negative-binomial dispersion can reset to `alpha=1`, Gamma's link to
-`"log"`, and Tweedie's power to `1.5`. Child solver and device also default to
-`"auto"`; for example, Poisson then uses the default ridge-penalized IRLS
-fit rather than the intended unpenalized Newton refit. A successful result labeled `oracle` therefore does not establish
-that the requested statistical target was preserved. Do not use these
-non-Gaussian oracle coefficient tables for inference.
+`inverse_gaussian`, `negative_binomial`, and `tweedie` with SCAD/MCP.
+Non-Gaussian refits use exactly `C=0`, preserve the fitted family, Gamma link,
+negative-binomial dispersion `alpha`, and Tweedie `power`, and retain the
+parent's `max_iter`, intercept convention, and supported analytic weights.
+The initial attempt uses the parent's `tol`; the bounded negative-binomial
+precision retry below can use a stricter child tolerance. The refit explicitly
+selects `solver="irls"` for logistic and Poisson
+regression and `solver="newton"` for the other non-Gaussian families, with
+`device="cpu"`.
+Oracle HC0/HC1 covariance rescales weights before forming squared score
+products, avoiding underflow or overflow from their common magnitude while
+retaining material score contributions from positive-weight observations.
+For a fixed selected support and refit, this preserves common-scale covariance
+invariance up to numerical tolerance when the required weighted products and
+score calculations remain representable with sufficient precision. Subnormal
+values have intrinsically reduced relative precision. Refit weights and nonrobust conventions
+are unchanged; fixed-dispersion nonrobust standard errors need not be
+scale-invariant.
 
-For a diagnostic refit, fit the selection model with `compute_inference=False`,
-then explicitly refit its selected columns with the desired family, link,
-dispersion/power, no penalty, and device. For logistic regression, the
-standalone wrapper's `C=0` selects its unregularized fit:
+If finite robust scores, curvature, or a finite covariance for the refitted
+parameters cannot be computed, oracle inference raises `RuntimeError`. It also
+raises when neither a stable common weight scale nor bounded raw evaluation
+can be certified at the working precision, even if a finite exact covariance
+may exist. If conservative scaling bounds conflict, unchanged weights can
+still be accepted when actual aggregate products are finite, required nonzero
+squared-score averages remain in the normal floating-point range, and any
+omitted tiny terms are bounded below ordinary aggregate roundoff. This does not
+guarantee preservation of every individual nonzero product or resolve
+arbitrary covariance conditioning. Review
+the response and design scales, or use `compute_inference=False` for point estimation.
+An entirely zero active HC0/HC1 covariance also raises `RuntimeError` when
+nonzero score factors on effective positive-weight rows establish that the
+score matrix is nonzero. This catches a wholly vanished covariance, not every
+partially underflowed entry. Genuine zero scores, individual zero variances,
+and inactive `NaN` uncertainty remain allowed; zero-weight or zero-design
+rows do not trigger this robust-covariance check.
+
+For `nonrobust` oracle inference, a zero estimated dispersion raises
+`RuntimeError` if any positive-weight row has an evaluated response different
+from its fitted mean, including rows with zero design. Fits whose evaluated
+residuals are zero on every positive-weight row may retain zero estimated dispersion. When
+dispersion is positive, every active model-based variance must be positive;
+zero off-diagonal covariance entries remain valid. Logistic, Poisson, and
+negative-binomial refits retain fixed dispersion equal to one. These checks
+do not guarantee accurate covariance at every scale or conditioning level.
+
+A refit that reports non-convergence raises `RuntimeError` rather than
+publishing an oracle coefficient table. Non-Gaussian oracle refits also check
+that the reported coefficients, fitted means, scores and covariance describe
+the same unpenalized model on every positive-weight observation. The current
+numerical losses clip some predictors, means or curvature factors. Refits
+that activate those transformations cannot supply oracle uncertainty and
+raise `RuntimeError` before a coefficient table is returned.
+
+The current admissible ranges are closed intervals; exact endpoints remain
+eligible, subject to the other convergence and covariance checks:
+
+| Family/link | Required range on positive-weight rows |
+| --- | --- |
+| Tweedie, log | Linear predictor in `[-50, 50]` |
+| Gamma, log | Linear predictor in `[-30, 30]` |
+| Gamma, inverse power | Linear predictor in `[1e-4, 1e3]` |
+| Inverse Gaussian, log | Mean in `[0.05, 1e3]` |
+| Poisson, log | Mean in `[1e-10, 1e6]` |
+| Negative binomial, log | Linear predictor in `[-30, 30]`; `nonrobust` additionally requires mean at least `1e-10`; HC0/HC1 do not use that extra curvature floor |
+| Logistic, logit | Bernoulli variance `mu * (1 - mu)` at least `1e-10`, so the covariance curvature floor is inactive |
+
+Mean bounds are checked at their log-link predictor endpoints. These are
+numerical availability restrictions, not statements that an out-of-range
+statistical model lacks a finite solution. Zero-weight observations do not
+trigger these restrictions. Decreasing `tol` does not remove clipping or
+guarantee recovery of a clipped refit. If only point estimation is needed,
+set `compute_inference=False`; oracle uncertainty outside these ranges is
+unavailable in the current implementation. Gaussian oracle refits do not
+use these non-Gaussian range checks.
+
+Within these ranges, Tweedie and negative-binomial oracle refits additionally
+require a relative first-order score check on each selected coordinate,
+including the intercept. The signed weighted score is compared with the
+positive contributions to that family's actual score, using `tol` plus
+float64 summation roundoff. This prevents response units or the
+negative-binomial dispersion parameter from disguising an incorrect
+absolute-gradient stopping point. Other families retain their existing
+child-solver stopping criterion; the range checks do not add a new relative
+convergence guarantee for those families. Positive and negative score contributions may genuinely
+cancel; zero-weight observations do not enter the check. A failed check raises
+`RuntimeError`. For an unclipped refit stopped by absolute-gradient tolerance,
+decreasing `tol` can help it reach a stationary solution; review response/design
+scaling if it still fails. It is a local stationarity check, not a bound on
+coefficient or covariance error.
+
+For negative-binomial refits only, a failed relative-score check can trigger
+one additional unpenalized CPU refit. Its absolute-gradient tolerance is
+derived from the positive weighted score contributions, while the original
+requested `tol` remains the final relative acceptance criterion. Each attempt
+uses the requested `max_iter`, so at most two child refits are attempted.
+Clipping and curvature-range failures do not trigger this retry. If the derived
+tolerance cannot be represented, the retry fails to converge, or the recomputed
+score still fails the original check, oracle inference raises `RuntimeError`.
+The shared solver is unchanged; this bounded retry does not guarantee recovery.
+
+An error during oracle computation also clears fitted, prediction, and
+inference-report state, including an earlier successful fit. Fit the model
+successfully again before predicting or reading inference results.
+
+A finite unpenalized solution is also required. On positive-weight rows,
+all-zero Poisson, negative-binomial, or Tweedie responses, or a single
+logistic class, have no finite optimum when a free intercept can keep
+improving the objective. These boundary fits raise `ValueError` before
+publishing uncertainty, even if a solver stops at a finite approximation.
+Zero-weight observations do not remove this boundary. A zero Gaussian
+response has a finite least-squares solution and is not rejected by this rule.
+
+Without an intercept, the selected design matters: mixed-sign predictors can
+have a finite optimum even at these response boundaries. The check rejects
+a verified direction that keeps improving the objective. If that boundary
+check cannot resolve a numerically ill-conditioned selected design, it raises
+`RuntimeError` instead of declaring that no finite solution exists or returning
+uncertainty. This check is limited to all-zero or single-class responses; it
+is not a general separation detector. Ordinary refit convergence checks still
+apply. With no selected coefficient and no intercept, there is no coefficient
+to refit, so the existing undefined-uncertainty behavior is preserved.
+
+For a positive standard error, the oracle z statistic is the refitted estimate divided by that standard error; its two-sided p-value uses the normal tail probability. Rescaling an estimate and its standard error by the same positive factor therefore leaves the test unchanged, provided both remain representable. A zero standard error gives a degenerate interval; do not interpret its reported statistic or p-value as a regular normal-reference test.
+
+The inference result has `method="oracle"`, a normal/z reference distribution,
+and the requested supported `cov_type`. Its metadata includes
+`refit_penalty="none"`, `refit_solver`, `refit_family_parameters`, CPU numerical
+provenance, and `selection_adjusted=False`. Refit-specific fields are present
+when a coefficient was refitted. Non-Gaussian refits also record `refit_attempts`
+and `refit_tol`, the actual child-fit count and child-solver tolerance.
+Family-specific constructor parameters on
+typed negative-binomial and Tweedie estimators are retained; if the same
+parameter is also supplied through `loss_kwargs`, that explicit entry takes
+precedence.
+
+The following example compares automatic oracle coefficients with a separate
+unpenalized logistic fit on the same selected columns. The standalone wrapper's
+`C=0` selects its unregularized fit:
 
 <!-- inference-example: explicit-logistic-diagnostic -->
 ```python
@@ -183,14 +341,19 @@ probability = 1 / (1 + np.exp(-(0.6 + X @ np.array([2.0, -1.0]))))
 y = rng.binomial(1, probability)
 selection = PenalizedLogisticRegression(
     penalty="scad", alpha=0.01, solver="fista", device="cpu",
-    compute_inference=False, max_iter=10000, tol=1e-10,
+    compute_inference=True, inference_method="oracle", max_iter=10000, tol=1e-10,
 ).fit(X, y)
 active = np.flatnonzero(np.abs(selection.coef_) > 1e-10)
 if active.size == 0:
     raise ValueError("No feature was selected; specify a model with only an intercept")
 refit = LogisticRegression(
-    C=0, device="cpu", compute_inference=True, max_iter=10000, tol=1e-10,
+    C=0, solver="irls", device="cpu", compute_inference=True,
+    max_iter=10000, tol=1e-10,
 ).fit(X[:, active], y)
+np.testing.assert_allclose(
+    selection._inference_result.params[np.r_[0, active + 1]],
+    np.r_[refit.intercept_, refit.coef_], rtol=1e-6, atol=1e-7,
+)
 print(active.tolist())
 print(np.round(np.r_[refit.intercept_, refit.coef_], 6))
 ```

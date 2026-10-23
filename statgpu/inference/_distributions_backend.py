@@ -974,7 +974,7 @@ class NormDistributionBase:
         return self._two_sided_critical_value_standard(alpha)
 
     def rvs(self, *, size=None, loc=0.0, scale=1.0, dtype=None):
-        return _rvs_normal(self._sf, size=size, loc=loc, scale=scale)
+        return _rvs_normal(self._sf, size=size, loc=loc, scale=scale, dtype=dtype)
 
 
 class TDistributionBase:
@@ -1104,7 +1104,7 @@ class TDistributionBase:
         return self._ppf_standard(1.0 - a / 2.0, df, max_bisect_steps=max_bisect_steps)
 
     def rvs(self, df, *, size=None, loc=0.0, scale=1.0, dtype=None):
-        return _rvs_t(self._sf, df=df, size=size, loc=loc, scale=scale)
+        return _rvs_t(self._sf, df=df, size=size, loc=loc, scale=scale, dtype=dtype)
 
 
 class UniformDistributionBase:
@@ -1147,7 +1147,7 @@ class UniformDistributionBase:
         return sf.where(in_support, 1.0 / scale_f, 0.0)
 
     def rvs(self, *, size=None, loc=0.0, scale=1.0, dtype=None):
-        return _rvs_uniform(self._sf, size=size, loc=loc, scale=scale)
+        return _rvs_uniform(self._sf, size=size, loc=loc, scale=scale, dtype=dtype)
 
 
 class ExponDistributionBase:
@@ -1197,7 +1197,7 @@ class ExponDistributionBase:
         return sf.where(z >= 0.0, sf.exp(-z) / scale_f, 0.0)
 
     def rvs(self, *, size=None, loc=0.0, scale=1.0, dtype=None):
-        return _rvs_expon(self._sf, size=size, loc=loc, scale=scale)
+        return _rvs_expon(self._sf, size=size, loc=loc, scale=scale, dtype=dtype)
 
 
 class CauchyDistributionBase:
@@ -1241,7 +1241,7 @@ class CauchyDistributionBase:
         return 1.0 / (sf.pi * scale_f * (1.0 + sf.square(z)))
 
     def rvs(self, *, size=None, loc=0.0, scale=1.0, dtype=None):
-        return _rvs_cauchy(self._sf, size=size, loc=loc, scale=scale)
+        return _rvs_cauchy(self._sf, size=size, loc=loc, scale=scale, dtype=dtype)
 
 
 class LaplaceDistributionBase:
@@ -1294,7 +1294,7 @@ class LaplaceDistributionBase:
         return 0.5 * sf.exp(-z) / scale_f
 
     def rvs(self, *, size=None, loc=0.0, scale=1.0, dtype=None):
-        return _rvs_laplace(self._sf, size=size, loc=loc, scale=scale)
+        return _rvs_laplace(self._sf, size=size, loc=loc, scale=scale, dtype=dtype)
 
 
 class LogisticDistributionBase:
@@ -1343,7 +1343,7 @@ class LogisticDistributionBase:
         return cdf_x * (1.0 - cdf_x) / scale_f
 
     def rvs(self, *, size=None, loc=0.0, scale=1.0, dtype=None):
-        return _rvs_logistic(self._sf, size=size, loc=loc, scale=scale)
+        return _rvs_logistic(self._sf, size=size, loc=loc, scale=scale, dtype=dtype)
 
 
 class Chi2DistributionBase:
@@ -1394,7 +1394,7 @@ class Chi2DistributionBase:
         return sf.where(x_f > 0.0, sf.exp(logpdf), 0.0)
 
     def rvs(self, df, *, size=None, dtype=None):
-        return _rvs_chi2(self._sf, df=df, size=size)
+        return _rvs_chi2(self._sf, df=df, size=size, dtype=dtype)
 
 
 class GammaDistributionBase:
@@ -1450,7 +1450,7 @@ class GammaDistributionBase:
         return sf.where(y > 0.0, sf.exp(logpdf), 0.0)
 
     def rvs(self, a, *, size=None, loc=0.0, scale=1.0, dtype=None):
-        return _rvs_gamma(self._sf, a=a, size=size, loc=loc, scale=scale)
+        return _rvs_gamma(self._sf, a=a, size=size, loc=loc, scale=scale, dtype=dtype)
 
 
 class BetaDistributionBase:
@@ -1506,7 +1506,7 @@ class BetaDistributionBase:
         return sf.where(in_support, sf.exp(logpdf), 0.0)
 
     def rvs(self, a, b, *, size=None, loc=0.0, scale=1.0, dtype=None):
-        return _rvs_beta(self._sf, a=a, b=b, size=size, loc=loc, scale=scale)
+        return _rvs_beta(self._sf, a=a, b=b, size=size, loc=loc, scale=scale, dtype=dtype)
 
 
 class FDistributionBase:
@@ -1559,7 +1559,7 @@ class FDistributionBase:
         return sf.where(x_f > 0.0, sf.exp(logpdf), 0.0)
 
     def rvs(self, dfn, dfd, *, size=None, dtype=None):
-        return _rvs_f(self._sf, dfn=dfn, dfd=dfd, size=size)
+        return _rvs_f(self._sf, dfn=dfn, dfd=dfd, size=size, dtype=dtype)
 
 
 class WeibullMinDistributionBase:
@@ -1617,7 +1617,7 @@ class WeibullMinDistributionBase:
         return sf.where(y > 0.0, sf.exp(logpdf), 0.0)
 
     def rvs(self, c, *, size=None, loc=0.0, scale=1.0, dtype=None):
-        return _rvs_weibull(self._sf, c=c, size=size, loc=loc, scale=scale)
+        return _rvs_weibull(self._sf, c=c, size=size, loc=loc, scale=scale, dtype=dtype)
 
 
 class LognormDistributionBase:
@@ -1677,7 +1677,7 @@ class LognormDistributionBase:
         return sf.where(y > 0.0, sf.exp(logpdf), 0.0)
 
     def rvs(self, s, *, size=None, loc=0.0, scale=1.0, dtype=None):
-        return _rvs_lognorm(self._sf, s=s, size=size, loc=loc, scale=scale)
+        return _rvs_lognorm(self._sf, s=s, size=size, loc=loc, scale=scale, dtype=dtype)
 
 
 class PoissonDistributionBase:
@@ -1753,7 +1753,7 @@ class PoissonDistributionBase:
         return self.ppf(1.0 - self._sf.as_float64(q), mu, loc=loc)
 
     def rvs(self, mu, *, size=None, loc=0, dtype=None):
-        return _rvs_poisson(self._sf, mu=mu, size=size, loc=loc)
+        return _rvs_poisson(self._sf, mu=mu, size=size, loc=loc, dtype=dtype)
 
 
 class BinomDistributionBase:
@@ -1828,7 +1828,7 @@ class BinomDistributionBase:
         return self.ppf(1.0 - self._sf.as_float64(q), n, p, loc=loc)
 
     def rvs(self, n, p, *, size=None, loc=0, dtype=None):
-        return _rvs_binom(self._sf, n=n, p=p, size=size, loc=loc)
+        return _rvs_binom(self._sf, n=n, p=p, size=size, loc=loc, dtype=dtype)
 
 
 # =============================================================================
@@ -2146,113 +2146,96 @@ def sf_safe_mul(val, factor, sf):
 # Random variate helpers (pure-numpy CPU generation, then converted)
 # =============================================================================
 
-def _rvs_normal(sf, *, size, loc, scale):
+def _rvs_output(sf, out, dtype):
+    """Preserve native ownership and the historical float64 default."""
+    result = sf.as_float64(out)
+    if dtype is None:
+        return result
+    if isinstance(sf, TorchSpecialFunctions):
+        torch = sf._torch
+        if not isinstance(dtype, torch.dtype):
+            dtype = torch.from_numpy(np.empty((), dtype=dtype)).dtype
+        return result.to(dtype=dtype)
+    return result.astype(dtype, copy=False)
+
+
+def _rvs_normal(sf, *, size, loc, scale, dtype=None):
     out = np.random.normal(loc=float(loc), scale=float(scale), size=size)
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+    return _rvs_output(sf, out, dtype)
 
 
-def _rvs_t(sf, *, df, size, loc, scale):
+def _rvs_t(sf, *, df, size, loc, scale, dtype=None):
     # Use scipy fallback for t-distribution rvs
     import scipy.stats as sps
     out = sps.t.rvs(df=float(df), size=size, loc=float(loc), scale=float(scale))
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+    return _rvs_output(sf, out, dtype)
 
 
-def _rvs_uniform(sf, *, size, loc, scale):
+def _rvs_uniform(sf, *, size, loc, scale, dtype=None):
     out = np.random.uniform(low=float(loc), high=float(loc) + float(scale), size=size)
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+    return _rvs_output(sf, out, dtype)
 
 
-def _rvs_expon(sf, *, size, loc, scale):
+def _rvs_expon(sf, *, size, loc, scale, dtype=None):
     out = float(loc) + np.random.exponential(scale=float(scale), size=size)
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+    return _rvs_output(sf, out, dtype)
 
 
-def _rvs_cauchy(sf, *, size, loc, scale):
+def _rvs_cauchy(sf, *, size, loc, scale, dtype=None):
     u = np.random.random(size=size)
     out = float(loc) + float(scale) * np.tan(np.pi * (u - 0.5))
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+    return _rvs_output(sf, out, dtype)
 
 
-def _rvs_laplace(sf, *, size, loc, scale):
+def _rvs_laplace(sf, *, size, loc, scale, dtype=None):
     out = np.random.laplace(loc=float(loc), scale=float(scale), size=size)
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+    return _rvs_output(sf, out, dtype)
 
 
-def _rvs_logistic(sf, *, size, loc, scale):
+def _rvs_logistic(sf, *, size, loc, scale, dtype=None):
     u = np.random.random(size=size)
     out = float(loc) + float(scale) * np.log(u / (1.0 - u))
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+    return _rvs_output(sf, out, dtype)
 
 
-def _rvs_chi2(sf, *, df, size):
+def _rvs_chi2(sf, *, df, size, dtype=None):
     out = np.random.chisquare(df=float(df), size=size)
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+    return _rvs_output(sf, out, dtype)
 
 
-def _rvs_gamma(sf, *, a, size, loc, scale):
+def _rvs_gamma(sf, *, a, size, loc, scale, dtype=None):
     out = float(loc) + np.random.gamma(shape=float(a), scale=float(scale), size=size)
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+    return _rvs_output(sf, out, dtype)
 
 
-def _rvs_beta(sf, *, a, b, size, loc, scale):
+def _rvs_beta(sf, *, a, b, size, loc, scale, dtype=None):
     out = float(loc) + float(scale) * np.random.beta(float(a), float(b), size=size)
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+    return _rvs_output(sf, out, dtype)
 
 
-def _rvs_f(sf, *, dfn, dfd, size):
-    out = np.random.f(dfn=float(dfn), dfd=float(dfd), size=size)
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+def _rvs_f(sf, *, dfn, dfd, size, dtype=None):
+    out = np.random.f(dfnum=float(dfn), dfden=float(dfd), size=size)
+    return _rvs_output(sf, out, dtype)
 
 
-def _rvs_weibull(sf, *, c, size, loc, scale):
+def _rvs_weibull(sf, *, c, size, loc, scale, dtype=None):
     out = float(loc) + float(scale) * np.random.weibull(a=float(c), size=size)
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+    return _rvs_output(sf, out, dtype)
 
 
-def _rvs_lognorm(sf, *, s, size, loc, scale):
+def _rvs_lognorm(sf, *, s, size, loc, scale, dtype=None):
     out = float(loc) + float(scale) * np.exp(float(s) * np.random.normal(size=size))
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+    return _rvs_output(sf, out, dtype)
 
 
-def _rvs_poisson(sf, *, mu, size, loc):
+def _rvs_poisson(sf, *, mu, size, loc, dtype=None):
     out = np.random.poisson(lam=float(mu), size=size) + int(loc)
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+    return _rvs_output(sf, out, dtype)
 
 
-def _rvs_binom(sf, *, n, p, size, loc):
+def _rvs_binom(sf, *, n, p, size, loc, dtype=None):
     out = np.random.binomial(n=int(n), p=float(p), size=size) + int(loc)
-    if hasattr(sf, 'as_float64'):
-        return sf.as_float64(out)
-    return out
+    return _rvs_output(sf, out, dtype)
 
 
 # =============================================================================
@@ -2323,8 +2306,8 @@ def get_distribution(name: str, backend: str = "auto", device: str | None = None
         A fixed-backend native distribution with ``cdf``, ``sf``, ``ppf``,
         ``isf``, ``pdf`` (continuous) or ``pmf`` (discrete), and ``rvs``.
         Pass backend controls to this factory, not to the object's methods.
-        Native sampling runs on CPU before conversion, currently ignores
-        ``dtype``, and F sampling raises ``TypeError``. Use finite numeric
+        Native sampling runs on CPU before conversion and honors ``dtype``
+        on the selected backend (default float64). Use finite numeric
         inputs: some density/mass methods currently turn NaN observations
         into zero instead of preserving missingness.
     """

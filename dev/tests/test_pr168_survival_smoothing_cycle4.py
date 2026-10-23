@@ -75,9 +75,12 @@ def test_torch_restrictions_present_in_learner_and_complete_reference(language):
         if language == "cn":
             anchor = "### 当前 Torch 限制" if "models" in relative else "### Torch 参数限制"
         section = text.split(anchor, 1)[1].split("\n## ", 1)[0]
-        for required in ("weights", "bandwidth_per_feature", "bootstrap", "TypeError", 'backend="numpy"', "X[:1]"):
+        # Shared weight/query shape helpers and KDE bootstrap are repaired;
+        # per-feature regression widths and spline vectors remain restricted.
+        for required in ("bandwidth_per_feature", "bootstrap", "NumPy", "CPU"):
             assert required.lower() in section.lower()
-        assert ("changes the" in section or "not an equivalent" in section) if language == "en" else ("改变" in section)
+        assert ("weights" in section.lower()) if language == "en" else ("权重" in section)
+        assert "Torch" in section and "CuPy" in section
 
 
 @pytest.mark.parametrize("language", ["en", "cn"])
@@ -98,9 +101,11 @@ def test_natural_boundary_warning_is_scale_specific_and_not_a_repair_claim(langu
 
 
 def test_runtime_help_matches_documented_restrictions_and_result_scope():
-    assert "explicit weights" in KernelDensityEstimator.__doc__
+    assert "Weights are converted" in KernelDensityEstimator.__doc__
+    assert "Torch currently rejects" not in KernelDensityEstimator.__doc__
     assert "bandwidth_per_feature" in KernelRegression.__doc__
-    assert "Torch" in KernelDensityEstimator.pdf.__doc__
+    assert "one multivariate query" in KernelDensityEstimator.pdf.__doc__
+    assert "Queries are converted" in KernelDensityEstimator.pdf.__doc__
     assert "Torch" in KernelRegression.predict.__doc__
     assert "absolute finite-difference step" in natural_cubic_spline_basis.__doc__
     assert "constant functions" in natural_cubic_spline_basis.__doc__
@@ -154,17 +159,13 @@ def test_unweighted_torch_normal_and_numpy_bootstrap_remain_distinct():
     assert np.isfinite(bootstrap.lower).all()
 
 
-@pytest.mark.xfail(strict=True, raises=_TorchSizeMethodError, reason="Issue #223: Torch Tensor.size is treated as an integer while normalizing weights")
 @pytest.mark.parametrize("kind", ["kde", "regression"])
 def test_weighted_torch_fit_should_accept_valid_weights(kind):
     pytest.importorskip("torch")
-    with _known_torch_size_failure(
-        _kernel_common._normalize_weights, "if int(w.size) != int(n_samples):"
-    ):
-        if kind == "kde":
-            model = fit_kde(X, weights=WEIGHTS, backend="torch")
-        else:
-            model = fit_kernel_regression(X, Y, weights=WEIGHTS, backend="torch")
+    if kind == "kde":
+        model = fit_kde(X, weights=WEIGHTS, backend="torch")
+    else:
+        model = fit_kernel_regression(X, Y, weights=WEIGHTS, backend="torch")
     assert_allclose(model.weights_.numpy(), WEIGHTS / WEIGHTS.sum())
 
 
@@ -181,8 +182,13 @@ def test_torch_absolute_widths_should_accept_scalar_or_vector(widths):
     assert_allclose(model.covariance_.numpy(), .25 * np.eye(2))
 
 
-@pytest.mark.xfail(strict=True, raises=_TorchSizeMethodError, reason="Issue #223: Torch multivariate vector shape checks use Tensor.size as an integer")
-@pytest.mark.parametrize("kind", ["kde", "regression", "transformer"])
+@pytest.mark.parametrize("kind", [
+    "kde", "regression",
+    pytest.param("transformer", marks=pytest.mark.xfail(
+        strict=True, raises=_TorchSizeMethodError,
+        reason="Issue #223: spline vector shape check still uses Tensor.size as an integer",
+    )),
+])
 def test_torch_multivariate_vector_should_match_matrix_query(kind):
     torch = pytest.importorskip("torch")
     if kind == "kde":
@@ -203,14 +209,11 @@ def test_torch_multivariate_vector_should_match_matrix_query(kind):
     assert_allclose(prediction.numpy(), expected)
 
 
-@pytest.mark.xfail(strict=True, raises=_TorchSizeMethodError, reason="Issue #223: Unweighted Torch bootstrap internally supplies weights to a failing size check")
 def test_torch_bootstrap_should_accept_equal_weight_samples():
     pytest.importorskip("torch")
-    with _known_torch_size_failure(
-        _kernel_common._normalize_weights, "if int(w.size) != int(n_samples):"
-    ):
-        result = kde_bootstrap_confidence_interval(X[:, 0], [0.], backend="torch",
-                                                   n_resamples=2, random_state=0)
+    result = kde_bootstrap_confidence_interval(
+        X[:, 0], [0.], backend="torch", n_resamples=2, random_state=0,
+    )
     assert result.n_resamples == 2
     assert np.isfinite(result.lower).all()
 

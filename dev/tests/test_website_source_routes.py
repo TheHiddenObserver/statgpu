@@ -17,7 +17,7 @@ SPEC.loader.exec_module(CONTRACTS)
 
 def test_sidebar_has_matching_valid_canonical_locale_routes():
     config = (ROOT / "docs/.vitepress/config.ts").read_text()
-    routes = set(re.findall(r'''["']link["']?:\s*["'](/(?:en|cn)/[^"']+)["']''', config))
+    routes = set(re.findall(r'''["']?link["']?:\s*["'](/(?:en|cn)/[^"']+)["']''', config))
     en = {route[3:] for route in routes if route.startswith('/en/')}
     cn = {route[3:] for route in routes if route.startswith('/cn/')}
     assert en == cn
@@ -26,6 +26,7 @@ def test_sidebar_has_matching_valid_canonical_locale_routes():
     for section in ('regression', 'testing', 'covariance', 'nonparametric', 'feature-selection', 'survival'):
         assert f'/models/{section}/README' in en
     assert '/reference/linear-model-api' in en
+    assert '/guides/native-kde-bootstrap' in en
     assert '/models/lasso' not in en
     assert '/models/index' not in en
     assert '/models/' not in en
@@ -145,3 +146,23 @@ def test_survival_estimator_choice_lives_in_the_overview_not_the_directory(local
     else:
         assert '不是可以互换的别名' in overview
         assert '只提供参数估计' in overview
+
+
+@pytest.mark.parametrize('locale', ['en', 'cn'])
+def test_native_kde_bootstrap_is_discoverable_in_both_documentation_entries(locale):
+    readme = ROOT / 'docs' / locale / 'README.md'
+    source = readme.read_text()
+    assert '](guides/native-kde-bootstrap.md)' in source
+    guide = ROOT / 'docs' / locale / 'guides/native-kde-bootstrap.md'
+    assert guide.is_file()
+    assert CONTRACTS.validate_links(readme, '[guide](guides/native-kde-bootstrap.md)') == []
+
+
+@pytest.mark.parametrize('locale', ['en', 'cn'])
+def test_native_kde_guide_states_the_unreleased_package_boundary(locale):
+    guide = ROOT / 'docs' / locale / 'guides/native-kde-bootstrap.md'
+    opening = guide.read_text().split('\n## ', 1)[0]
+    assert '0.3.0' in opening
+    assert 'wheel' in opening and 'sdist' in opening
+    assert '../changelog.md#' in opening
+    assert ('unreleased source changes' if locale == 'en' else '尚未发布的源码变更') in opening

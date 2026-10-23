@@ -184,9 +184,7 @@ def test_cyclic_guard_propagates_unrelated_runtime_errors(monkeypatch, error_typ
         contracts.test_cyclic_basis_should_satisfy_analytic_periodicity()
 
 
-def test_cyclic_marker_is_strict_and_uses_only_the_known_defect_exception():
-    marker, = [mark for mark in
-               contracts.test_cyclic_basis_should_satisfy_analytic_periodicity.pytestmark
-               if mark.name == "xfail"]
-    assert marker.kwargs["strict"] is True
-    assert marker.kwargs["raises"] is contracts._NonperiodicCyclicBasis
+def test_repaired_cyclic_contract_is_not_marked_xfail():
+    markers = getattr(contracts.test_cyclic_basis_should_satisfy_analytic_periodicity,
+                      "pytestmark", [])
+    assert not any(mark.name == "xfail" for mark in markers)

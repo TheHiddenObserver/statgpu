@@ -109,13 +109,9 @@ def squared_euclidean_distances(backend, X, Y=None):
 
 def topk_smallest(backend, distances, k: int):
     """Return the k smallest values and indices along axis 1."""
-    try:
+    if backend.name == "torch":
         import torch
-        if isinstance(distances, torch.Tensor):
-            values, idx = torch.topk(distances, k, largest=False, sorted=True)
-            return values, idx
-    except ImportError:
-        pass
+        return torch.topk(distances, k, largest=False, sorted=True)
     # numpy/cupy: argsort (reliable, works with all backends)
     order = backend.argsort(distances, axis=1)
     idx = order[:, :k]

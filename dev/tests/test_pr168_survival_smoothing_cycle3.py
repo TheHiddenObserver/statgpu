@@ -99,11 +99,17 @@ def test_linked_spline_docs_disclose_boundary_and_inference_limits(lang):
     assert "n_jobs" in text
     assert "NumPy" in text
     if lang == "en":
-        assert "Do not rely on this function for periodic continuity" in text
+        assert "Published 0.3.0" in text
+        assert "Do not rely on that version for periodic continuity" in text
+        assert "Analytic one-sided" in text
+        assert "n_knots + 1" in text
         assert "does not provide coefficient inference or confidence bands" in text
         assert "inferred from `x` if `None`" not in text
     else:
-        assert "需要周期连续性时，请勿依赖此函数" in text
+        assert "已发布的 0.3.0" in text
+        assert "需要周期连续性时，请勿依赖该版本" in text
+        assert "解析的单侧" in text
+        assert "n_knots + 1" in text
         assert "不提供系数推断或置信带" in text
         assert "从 `x` 推断" not in text
 
@@ -184,7 +190,6 @@ def test_kernel_ridge_cv_should_not_select_nan_candidate():
     assert np.isfinite(model.best_score_)
 
 
-@pytest.mark.xfail(strict=True, raises=_NonperiodicCyclicBasis, reason="Cyclic projection does not enforce true one-sided boundary derivatives")
 def test_cyclic_basis_should_satisfy_analytic_periodicity():
     x = np.linspace(0.0, 1.0, 500)
     knots = np.linspace(0.1, 0.9, 10)

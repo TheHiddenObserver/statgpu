@@ -6,137 +6,90 @@ __all__ = ["cyclic_cubic_spline_basis"]
 
 import numpy as np
 
-from statgpu.backends import _LINALG_ERRORS, _to_numpy
+from statgpu.backends import _to_numpy, xp_asarray
 from statgpu.nonparametric.splines._bspline_basis import bspline_basis, _get_xp
 
 
 def cyclic_cubic_spline_basis(x, knots, xp=None):
     """Construct a cyclic (periodic) cubic B-spline basis.
 
-    Attempts to impose matching values and first two derivatives at the
-    evaluation-range boundaries. Interior knots must lie strictly between
-    min(x) and max(x).
-
-    The current central-difference construction evaluates zero-valued basis
-    functions outside the boundaries and does not reliably impose the true
-    one-sided derivative constraints. Do not use the returned basis when
-    periodic continuity is required.
+    Enforces matching values and first two one-sided derivatives at min(x)
+    and max(x). Interior knots must lie strictly between these boundaries.
+    Boundaries and the arbitrary basis orientation are recomputed each call;
+    this function does not save a training basis or extrapolate periodically.
 
     Parameters
     ----------
     x : array-like, shape (n,)
-        Evaluation points.
+        Finite evaluation points with a nonzero range.
     knots : array-like, shape (m,)
-        Interior knots (must be strictly increasing).
+        Finite, strictly increasing interior knots, with m >= 1.
     xp : module, optional
-        Array module (numpy, cupy, or torch).  If None, uses numpy.
+        Array module (numpy, cupy, or torch). If None, uses numpy.
 
     Returns
     -------
-    B : array, shape (n, m + 4 - rank)
-        Projected cubic basis, where rank is the numerical constraint rank.
-        Three independent constraints would give m + 1 columns; the current
-        implementation can return another width, including m + 2.
+    B : array, shape (n, m + 1)
+        Float64 periodic cubic basis. Columns have arbitrary SVD orientation;
+        constants belong to its span, but no column is a dedicated intercept.
+
+    Raises
+    ------
+    ValueError
+        If inputs are invalid or the three periodic constraints cannot be
+        resolved reliably in float64 at the supplied knot spacing.
 
     Notes
     -----
-    Uses the null-space projection method: build a constraint matrix C
-    from the periodicity conditions, compute the null space of C, and
-    project the standard B-spline basis onto it.
+    Exact clamped-cubic endpoint derivative coefficients replace numerical
+    differences. Constraint rows are balanced before a backend-native SVD.
+    Only knot metadata and singular values are inspected on the host; basis
+    evaluation, SVD, and projection use the requested backend/device. No host
+    SVD fallback is used.
     """
     xp = _get_xp(xp)
+    x = xp_asarray(x, dtype=xp.float64, xp=xp, ref_arr=x).ravel()
+    knots = xp_asarray(knots, dtype=xp.float64, xp=xp, ref_arr=x).ravel()
 
-    x = xp.asarray(x, dtype=xp.float64).ravel()
-    knots = xp.asarray(knots, dtype=xp.float64).ravel()
-
+    # The ordinary constructor owns finite/order/interior-knot validation.
+    # Explicit boundaries retain the evaluation-range contract.
+    if x.shape[0] == 0:
+        raise ValueError("x must contain at least one value")
     if knots.shape[0] < 1:
         raise ValueError("At least one knot is required")
-
-    # Use x range as boundaries (not knot range) so knots are strictly interior
-    x_lo = float(_to_scalar(xp.min(x)))
-    x_hi = float(_to_scalar(xp.max(x)))
-    knot_lo = float(_to_scalar(knots[0]))
-    knot_hi = float(_to_scalar(knots[-1]))
-    boundary_lo = min(x_lo, knot_lo)
-    boundary_hi = max(x_hi, knot_hi)
-
-    # Build full cubic B-spline basis
+    a = float(xp.min(x))
+    b = float(xp.max(x))
     B = bspline_basis(x, knots, degree=3, xp=xp,
-                      boundary_lo=boundary_lo, boundary_hi=boundary_hi)
-    n_basis = B.shape[1]
+                      boundary_lo=a, boundary_hi=b)
+    width = b - a
+    if not np.isfinite(width):
+        raise ValueError("Evaluation range is too large for reliable periodic constraints")
 
-    # Build constraint matrix C (3 constraints x n_basis)
-    # Constraint 1: f(a) - f(b) = 0
-    # Constraint 2: f'(a) - f'(b) = 0
-    # Constraint 3: f''(a) - f''(b) = 0
+    k = np.asarray(_to_numpy(knots), dtype=np.float64)
+    # Dimensionless endpoint spans. The second span uses the opposite
+    # boundary when there is just one interior knot.
+    l1, r1 = (k[0] - a) / width, (b - k[-1]) / width
+    l2 = (k[1] - a) / width if len(k) > 1 else 1.0
+    r2 = (b - k[-2]) / width if len(k) > 1 else 1.0
+    h = min(l1, r1)
+    if h <= 0:
+        raise ValueError("Knot spacing cannot resolve reliable periodic constraints")
 
-    # Evaluate basis at boundary points
-    a_arr = xp.asarray([boundary_lo], dtype=xp.float64)
-    b_arr = xp.asarray([boundary_hi], dtype=xp.float64)
-
-    B_a = bspline_basis(a_arr, knots, degree=3, xp=xp,
-                        boundary_lo=boundary_lo, boundary_hi=boundary_hi)
-    B_b = bspline_basis(b_arr, knots, degree=3, xp=xp,
-                        boundary_lo=boundary_lo, boundary_hi=boundary_hi)
-
-    # Finite difference step size (relative to boundary range)
-    rng = boundary_hi - boundary_lo
-    eps = max(1e-6 * rng, 1e-10)
-
-    # First derivatives: central difference f'(x) ≈ (f(x+h) - f(x-h)) / 2h
-    a_lo = xp.asarray([boundary_lo - eps], dtype=xp.float64)
-    a_hi = xp.asarray([boundary_lo + eps], dtype=xp.float64)
-    b_lo = xp.asarray([boundary_hi - eps], dtype=xp.float64)
-    b_hi = xp.asarray([boundary_hi + eps], dtype=xp.float64)
-
-    B_a_lo = bspline_basis(a_lo, knots, degree=3, xp=xp,
-                           boundary_lo=boundary_lo, boundary_hi=boundary_hi)
-    B_a_hi = bspline_basis(a_hi, knots, degree=3, xp=xp,
-                           boundary_lo=boundary_lo, boundary_hi=boundary_hi)
-    B_b_lo = bspline_basis(b_lo, knots, degree=3, xp=xp,
-                           boundary_lo=boundary_lo, boundary_hi=boundary_hi)
-    B_b_hi = bspline_basis(b_hi, knots, degree=3, xp=xp,
-                           boundary_lo=boundary_lo, boundary_hi=boundary_hi)
-
-    dB_a = (B_a_hi - B_a_lo) / (2 * eps)  # (1, n_basis)
-    dB_b = (B_b_hi - B_b_lo) / (2 * eps)
-
-    # Second derivatives: central difference f''(x) ≈ (f(x+h) - 2f(x) + f(x-h)) / h^2
-    ddB_a = (B_a_hi - 2 * B_a + B_a_lo) / (eps ** 2)
-    ddB_b = (B_b_hi - 2 * B_b + B_b_lo) / (eps ** 2)
-
-    # Constraint matrix C: shape (3, n_basis)
-    C = xp.zeros((3, n_basis), dtype=xp.float64)
-    C[0, :] = B_a - B_b           # f(a) = f(b)
-    C[1, :] = dB_a - dB_b         # f'(a) = f'(b)
-    C[2, :] = ddB_a - ddB_b       # f''(a) = f''(b)
-
-    # Find null space of C via SVD
-    try:
-        U, S_vec, Vt = xp.linalg.svd(C, full_matrices=True)
-    except (AttributeError, _LINALG_ERRORS):
-        # Fallback: use numpy for SVD
-        C_np = _to_numpy(C)
-        U_np, S_np, Vt_np = np.linalg.svd(C_np, full_matrices=True)
-        Vt = xp.asarray(Vt_np, dtype=xp.float64)
-
-    # Null space = rows of Vt corresponding to zero singular values
-    # Determine rank from singular values (not hardcoded)
-    if S_vec.shape[0] > 0:
-        tol = max(C.shape) * float(_to_scalar(S_vec[0])) * np.finfo(np.float64).eps
-        rank = int(np.sum(np.abs(_to_numpy(S_vec)) > tol))
-    else:
-        rank = 0
-    null_space = Vt[rank:].T  # (n_basis, n_basis - rank)
-
-    # Project B-spline basis onto null space
-    B_cyclic = B @ null_space  # (n, n_basis - 3)
-
-    return B_cyclic
-
-
-def _to_scalar(x):
-    """Extract a Python scalar from a backend array."""
-    if hasattr(x, 'item'):
-        return x.item()
-    return float(x)
+    C = np.zeros((3, B.shape[1]), dtype=np.float64)
+    C[0, 0], C[0, -1] = 1.0, -1.0
+    # d1 multiplied by h/3; d2 multiplied by h**2/6. Form
+    # bounded ratios directly, avoiding overflow from inverse tiny spans.
+    C[1, :2] += np.array([-1.0, 1.0]) * (h / l1)
+    C[1, -2:] -= np.array([-1.0, 1.0]) * (h / r1)
+    C[2, :3] += np.array([1.0, -1.0 - l1/l2, l1/l2]) * (h/l1)**2
+    C[2, -3:] -= np.array([r1/r2, -1.0 - r1/r2, 1.0]) * (h/r1)**2
+    C /= np.linalg.norm(C, axis=1)[:, None]
+    constraints = xp_asarray(C, dtype=xp.float64, xp=xp, ref_arr=x)
+    _, singular_values, vt = xp.linalg.svd(constraints, full_matrices=True)
+    s = np.asarray(_to_numpy(singular_values))
+    if not np.isfinite(s).all() or s[-1] <= max(C.shape) * s[0] * np.finfo(float).eps:
+        raise ValueError("Knot spacing cannot resolve three independent periodic constraints")
+    result = B @ vt[3:].T
+    if not bool(xp.all(xp.isfinite(result))):
+        raise ValueError("Knot spacing cannot produce a finite periodic basis")
+    return result

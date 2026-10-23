@@ -19,6 +19,20 @@ def _assert_cpu_workaround(text):
     )
 
 
+def _assert_gpu_computation_boundary(text, language):
+    """Reject host computation, not the documented final NumPy return boundary."""
+    if language == "en":
+        guard = r"(?:do not accept|reject)[^.]*CPU fitted/evaluation arrays"
+        exception = "does not apply to the documented final NumPy interval-result boundary"
+    else:
+        guard = r"(?:不要接受|拒绝)[^。；]*CPU 拟合/评价数组"
+        exception = "不适用于明确约定的区间结果最终转为 NumPy 的返回边界"
+    assert any(
+        re.search(guard, paragraph) and exception in paragraph
+        for paragraph in text.split("\n\n")
+    ), "GPU computation guidance must distinguish internal arrays from final NumPy returns"
+
+
 @pytest.mark.parametrize("language", ("en", "cn"))
 def test_device_guide_cpu_example_is_self_contained(language):
     path = ROOT / f"docs/{language}/guides/device-and-memory.md"
@@ -34,6 +48,7 @@ def test_device_guide_cpu_example_is_self_contained(language):
 def test_device_guide_keeps_settings_exceptions_and_observable_checks(language):
     text = (ROOT / f"docs/{language}/guides/device-and-memory.md").read_text(encoding="utf-8")
     _assert_cpu_workaround(text)
+    _assert_gpu_computation_boundary(text, language)
     for value in ("cpu", "cuda", "torch", "auto"):
         assert f'device="{value}"' in text
     for term in ("statgpu.set_device", "get_device()", "KernelDensityEstimator",
@@ -48,12 +63,27 @@ def test_device_guide_keeps_settings_exceptions_and_observable_checks(language):
         assert term not in text, term
     if language == "en":
         assert re.search(r"restor\w*[^.]*polic", text, re.IGNORECASE)
-        assert re.search(r"(?:do not accept|reject)[^.]*CPU result", text)
         assert "penalized GLMs" in text and "global GPU setting" in text
     else:
         assert re.search(r"恢复[^。]*策略", text)
-        assert re.search(r"(?:不要接受|拒绝)[^。]*CPU 结果", text)
         assert "惩罚 GLM" in text and "全局设置为 GPU" in text
+
+
+@pytest.mark.parametrize("language", ("en", "cn"))
+@pytest.mark.parametrize("damage", ("missing_internal_guard", "missing_final_exception"))
+def test_gpu_boundary_guard_requires_internal_and_final_return_contracts(language, damage):
+    text = (ROOT / f"docs/{language}/guides/device-and-memory.md").read_text(encoding="utf-8")
+    terms = {
+        "en": ("CPU fitted/evaluation arrays",
+               "does not apply to the documented final NumPy interval-result boundary"),
+        "cn": ("CPU 拟合/评价数组",
+               "不适用于明确约定的区间结果最终转为 NumPy 的返回边界"),
+    }
+    term = terms[language][0 if damage == "missing_internal_guard" else 1]
+    damaged = text.replace(term, "")
+    assert damaged != text
+    with pytest.raises(AssertionError):
+        _assert_gpu_computation_boundary(damaged, language)
 
 
 @pytest.mark.parametrize("language", ("en", "cn"))

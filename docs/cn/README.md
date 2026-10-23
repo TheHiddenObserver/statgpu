@@ -1,8 +1,10 @@
 # StatGPU 文档
 
 > 语言：中文  
-> 最后更新：2026-10-17  
+> 最后更新：2026-10-20  
 > 切换：[English](../en/README.md)
+
+官方网站与在线文档：[statgpu.github.io](https://statgpu.github.io/)。
 
 ## 快速开始
 
@@ -41,6 +43,7 @@
 - [PyTorch 后端](guides/pytorch-backend.md) — PyTorch 后端使用说明
 - [回归诊断](guides/regression-diagnostics.md) — 残差、杠杆值、Cook 距离与 VIF
 - [推断模式](guides/inference-modes.md) — 选择并解释系数推断方法
+- [原生 KDE bootstrap](guides/native-kde-bootstrap.md) — 逐点密度区间、后端选择、带宽与结果解释
 - [多重检验概览](models/testing/multiple-testing.md) — 选择假设族、错误率标准或总体检验
 - [P 值校正与合并 API](guides/multiple-testing-combine-pvalues.md) — 完整签名、形状与数值限制
 - [基准测试](guides/benchmarks.md) — 基准测试方法与对比说明

@@ -8,10 +8,11 @@
 
 GPU-accelerated statistical methods with an sklearn-style API.
 
+**[Website & Documentation](https://statgpu.github.io/) · [English](https://statgpu.github.io/en/README) · [中文文档](https://statgpu.github.io/cn/README)**
+
 ## Core Features
 
 - 🚀 **Three backends**: NumPy (CPU), CuPy (CUDA), and PyTorch (CUDA), with automatic device selection
-- 🧭 **Explicit backend semantics**: choose CPU or GPU execution per model; [current kernel/spline routing exceptions](docs/en/guides/device-and-memory.md#current-smoothing-and-spline-exceptions) can return CPU results despite a GPU request, so check array placement when GPU execution is required. Input, output, and scalar conversions are documented per method
 - 🔧 **sklearn-style estimators**: familiar `fit`/`predict`/`score` methods and parameter conventions
 - 📊 **GLM + robust + quantile + Cox**: Gaussian and non-Gaussian regression, robust losses, quantile regression, and survival analysis
 - 🔥 **Penalty framework**: L1, L2, Elastic Net, SCAD, MCP, adaptive, and grouped penalties
@@ -48,10 +49,14 @@ Knockoff: [overview](docs/en/models/feature-selection/knockoff.md) · [Fixed-X t
 
 Knockoff 中文：[总览](docs/cn/models/feature-selection/knockoff.md) · [Fixed-X 教程](docs/cn/models/feature-selection/knockoff-fixed-x.md) · [Model-X 教程](docs/cn/models/feature-selection/knockoff-model-x.md) · [完整 API](docs/cn/reference/feature-selection-api.md)。
 
+## Known device-routing limitations
+
+`KernelRegression`, `SplineTransformer`, `KernelPCA` and `Nystroem` still have paths that can execute on CPU despite an explicit GPU request. These are unresolved routing defects, not GPU support or a feature. See the [current kernel/spline routing limitations](docs/en/guides/device-and-memory.md#current-smoothing-and-spline-exceptions) before relying on those paths. GPU input/output array placement alone does not prove that the computation ran on GPU.
+
 ## Documentation
 
-- **English docs**: [docs/en/](docs/en) — full documentation index
-- **Chinese docs**: [docs/cn/](docs/cn) — 中文文档
+- **English docs**: [Online documentation](https://statgpu.github.io/en/README) · [Source](docs/en)
+- **Chinese docs**: [在线文档](https://statgpu.github.io/cn/README) · [源码](docs/cn)
 - **Quickstart**: [Quickstart](docs/en/getting-started/quickstart.md)
 - **Implemented methods**: [Method Inventory](docs/en/guides/implemented-methods.md)
 - **GLM + Penalty**: [Generalized Linear Model](docs/en/models/regression/generalized-linear-model.md)
