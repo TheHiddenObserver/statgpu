@@ -770,7 +770,7 @@
       ],
       "evidence_gaps": [
         "Full learning-suite physical acceptance remains unestablished; targeted observer checks passed on P100 at 07f12e2, not whole-suite or subsequent-change validation.",
-        "Torch KDE bootstrap remains explicitly unsupported because production resampling requires weighted fitting.",
+        "Torch KDE bootstrap is implemented in the current public native path; physical acceptance of this new source remains pending. Historical learning-suite evidence treated Torch bootstrap as unsupported and does not certify this implementation.",
         "Targeted bandwidth/knockoff/KDE paths observe selected native numerical operations and explicit host stages, not whole-algorithm GPU residency; instrumented timings remain performance-ineligible.",
         "Other learning GPU rows retain ownership-only evidence; weak numerical oracles remain diagnostic and selection summaries do not certify FDR."
       ],
@@ -823,11 +823,13 @@
       ],
       "case_registry_validation": "imported runner registry, not inferred from title",
       "case_selection_flag": "--cases",
-      "script_sha256": "63d47355d77d085d9275a12caddb0ee193dd418929683f0246fd79a1f9628c3b",
+      "script_sha256": "cd005b06e56325889908d8a70840c3292fa9de14efb8f78e77d8185477654ec9",
       "historical_v2_execution_status": "CPU42pass2known_defect_blocked",
       "historical_v2_invocation_validation": "CLIverified; worker44CPUcases42pass2knownblockeddefects#191#216;61contracttests pass",
       "source_dependencies_sha256": {
-        "dev/benchmarks/learning_execution_trace.py": "5286e82cffc054dc7dda951b07bea8d9ca7866a9527639a20d08767d5d6b2172",
+        "statgpu/nonparametric/kernel_smoothing/_native_bandwidth.py": "7d7772b7fbcbe9316f5c523513c8aada4436b21207eabbfb699e81e073c19c6d",
+        "statgpu/nonparametric/kernel_smoothing/_native_bootstrap.py": "9235b22cb062eebaec8b286ff8da9bc25cf5816711a78657fd6c6313f34dd7a9",
+        "dev/benchmarks/learning_execution_trace.py": "7e1c13e8fecc72115bd061bf7dd96705fdf2da3e8d1f8f094c984c04a6de6e91",
         "dev/benchmarks/benchmark_release_refresh.py": "0693f38691f29d774cec5406b19459377c97743183169e1590959ba31fab1a6e"
       },
       "execution_evidence_contract": "dev/plans/learning_device_trace_repair.md"

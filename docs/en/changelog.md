@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-20<br>
+> Last updated: 2026-10-22<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -13,6 +13,27 @@ These source changes are not included in the published 0.3.0 wheel or sdist.
 The historical 0.3.0 release-preparation entries below retain their original
 wording. Package versions are unchanged, and earlier P100 acceptance does not
 validate these numerical changes.
+
+### Native KDE bootstrap (2026-10-22)
+
+- CuPy bootstrap now uses native RNG, refits and percentiles; Torch bootstrap
+  and weighted Torch KDE fitting are supported. Shared Torch weight and query
+  shape fixes also apply to kernel regression, not to `bandwidth_per_feature`.
+- Public interval arrays remain NumPy. Native string selectors refit per draw;
+  the NumPy one-dimensional Gaussian fast path still fixes the initial factor.
+  Native seeding changes random streams and Generator state consumption.
+- Optional `workspace_bytes` controls an estimated managed-buffer budget, not
+  a hard peak-memory cap. See the [guide](guides/native-kde-bootstrap.md).
+- Gaussian log-density excludes zero-mass rows from its reduction. Native
+  selector sorting uses stable ties and PCA fixes the loading sign; NumPy
+  selector algorithms remain unchanged. Weighted multivariate factors can
+  differ materially even with a nondegenerate PCA axis, because weighted
+  quantile resampling is not reflection-invariant. Repeated/near-repeated top
+  eigenvalues introduce additional direction ambiguity and a `RuntimeWarning`,
+  aggregated across fits in a public interval call. Native projection
+  diagnostic arrays remain backend-resident; selector `to_dict()` stays shallow.
+- Historical experimental-candidate GPU results do not validate this public
+  implementation or establish its performance.
 
 ### Fixed (2026-10-20)
 

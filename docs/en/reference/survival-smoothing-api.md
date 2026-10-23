@@ -1,7 +1,7 @@
 # Survival and smoothing API reference
 
 > Language: English  
-> Last updated: 2026-10-11  
+> Last updated: 2026-10-22<br>
 > Switch: [Chinese](../../cn/reference/survival-smoothing-api.md)
 
 Use this page to look up a call after the [CoxPH](../models/coxph.md), [GAM](../models/nonparametric/semiparametric.md), or [nonparametric](../models/nonparametric/nonparametric.md) walkthrough. Signatures below include public arguments and defaults; `*` starts keyword-only arguments. Shape notation: `n` training rows, `p` features, `q` query rows, `r` response columns. Fitted methods require a successful fit. Generic [parameter management](estimator-api.md#parameter-management) and [inference helpers](estimator-api.md#inference-helpers) are documented separately. Generic resampling helpers do not automatically supply model-valid survival inference or GAM confidence bands. Floating-point model calculations on this page use float64 rather than preserving a float32 input dtype; backend-native numeric predictions still have the fitted array-library type.
@@ -282,14 +282,14 @@ kde_pdf(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', 
 | `bandwidth` | Positive finite scalar factor, or `scott`, `silverman`, `nrd0`, `nrd`, `ucv`, `bcv`, `sj`, `sj-ste`, `sj-dpi`. Numeric values are covariance factors, not widths in input units. |
 | `weights` | Constructor/functional-fit input, not a `fit` keyword: nonnegative finite length `n`, positive sum; normalized internally. Default `None` means equal weights. Covariance needs more than one effectively weighted observation. See [Torch restrictions](#torch-argument-restrictions). |
 | `kernel` | Default `gaussian`; also `rectangular`, `triangular`, `epanechnikov`, `biweight`, `triweight`, `cosine`, `optcosine`; the last two are 1D-only. |
-| `backend` | `auto`, `numpy`, `cupy`, `torch`; selects the array library. `auto` consults device/global configuration; explicit-device exceptions are described below. |
+| `backend` | `auto`, `numpy`, `cupy`, `torch`; selects the array library. `auto` consults device/global configuration; device rules are described below. |
 | `device`, `n_jobs`, `gpu_memory_cleanup` | Estimator-only device control, shared job option, and best-effort GPU-cache cleanup. The kernel evaluators do not use `n_jobs` for a parallel query pool. Functional helpers do not expose these arguments. |
 | `batch_size` | Positive query-batch size for `pdf`, `logpdf`, `__call__`, and `kde_pdf`; not a KDE constructor or `predict`/`score_samples`/`score` argument. Some NumPy fast paths evaluate a small workload together. |
 | `return_log` | `kde_pdf` only; `False` returns density, `True` log density. |
 
 `fit(X,y=None)` does not use `y` to estimate density and returns `self`; `fit_kde` returns a fitted `KDE`. Samples are finite real `(n,)` or `(n,p)`, with `n>=2` and `p>=1`; they are converted to float64. Queries are finite `(q,p)`; a vector means multiple queries for one feature or one query for a multivariate fit. `pdf`, `predict`, and `__call__` return backend-native `(q,)` density; `logpdf` and `score_samples` return log density. `score` returns Python `float`, the unweighted mean query log density, and does not use `y` in the score. Supplying nonfinite `y` to either `fit` or `score` still raises under shared input validation; omit this optional argument. Compact-support kernels can return density 0 and log density `-inf`.
 
-For weighted Gaussian KDE, remove zero-weight rows (and their weights) before fitting when using `logpdf`, `score_samples`, or `score`. Although they carry no statistical mass, these rows can currently make tail log-density evaluation return `-inf` incorrectly. Renormalization is automatic. Choose a new bandwidth after filtering if the positive-weight population is the intended input to selection. Rerunning a string selector can change the selected factor: `nrd`/`nrd0` use raw-sample scale summaries, while `ucv`, `bcv`, `sj-ste` and `sj-dpi` can change their weighting/resampling path after deletion. To preserve an already-chosen smoothing factor, save `original.bandwidth_factor_` and refit the positive-weight rows with numeric `bandwidth=original.bandwidth_factor_` and their retained weights. This preserves the specified kernel covariance and density; it does not establish that a factor selected with zero-mass rows was an appropriate scientific choice.
+Weighted Gaussian KDE excludes zero-mass observations from the log-density reduction, so retaining zero-weight rows does not by itself destabilize `logpdf`, `score_samples`, or `score`. Removing those rows before bandwidth selection can still change the selected factor. Choose a new bandwidth after filtering if the positive-weight population is the intended input to selection. Rerunning a string selector can change the selected factor: `nrd`/`nrd0` use raw-sample scale summaries, while `ucv`, `bcv`, `sj-ste` and `sj-dpi` can change their weighting/resampling path after deletion. To preserve an already-chosen smoothing factor, save `original.bandwidth_factor_` and refit the positive-weight rows with numeric `bandwidth=original.bandwidth_factor_` and their retained weights. This preserves the specified kernel covariance and density; it does not establish that a factor selected with zero-mass rows was an appropriate scientific choice.
 
 For large-offset coordinates, subtract a training-derived offset from both samples and queries before fitting/evaluation. Current quadratic-distance calculations can lose precision without this centering, including KDE log-density and multivariate density/regression. This translation does not change the intended statistical estimator. 
 
@@ -302,7 +302,22 @@ before fitting, and apply the density Jacobian when reporting KDE in the
 original units. See [small coordinate scales](../models/nonparametric/nonparametric.md#small-coordinate-scales)
 for the transformation, an observed counterexample, and validation limits.
 
-KDE and kernel regression currently have explicit-device exceptions. With NumPy or Torch CPU inputs, `device="torch"` plus `backend="auto"` or `"torch"` can still fit and predict on Torch CPU. With `device="cuda", backend="auto"`, an unavailable CuPy backend can select Torch when Torch CUDA is available; NumPy or Torch CPU input can then remain on CPU. Explicit `backend="torch"` can likewise run on CPU with `device="cuda"`; `backend="numpy"` overrides either accelerator request. Inspect `samples_` and density/prediction array placement, using Torch `.device`/`.is_cuda` or CuPy `.device`; NumPy arrays are on CPU. The configured `device` and `backend_` alone are insufficient. For a predictable CPU path, use NumPy inputs with `device="cpu", backend="numpy"`. If your workflow requires GPU execution, reject CPU-resident results rather than continuing with them; see [device guidance](../guides/device-and-memory.md).
+KDE enforces explicit accelerator requests: `device="cuda"` requires CuPy CUDA
+and `backend="auto"` or `"cupy"`; `device="torch"` requires Torch CUDA and
+`backend="auto"` or `"torch"`. Unavailable accelerators and conflicting backend
+requests raise errors rather than running on CPU. `device="cpu"` permits NumPy
+or Torch, not CuPy. With `backend="torch", device="auto"`, native tensors keep
+their device and host inputs use Torch CPU unless an explicit global device
+setting requests an accelerator. With `backend="auto"`, estimator/global device
+policy selects the library, not input type. Interval helpers expose `backend`,
+not a separate `device` argument.
+
+Kernel regression still has explicit-device exceptions: CPU inputs may remain
+on Torch CPU despite `device="torch"` or `"cuda"`, and `backend="numpy"` can
+override those requests. Verify `samples_` and prediction placement before
+requiring GPU execution. Torch `.device`/`.is_cuda` and CuPy `.device` identify
+placement; `backend_` alone does not. See [device guidance](../guides/device-and-memory.md).
+
 
 Fitted attributes: `samples_` `(n,p)`, normalized `weights_` `(n,)`, scalar `bandwidth_factor_`, `bandwidth_info_` (selection result or `None` for numeric bandwidth), `covariance_` and `inv_covariance_` `(p,p)`, scalar `norm_const_` and `inv_norm_const_`, `kernel_`, `backend_`, `n_samples_`, and `n_features_`. `to_numpy_metadata()` returns a dictionary with `bandwidth_factor`, `bandwidth_selection`, `n_samples`, `n_features`, `backend`, `kernel`, `covariance`, `inv_covariance`, and `weights`; arrays are host NumPy arrays.
 
@@ -365,12 +380,12 @@ In addition to the common fitted fields (excluding KDE normalization constants),
 
 <!-- signature: kde_confidence_interval -->
 ```text
-kde_confidence_interval(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', backend='auto', n_resamples=200, confidence_level=0.95, random_state=None, method='normal', bootstrap_method='percentile', return_bootstrap_samples=False, batch_size=1024)
+kde_confidence_interval(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', backend='auto', n_resamples=200, confidence_level=0.95, random_state=None, method='normal', bootstrap_method='percentile', return_bootstrap_samples=False, batch_size=1024, workspace_bytes=None)
 ```
 
 <!-- signature: kde_bootstrap_confidence_interval -->
 ```text
-kde_bootstrap_confidence_interval(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', backend='auto', n_resamples=200, confidence_level=0.95, random_state=None, method='percentile', return_bootstrap_samples=False, batch_size=1024)
+kde_bootstrap_confidence_interval(samples, points, *, bandwidth='scott', weights=None, kernel='gaussian', backend='auto', n_resamples=200, confidence_level=0.95, random_state=None, method='percentile', return_bootstrap_samples=False, batch_size=1024, workspace_bytes=None)
 ```
 
 <!-- signature: KDEBootstrapResult.to_dict -->
@@ -413,17 +428,25 @@ The printed result is `(3,) 0 None`. This checks the formula, not actual coverag
 
 ### Torch argument restrictions
 
-On Torch, supplying `weights` to KDE or kernel regression currently raises
-`TypeError`. Regression `bandwidth_per_feature` also raises for both scalar and
-vector widths. Bootstrap intervals fail on Torch even without user-supplied
-weights, because resampled fits pass weights internally. Use CPU arrays and
-`backend="numpy"` for those requests; changing the requested weights or widths
-is not an equivalent workaround. Unweighted Torch normal intervals remain
-available for one-dimensional Gaussian KDE.
+CuPy and Torch bootstrap use backend-native sampling, refitting, density and
+percentiles. Torch supports explicit fitting weights and a length-`p` vector
+for one multivariate query, as well as `(q,p)` query arrays. Torch CPU execution
+is supported and must not be confused with Torch CUDA execution. Interval result
+arrays remain NumPy arrays, including optional bootstrap draws.
 
-For multivariate Torch density/regression evaluation, supply `(q,p)` queries,
-including `(1,p)` for one query. A length-`p` vector currently raises `TypeError`;
-`X[:1]` preserves the required row dimension.
+`workspace_bytes=None` leaves native bootstrap query batching unconstrained by
+a user budget. A positive integer sets a bootstrap-managed buffer estimate,
+not a hard device-memory cap. Exact percentiles retain all `n_resamples * q`
+draws even when `return_bootstrap_samples=False`. Inputs, the original model,
+library scratch and allocator caches are excluded. Insufficient space
+for the managed buffers raises `MemoryError`; samples and draws are not dropped.
+This option does not limit NumPy bootstrap or normal intervals.
+
+See [native KDE bootstrap](../guides/native-kde-bootstrap.md) for selector
+refitting, weighted resampling, RNG state consumption and memory details.
+Regression `bandwidth_per_feature` remains unsupported on Torch; use `backend="numpy"`
+with CPU arrays for those absolute widths rather than replacing them with a
+statistically different scalar factor.
 
 ## Lower-level bandwidth selectors
 
@@ -456,6 +479,20 @@ BandwidthSelectionResult.to_dict()
 | `estimator`, `targets`, `regression`, `kernel` | Default `"kde"`; choose `"kernel_regression"` with compatible targets for regression-CV selection. `regression` is `"nw"` or `"local_linear"`; `kernel` selects the regression kernel. Defaults are in the signatures. |
 
 `select_bandwidth` returns `BandwidthSelectionResult`; `select_bandwidth_factor` returns its scalar `factor`. Result fields: `factor`, `method`, `n_features`, `n_eff`, `used_r_selector`, `weighted`, `weighted_strategy`, `multivariate_strategy`, `selector_dimension`, and `details`. `to_dict()` returns those same names. `details` is method-specific diagnostic information; do not assume all selectors have the same keys. `used_r_selector=True` identifies `ucv`, `bcv`, and the `sj` variants; it is `False` for `nrd`/`nrd0` and does not indicate an external R process. Some constant/sparse samples cause selectors to fail.
+
+Native selectors preserve input order for equal-valued observations and orient
+the principal eigenvector's first largest-absolute loading positively. NumPy
+retains its legacy selector conventions. Even for a nondegenerate principal axis,
+weighted linear-quantile resampling can change materially under sign reversal;
+repeated or near-repeated largest eigenvalues additionally make the axis itself
+ambiguous. Native factors are not guaranteed to reproduce legacy NumPy factors.
+See [native PCA and weighted selector differences](../guides/native-kde-bootstrap.md#native-pca-and-weighted-selector-differences).
+Repeated or numerically near-repeated top eigenvalues produce a native
+`RuntimeWarning`; interval calls aggregate it across their fits. The warning
+does not imply CPU fallback or guarantee compatibility when absent.
+For native selectors, `details["projection_vector"]`, when present, stays on the
+backend device. `to_dict()` is shallow: it is neither a JSON serializer nor a
+host-array export.
 
 `weighted` flags a normalized-weight range above `1e-12`.
 `weighted_strategy` records `"uniform"` or the configured nonuniform strategy;

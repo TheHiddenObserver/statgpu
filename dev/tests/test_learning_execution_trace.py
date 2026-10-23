@@ -2,11 +2,12 @@
 from contextlib import nullcontext
 from types import SimpleNamespace
 import sys
+import json
 
 import numpy as np
 import pytest
 
-from dev.benchmarks.learning_execution_trace import NumericalTrace, TraceIncomplete, stage, learning_stages
+from dev.benchmarks.learning_execution_trace import NumericalTrace, TraceIncomplete, identities, stage, learning_stages
 from dev.benchmarks import benchmark_learning_coverage as b
 
 
@@ -125,12 +126,19 @@ def test_host_scalar_rule_is_reported_without_gpu_compute_claim():
     assert all(r['placement']=='host-scalar-no-GPU-work-required' for r in row['execution_trace'][0]['stages'])
 
 
-def test_torch_bootstrap_stays_genuine_unsupported():
-    rt=SimpleNamespace(name='torch')
-    called=[]
-    with pytest.raises(b.Blocked,match='unsupported: Torch KDE bootstrap'):
-        b.traced_call('kde_bootstrap',lambda:called.append(True),rt,[])
-    assert called==[]
+def test_torch_cpu_bootstrap_observes_native_rng_and_quantiles():
+    from statgpu.nonparametric import kde_bootstrap_confidence_interval
+    rt = torch_runtime()
+    x = rt.module.as_tensor(np.random.default_rng(7).normal(size=(32, 1)))
+    q = rt.module.linspace(-1, 1, 9, dtype=rt.module.float64)
+    traces = []
+    result = b.traced_call('kde_bootstrap', lambda: kde_bootstrap_confidence_interval(
+        x, q, backend='torch', bandwidth=.4, n_resamples=20, random_state=7), rt, traces)
+    assert result.estimate.shape == (9,)
+    assert traces[0]['device'] == 'cpu'  # Never physical CUDA evidence.
+    stages = traces[0]['stages']
+    assert len([r for r in stages if r['stage'] == 'native-resampling']) == 20
+    assert {'native-probability-cdf', 'native-interval-quantiles'} <= {r['stage'] for r in stages}
 
 
 def test_bootstrap_requires_every_replication_stage():
@@ -173,16 +181,12 @@ def test_physical_gpu_stage_observation_when_available(backend,case):
         runtime=b.Runtime(backend,0)
     except b.BackendUnavailable as exc:
         pytest.skip(str(exc))
-    if backend=='torch' and case=='kde_bootstrap':
-        with pytest.raises(b.Blocked,match='unsupported: Torch KDE bootstrap'):
-            b.run_case(case,runtime,48,4,42,0,1)
-        return
     row=b.run_case(case,runtime,48,4,42,0,1)
     assert row['status']=='pass' and row['correctness']['status']=='pass'
     assert row['execution_trace']
     assert all(trace['device']=='cuda:0' for trace in row['execution_trace'])
     assert row['performance_eligible'] is False
-    assert row['execution_qualification']['compute_placement'] in ('host-scalar','mixed-host-and-observed-native-arithmetic')
+    assert row['execution_qualification']['compute_placement'] in ('host-scalar','mixed-host-and-observed-native-arithmetic','observed-native-arithmetic-with-host-control-and-api-boundaries')
 
 
 def test_native_primitive_cpu_compute_then_recast_is_rejected(monkeypatch):
@@ -209,6 +213,9 @@ def test_unsupported_boundary_is_machine_readable(monkeypatch,tmp_path):
     import json
     rt=SimpleNamespace(name='torch',device='cuda:0',hardware={},context=nullcontext)
     monkeypatch.setattr(b,'Runtime',lambda *args:rt)
+    def unsupported(*args):
+        raise b.UnsupportedCapability('unsupported kernel/shape combination')
+    monkeypatch.setattr(b,'run_case',unsupported)
     output=tmp_path/'unsupported.json'
     assert b.main(['--cases','kde_bootstrap','--backends','torch','--require-backends','--output',str(output)])==2
     row=json.loads(output.read_text())['results'][0]
@@ -244,3 +251,155 @@ def test_numpy_generated_wrapper_does_not_trust_foreign_implementation():
 def test_current_numpy_array_function_primitives_are_recognized():
     for name in ('sum','mean','std','var','quantile'):
         NumericalTrace._verify_native_callable(getattr(np,name),np,'numpy',name)
+
+
+@pytest.mark.parametrize('method', ['scott', 'silverman', 'nrd', 'nrd0', 'ucv', 'bcv', 'sj', 'sj-ste', 'sj-dpi'])
+def test_torch_cpu_native_selector_stages(method):
+    from statgpu.nonparametric import fit_kde
+    rt = torch_runtime()
+    x = rt.module.as_tensor(np.random.default_rng(8).normal(size=(48, 2)))
+    trace = NumericalTrace(rt, learning_stages('bandwidth_' + method, 'torch'))
+    with trace:
+        fit_kde(x, bandwidth=method, backend='torch')
+    assert trace.report()['device'] == 'cpu'
+
+
+def test_native_rng_replacement_cannot_pass_by_returning_tensor(monkeypatch):
+    rt = torch_runtime()
+    original = rt.module.rand
+    monkeypatch.setattr(rt.module, 'rand', lambda *args, **kwargs: original(*args, **kwargs))
+    with pytest.raises(TraceIncomplete, match='replacement'):
+        with NumericalTrace(rt, learning_stages('kde_bootstrap', 'torch')):
+            pass
+    assert sys.getprofile() is None
+
+
+def test_native_rng_missing_from_one_replication_is_rejected():
+    rt = torch_runtime()
+    def draw():
+        return rt.module.rand(3, dtype=rt.module.float64)
+    trace = NumericalTrace(rt, [stage(draw, 'rng', ('rand',), minimum_calls=2)])
+    with trace:
+        draw()
+        draw()
+    trace.report()
+    trace.records[-1]['operations'].clear()
+    with pytest.raises(TraceIncomplete, match='expected rand'):
+        trace.report()
+
+
+def test_subclass_repeated_primitive_names_are_instrumented_once():
+    class ExtendedTrace(NumericalTrace):
+        OPS = NumericalTrace.OPS + ('cumsum', 'searchsorted')
+    def target(x):
+        return np.cumsum(x)
+    trace = ExtendedTrace(cpu_runtime(), [stage(target, 'cdf', ('cumsum',))])
+    with trace:
+        target(np.ones(3))
+    assert len(trace.report()['stages'][0]['operations']) == 1
+
+
+def scalar_control_protocol_trace():
+    """Synthetic observer protocol only, never CuPy execution evidence.
+
+    CuPy v13.6.0 cupy/linalg/_norms.py:257-258 passes dtype.type(0/-inf)
+    into where alongside native arrays. These scalars are genuinely NumPy
+    scalars; native identities below are explicit metadata fixtures, not arrays.
+    """
+    def target():
+        pass
+    native = dict(backend='cupy', device='cuda:0', dtype='float64', kind='array', shape=[])
+    scalar = identities(np.dtype('float64').type(0))[0]
+    trace = NumericalTrace(SimpleNamespace(name='cupy', device='cuda:0'),
+        [stage(target, 'source-derived-slogdet', ('where',))])
+    event = dict(operation='where', backend='cupy',
+        inputs=[dict(native, dtype='bool'), scalar, native.copy()], outputs=[native.copy()])
+    trace.records = [dict(stage='source-derived-slogdet', completed=True, operations=[event])]
+    return trace, event
+
+
+def test_numpy_scalar_control_identity_is_not_zero_dimensional_array():
+    scalar, array = identities(np.float64(0))[0], identities(np.asarray(0.))[0]
+    assert scalar == dict(backend='numpy', device='cpu', dtype='float64', kind='numpy-scalar')
+    assert array == dict(backend='numpy', device='cpu', dtype='float64', kind='array', shape=[])
+    assert identities(0.) == []
+
+
+@pytest.mark.parametrize('value', (0., -float('inf')))
+def test_source_derived_numpy_scalar_control_protocol_roundtrips(value):
+    trace, event = scalar_control_protocol_trace()
+    event['inputs'][1] = identities(np.dtype('float64').type(value))[0]
+    trace.records = json.loads(json.dumps(trace.records))
+    report = trace.report()
+    assert report['stages'][0]['operations'][0]['inputs'][1]['kind'] == 'numpy-scalar'
+    assert report['stages'][0]['operations'][0]['outputs'][0]['shape'] == []
+
+
+@pytest.mark.parametrize('failure', ('host-scalar-output', 'host-array-input', 'host-0d-input',
+    'host-array-output', 'host-0d-output', 'wrong-device-input', 'wrong-device-output',
+    'foreign-backend-input', 'foreign-backend-output', 'scalar-only-input',
+    'forged-native-scalar-input', 'forged-native-scalar-output', 'scalar-with-array-shape',
+    'missing-input-kind', 'unknown-input-kind', 'missing-output-kind', 'unknown-output-kind'))
+def test_scalar_control_protocol_rejects_non_native_array_evidence(failure):
+    trace, event = scalar_control_protocol_trace()
+    if failure == 'host-scalar-output': event['outputs'].append(identities(np.float64(1.))[0])
+    elif failure == 'host-array-input': event['inputs'].append(identities(np.ones(2))[0])
+    elif failure == 'host-0d-input': event['inputs'].append(identities(np.asarray(0.))[0])
+    elif failure == 'host-array-output': event['outputs'].append(identities(np.ones(2))[0])
+    elif failure == 'host-0d-output': event['outputs'].append(identities(np.asarray(0.))[0])
+    elif failure == 'wrong-device-input': event['inputs'][0]['device'] = 'cuda:1'
+    elif failure == 'wrong-device-output': event['outputs'][0]['device'] = 'cuda:1'
+    elif failure == 'foreign-backend-input': event['inputs'][0]['backend'] = 'torch'
+    elif failure == 'foreign-backend-output': event['outputs'][0]['backend'] = 'torch'
+    elif failure == 'scalar-only-input': event['inputs'] = [event['inputs'][1]]
+    elif failure == 'forged-native-scalar-input': event['inputs'][0]['kind'] = 'numpy-scalar'
+    elif failure == 'forged-native-scalar-output': event['outputs'][0]['kind'] = 'numpy-scalar'
+    elif failure == 'scalar-with-array-shape': event['inputs'][1]['shape'] = []
+    elif failure == 'missing-input-kind': event['inputs'][0].pop('kind')
+    elif failure == 'unknown-input-kind': event['inputs'][0]['kind'] = 'unknown'
+    elif failure == 'missing-output-kind': event['outputs'][0].pop('kind')
+    elif failure == 'unknown-output-kind': event['outputs'][0]['kind'] = 'unknown'
+    with pytest.raises(TraceIncomplete):
+        trace.report()
+
+
+def test_scalar_control_protocol_diagnostic_identifies_offending_operation_and_operands():
+    trace, event = scalar_control_protocol_trace()
+    event['outputs'].append(identities(np.float64(1.))[0])
+    with pytest.raises(TraceIncomplete) as error:
+        trace.report()
+    text = str(error.value)
+    for detail in ('source-derived-slogdet', 'operation=where', 'expected=cupy/cuda:0',
+                   'inputs=', 'outputs=', 'numpy-scalar'):
+        assert detail in text
+
+
+def test_numpy_scalar_control_only_does_not_prove_cpu_array_work():
+    def target(value):
+        return np.exp(value)
+    trace = NumericalTrace(cpu_runtime(), [stage(target, 'scalar-only', ('exp',))])
+    with trace:
+        target(np.float64(1.))
+    with pytest.raises(TraceIncomplete, match='No matching native arithmetic'):
+        trace.report()
+
+
+def test_real_numpy_reduction_scalar_output_retains_cpu_array_evidence():
+    def target(value):
+        return np.sum(value)
+    trace = NumericalTrace(cpu_runtime(), [stage(target, 'reduction', ('sum',))])
+    with trace:
+        target(np.ones(3))
+    event = trace.report()['stages'][0]['operations'][0]
+    assert event['inputs'][0]['kind'] == 'array'
+    assert event['outputs'][0]['kind'] == 'numpy-scalar'
+
+
+def test_numpy_scalar_control_with_array_shape_cannot_prove_cpu_array_work():
+    trace, event = scalar_control_protocol_trace()
+    trace.runtime = cpu_runtime()
+    event['backend'] = 'numpy'
+    event['inputs'] = [dict(identities(np.float64(1.))[0], shape=[])]
+    event['outputs'] = identities(np.asarray(1.))
+    with pytest.raises(TraceIncomplete):
+        trace.report()

@@ -275,9 +275,6 @@ def validate_knockoff(result,truth):
 def traced_call(case, call, rt, traces):
     if case not in TRACE_CASES:
         return call()
-    if case == 'kde_bootstrap' and rt.name == 'torch':
-        # Preserve the production limitation, not a generic TypeError catch.
-        raise UnsupportedCapability('unsupported: Torch KDE bootstrap requires explicit replicate weights; weighted Torch KDE is not supported')
     observer = NumericalTrace(rt, learning_stages(case, rt.name))
     with observer:
         result = call()
@@ -362,7 +359,6 @@ def special_case(case,rt,n,seed,warmup,repeats):
     row={'case':case,'backend':rt.name,'status':'failed','problem':{'n':n,'p':1,'seed':seed,'dtype':'float64','data_id':hashlib.sha256(x.tobytes()+samples.tobytes()).hexdigest()}}
     def call():
         if case=='kde_bootstrap':
-            if rt.name=='torch':raise UnsupportedCapability('unsupported: Torch KDE bootstrap uses explicit replicate weights; current production weighted KDE raises TypeError (not a missing trace)')
             return N.kde_bootstrap_confidence_interval(rt.array(samples),rt.array(points),bandwidth=.4,n_resamples=20,random_state=seed,return_bootstrap_samples=True,backend=rt.name)
         if case.startswith('bandwidth'):
             method=case[len('bandwidth_'):];device={'numpy':'cpu','cupy':'cuda','torch':'torch'}[rt.name]
@@ -429,7 +425,7 @@ def classify_placement(row,rt):
         row['performance_eligible']=False
         row['execution_qualification']={
             'array_device':rt.device,
-            'compute_placement':'host-scalar' if row['case']=='bandwidth_helpers' else ('host' if rt.name=='numpy' else 'mixed-host-and-observed-native-arithmetic'),
+            'compute_placement':'host-scalar' if row['case']=='bandwidth_helpers' else ('host' if rt.name=='numpy' else ('observed-native-arithmetic-with-host-control-and-api-boundaries' if row['case']=='kde_bootstrap' or (row['case'].startswith('bandwidth_') and row['case']!='bandwidth_cv') else 'mixed-host-and-observed-native-arithmetic')),
             'evidence':'Per-invocation source-identified numerical stages and native arithmetic observations; not full GPU residency',
             'timing_use':'Instrumented diagnostic public-call duration only, not canonical speedup evidence'}
         return row
