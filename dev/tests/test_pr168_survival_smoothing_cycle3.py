@@ -61,7 +61,27 @@ def test_linked_kernel_docs_state_objective_and_current_boundaries(lang):
     assert r"\alpha\lVert c\rVert_2^2" not in ridge
     assert "sample_weight" in ridge
     assert "mean_mse" in cv and "best_score_" in cv
-    assert "NumPy SVD" in nystroem
+    # Decomposition is native; the seeded indices and public reporting arrays
+    # remain host boundaries rather than evidence of CPU numerical fallback.
+    contracts = {
+        "en": (
+            "selected-backend SVD",
+            "landmark kernel and SVD on the selected backend",
+            "seeded landmark-index selection remains on the host",
+            "Public fitted arrays remain NumPy reporting/storage boundaries",
+        ),
+        "cn": (
+            "所选后端 SVD",
+            "节点核与 SVD 使用所选后端",
+            "带种子的节点索引抽样仍在主机进行",
+            "公开拟合数组仍为 NumPy 报告／存储边界",
+        ),
+    }
+    for phrase in contracts[lang]:
+        assert phrase in nystroem, phrase
+    assert "NumPy SVD" not in nystroem
+    assert r"K_{mm}=U\Sigma V^\top" in nystroem
+    assert r"\max(\sigma_j,10^{-12})" in nystroem
     assert r"Z=K_{nm}V\Lambda^{-1/2}V^\top" in nystroem
 
 

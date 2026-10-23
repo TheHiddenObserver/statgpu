@@ -61,10 +61,42 @@ def test_device_limitations_live_in_guides_not_readme_feature_section():
         assert f'[Source](docs/{language})' in text or f'[源码](docs/{language})' in text
         guide = (ROOT / f'docs/{language}/guides/device-and-memory.md').read_text(encoding='utf-8')
         assert '<a id="current-smoothing-and-spline-exceptions"></a>' in guide
-        for name in ('KernelRegression', 'SplineTransformer', 'KernelPCA', 'Nystroem'):
-            assert name in guide
-        assert ('can still produce Torch CPU features' in guide if language == 'en'
-                else '仍可能得到 Torch CPU 特征' in guide)
+        # Check each estimator's own bullet so a caveat for regression/splines
+        # cannot accidentally satisfy the repaired KDE/kernel-feature contract.
+        bullets = [line for line in guide.splitlines() if line.startswith('- ')]
+        kde = next(line for line in bullets if line.startswith('- `KernelDensityEstimator`'))
+        regression = next(line for line in bullets if '`KernelRegression`' in line)
+        spline = next(line for line in bullets if line.startswith('- `SplineTransformer`'))
+        features = next(line for line in bullets if line.startswith('- `KernelPCA` '))
+        assert 'backend="torch", device="cpu"' in kde
+        assert '(native-kde-bootstrap.md)' in kde
+        for phrase in ('Torch CPU', 'device="torch"', 'device="cuda"', 'backend="numpy"'):
+            assert phrase in regression
+        for phrase in ('Torch CPU', 'device="torch"', '"cuda"'):
+            assert phrase in spline
+        assert '`Nystroem`' in features
+        if language == 'en':
+            assert 'follows the explicit accelerator rules' in kde
+            assert 'returns NumPy result arrays after device computation' in kde
+            assert 'can fit NumPy or Torch CPU input on Torch CPU' in regression
+            assert 'overrides either GPU request' in regression
+            assert 'both fitted knots and transformed features on CPU' in spline
+            assert 'reject unavailable explicit accelerators' in features
+            assert 'place fit/transform inputs on the selected backend' in features
+            assert 'decompositions do not silently retry on CPU' in features
+            assert 'public fitted NumPy arrays remain reporting/storage boundaries' in features
+            assert 'can still produce Torch CPU features' not in features
+        else:
+            assert '执行上述显式加速器规则' in kde
+            assert '在设备计算后返回 NumPy 结果数组' in kde
+            assert '仍可能在 Torch CPU 上拟合' in regression
+            assert '会覆盖这两种 GPU 请求' in regression
+            assert '拟合节点与变换特征仍可能留在 CPU 上' in spline
+            assert '拒绝不可用的显式加速器' in features
+            assert '将拟合／变换输入放到所选后端' in features
+            assert '数值分解不静默转到 CPU 重试' in features
+            assert '公开 NumPy 拟合数组仍是报告／存储边界' in features
+            assert '仍可能得到 Torch CPU 特征' not in features
 
 
 def test_readme_preserves_generic_chinese_entrances_without_model_links():

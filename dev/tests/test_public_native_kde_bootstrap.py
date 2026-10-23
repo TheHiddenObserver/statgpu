@@ -823,13 +823,30 @@ def test_public_trace_host_guard_rejects_host_array_operands(value):
 def test_public_trace_host_guard_keeps_python_scalar_control_without_gpu_evidence():
     from types import SimpleNamespace
     from dev.benchmarks import benchmark_public_native_kde_bootstrap as bench
-    trace = bench.PublicTrace(SimpleNamespace(name='cupy'), [], bench.PRESETS['tiny'])
-    trace.active[1] = {'operations': []}
-    result = trace._wrap(np.sqrt, 'numpy', 'sqrt')(4.)
-    assert result == 2.
-    event = trace.active[1]['operations'][0]
+    import inspect
+    from dev.benchmarks.learning_execution_trace import NumericalTrace, stage
+
+    def scalar_control():
+        # Exercise the real source-stage/frame registry without importing or
+        # pretending to execute a CUDA module. This is an observer-only test.
+        frame = inspect.currentframe()
+        NumericalTrace._profile(trace, frame, 'call', None)
+        result = None
+        try:
+            result = trace._wrap(np.sqrt, 'numpy', 'sqrt')(4.)
+            return result
+        finally:
+            NumericalTrace._profile(trace, frame, 'return', result)
+
+    trace = bench.PublicTrace(SimpleNamespace(name='cupy', device='cuda:0'),
+        [stage(scalar_control, 'scalar-control', ('sqrt',))], bench.PRESETS['tiny'])
+    assert scalar_control() == 2.
+    assert not trace.active and not trace.frames
+    event = trace.records[0]['operations'][0]
     assert event['backend'] == 'numpy' and event['inputs'] == []
     assert event['outputs'][0]['kind'] == 'numpy-scalar'
+    with pytest.raises(bench.TraceIncomplete, match='No matching native arithmetic'):
+        trace.report()
 
 
 @pytest.mark.parametrize('shape', ((), (2,)))

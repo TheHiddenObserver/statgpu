@@ -1,8 +1,8 @@
 """Independent S1-S6 documentation regressions for the fourth PR168 review.
 
-All numerical checks here run on CPU. Strict xfails assert the intended explicit
-accelerator contract; they expose a separately reported routing defect and do not
-claim that the documentation edits repair it or establish physical CUDA parity.
+All numerical checks here run on CPU. Strict xfails retain the unresolved kernel
+regression and spline routing defects. Kernel-feature placement is a regression
+contract now; its availability-only mock does not establish physical CUDA parity.
 """
 
 import inspect
@@ -303,21 +303,57 @@ def test_spline_should_honor_explicit_accelerator_with_torch_cpu_input_or_raise(
 
 
 @pytest.mark.parametrize("language", ["en", "cn"])
-def test_kernel_feature_docs_distinguish_availability_from_actual_placement(language):
+def test_kernel_feature_docs_distinguish_native_computation_from_host_reporting(language):
     text = (ROOT / f"docs/{language}/models/nonparametric/kernel-methods.md").read_text()
-    for phrase in ("KernelPCA", "Nystroem", 'device="torch"', ".device", ".is_cuda",
-                   "NumPy", "fit_transform", "current-smoothing-and-spline-exceptions"):
-        assert phrase in text
-    assert "CPU input" in text if language == "en" else "CPU 输入" in text
+    boundary_heading = ("## Backend and Execution Boundaries" if language == "en"
+                        else "## 后端与执行边界")
+    boundary = " ".join(text.split(boundary_heading, 1)[1].split("\n## ", 1)[0].split())
+    for phrase in ("KernelPCA", "Nystroem", 'device="cpu"', ".device", ".is_cuda"):
+        assert phrase in boundary
+    contracts = {
+        "en": (
+            "Explicit unavailable device requests raise",
+            "convert fit and transform inputs through the selected backend",
+            "including host inputs explicitly requesting Torch CUDA",
+            "propagates decomposition failures rather than retrying on CPU",
+            "landmark kernel and SVD on the selected backend",
+            "seeded landmark-index selection remains on the host",
+            "Public fitted arrays remain NumPy reporting/storage boundaries",
+            "Inspect returned features",
+            "host fitted arrays alone do not prove where numerical work ran",
+            "do not imply GPU performance or physical validation",
+        ),
+        "cn": (
+            "显式请求不可用的设备会报错",
+            "在拟合和变换时通过所选后端转换输入",
+            "包括显式请求 Torch CUDA 的主机输入",
+            "分解失败会直接传播，不再转到 CPU 重试",
+            "节点核与 SVD 使用所选后端",
+            "带种子的节点索引抽样仍在主机进行",
+            "公开拟合数组仍为 NumPy 报告／存储边界",
+            "应通过返回特征",
+            "不能仅凭主机拟合数组判断数值计算位置",
+            "不代表 GPU 性能或物理验收通过",
+        ),
+    }
+    for phrase in contracts[language]:
+        assert phrase in boundary, phrase
     for cls in (KernelPCA, Nystroem):
-        help_text = inspect.getdoc(cls)
-        assert "availability check succeeds" in help_text
-        assert ".device/.is_cuda" in help_text
+        help_text = " ".join(inspect.getdoc(cls).split())
+        assert "Unavailable explicit backends raise" in help_text
+        assert "Inputs are placed on the selected backend device" in help_text
         assert "Public fitted arrays are deliberately NumPy" in help_text
-        method_help = inspect.getdoc(cls.transform)
-        assert "rejects unavailable" in method_help
-        assert "CPU input can still" in method_help
-        assert "does not guarantee placement" in method_help
+        assert "transformed features use the selected device" in help_text
+        method_help = " ".join(inspect.getdoc(cls.transform).split())
+        assert "Inputs and features use the selected backend device" in method_help
+        assert "NumPy" in method_help and "regardless of numerical device" in method_help
+        for stale in ("availability check succeeds", "CPU input can still",
+                      "does not guarantee placement"):
+            assert stale not in help_text + method_help
+    assert "propagate without a CPU fallback" in " ".join(inspect.getdoc(KernelPCA).split())
+    nystroem_help = " ".join(inspect.getdoc(Nystroem).split())
+    assert "landmark SVD use the selected backend" in nystroem_help
+    assert "Seeded landmark-index selection remains on the host" in nystroem_help
 
 
 @pytest.fixture(scope="module")
@@ -360,7 +396,7 @@ def kernel_feature_availability_only_records():
                         outputs.update({name: getattr(model, name)(values[:2])
                                         for name in ("transform", "predict")})
                     except (RuntimeError, AssertionError) as error:
-                        # A future explicit CUDA rejection is valid; unrelated
+                        # Explicit CUDA rejection is valid; unrelated
                         # failures leave the subprocess nonzero and fail pytest.
                         if not re.search(
                             r"Torch not compiled with CUDA enabled|"
@@ -389,7 +425,7 @@ def kernel_feature_availability_only_records():
         )
     evidence = json.loads(completed.stdout)
     # Routing identity is setup evidence, not the expected output-placement
-    # assertion. A resolver regression must fail independently of the xfail.
+    # assertion. A resolver regression must fail independently of allocation.
     for record in evidence["records"]:
         if record["resolved_name"] != "torch" or record["resolved_device"] != "cuda":
             raise ValueError(f"Unexpected resolver identity in gate-only probe: {record}")
@@ -411,8 +447,6 @@ def test_kernel_feature_real_unavailable_torch_cuda_request_raises(
                      re.IGNORECASE)
 
 
-@pytest.mark.xfail(strict=True, raises=_ExplicitAcceleratorPlacementError,
-                   reason="Issue #231: availability-only mock exposes missing Torch device conversion; no physical CUDA claim")
 @pytest.mark.parametrize("cls_name", ["KernelPCA", "Nystroem"])
 @pytest.mark.parametrize("input_kind", ["numpy", "torch_cpu"])
 def test_kernel_feature_availability_only_mock_should_place_outputs_on_cuda_or_raise(
@@ -421,7 +455,7 @@ def test_kernel_feature_availability_only_mock_should_place_outputs_on_cuda_or_r
     record = next(row for row in kernel_feature_availability_only_records["records"]
                   if row["class"] == cls_name and row["input"] == input_kind)
     if "rejected" in record:
-        return  # A clear corrected rejection prompts strict XPASS and marker removal.
+        return  # The fixture accepts only recognized CUDA-unavailability errors.
     assert set(record["outputs"]) == {"fit_transform", "transform", "predict"}
     correctly_placed = all(value["torch_tensor"] and value["is_cuda"]
                            for value in record["outputs"].values())
