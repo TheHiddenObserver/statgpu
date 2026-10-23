@@ -329,7 +329,7 @@
       ],
       "case_registry_validation": "imported runner registry, not inferred from title",
       "case_selection_flag": "--cases",
-      "script_sha256": "8b568d472bcab65f575ea3599241fe948fb5082a2bbd0e99112264e8faba0ff5",
+      "script_sha256": "c39610ad3fe2bd5897ca85dfb20c86e51ad90b3ded251f7dedd6c5d8939f79e3",
       "historical_v2_failures": [
         {
           "case": "glm_inference:inverse_gaussian:hc0",

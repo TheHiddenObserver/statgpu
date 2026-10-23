@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT))
 import numpy as np
 import statgpu
 from statgpu import linear_model as lm, panel, survival
+from statgpu.backends import _to_numpy
 from dev.benchmarks.benchmark_release_refresh import Runtime, BackendUnavailable, array_identity, environment
 from dev.benchmarks.learning_execution_trace import NumericalTrace, TraceIncomplete, model_stages, exception_chain
 
@@ -288,19 +289,21 @@ class Observe:
 
 
 def check_fit(model,target,contract,inference):
-    coef=np.asarray(model.coef_,dtype=float).ravel()
+    # Host oracle/report boundary only: fitted coefficients may stay on GPU.
+    # This runs after native fit, synchronization, and execution observation.
+    coef=np.asarray(_to_numpy(model.coef_),dtype=float).ravel()
     if contract.get('parameter_layout')=='slopes-only':actual=coef
-    else:actual=np.r_[float(model.intercept_),coef]
+    else:actual=np.r_[float(_to_numpy(model.intercept_)),coef]
     if actual.shape!=target.shape or not np.isfinite(actual).all():raise AssertionError('nonfinite or wrong-shape parameters')
     metrics={'coef_max_abs_error':float(np.max(np.abs(actual-target)))}
     if not np.allclose(actual,target,atol=contract['coef_atol'],rtol=contract['coef_rtol']):raise AssertionError(f'parameter oracle mismatch {metrics}')
     if inference:
         for k,attr in [('bse','_bse'),('pvalues','_pvalues'),('conf_int','_conf_int')]:
-            value=np.asarray(getattr(model,attr)); expected=inference[k]
+            value=np.asarray(_to_numpy(getattr(model,attr))); expected=inference[k]
             if value.shape!=expected.shape or not np.allclose(value,expected,atol=1e-6,rtol=1e-5):raise AssertionError('inference oracle mismatch '+k+' max_abs='+str(float(np.max(np.abs(value-expected)))))
             metrics[k+'_max_abs_error']=float(np.max(np.abs(value-expected)))
         if 'zvalues' in inference:
-            actual_z=np.asarray(model._zvalues)
+            actual_z=np.asarray(_to_numpy(model._zvalues))
             if not np.allclose(actual_z,inference['zvalues'],atol=1e-5,rtol=2e-5):raise AssertionError('inference z-statistic mismatch')
             metrics['zvalues_max_abs_error']=float(np.max(np.abs(actual_z-inference['zvalues'])))
         if 'covariance' in inference:
@@ -310,7 +313,7 @@ def check_fit(model,target,contract,inference):
             # the host, while the retained inference design stays native.
             # Re-align this extra oracle call without mutating fitted state.
             from statgpu.inference._sandwich import m_estimation_inference
-            from statgpu.backends import _resolve_backend, _to_numpy
+            from statgpu.backends import _resolve_backend
             from statgpu.backends._utils import _get_xp, xp_asarray
             xp = _get_xp(_resolve_backend('auto', model._X_design))
             params_native = xp_asarray(
@@ -340,8 +343,8 @@ def fitted_diagnostics(model, target, contract):
               'solver_resolved': str(getattr(model, '_selected_solver', 'not exposed')),
               'n_iter': str(getattr(model, 'n_iter_', 'not exposed'))}
     try:
-        coef = np.asarray(model.coef_, dtype=float).ravel()
-        actual = coef if contract.get('parameter_layout') == 'slopes-only' else np.r_[float(model.intercept_), coef]
+        coef = np.asarray(_to_numpy(model.coef_), dtype=float).ravel()
+        actual = coef if contract.get('parameter_layout') == 'slopes-only' else np.r_[float(_to_numpy(model.intercept_)), coef]
         result.update(parameter_shape=list(actual.shape), target_shape=list(target.shape),
                       parameters_finite=bool(np.isfinite(actual).all()))
         if actual.shape == target.shape and np.isfinite(actual).all():
