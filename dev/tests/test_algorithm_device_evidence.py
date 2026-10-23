@@ -19,13 +19,22 @@ MODEL_CASES = ['cox:breslow', 'cox:efron', *['panel:' + p for p in models.PANELS
 def torch_cpu_runtime():
     torch = pytest.importorskip('torch')
     return SimpleNamespace(name='torch', module=torch, device='cpu', context=nullcontext,
-                           sync=lambda device: None, array=lambda x: torch.as_tensor(x))
+                           sync=lambda device: None,
+                           array=lambda x: torch.as_tensor(x, device='cpu'))
 
 
 def inject_torch_cpu(model, monkeypatch):
-    """Explicit test injection only, never emulate torch CUDA availability."""
+    """Isolate internal Torch CPU controls from the machine's real CUDA.
+
+    This is not a public ``device='torch'`` request (which means CUDA).
+    GAM's internal Torch ingress also consults CUDA availability, so replacing
+    only its backend/xp leaves this CPU-only test dependent on the host GPU.
+    The caller's function-scoped monkeypatch restores availability afterward;
+    physical GPU tests below never use this helper.
+    """
     from statgpu.backends import TorchBackend
     backend = TorchBackend(device='cpu')
+    monkeypatch.setattr(backend.xp.cuda, 'is_available', lambda: False)
     model.set_params(device='cpu')
     monkeypatch.setattr(model, '_get_backend', lambda **kwargs: backend)
     if hasattr(model, '_get_xp'):
@@ -38,15 +47,66 @@ def inject_torch_cpu(model, monkeypatch):
     return model
 
 
+@pytest.mark.parametrize('cuda_available', [False, True])
+def test_torch_cpu_gam_injection_isolates_available_cuda(cuda_available, monkeypatch):
+    """Availability alone must not turn a CPU-control test into CUDA work."""
+    torch = pytest.importorskip('torch')
+    original_available = torch.cuda.is_available
+    original_empty = torch.empty
+    X, y, labels = learning.data(48, 1, 42)
+    y = np.sin(X[:, 0]) + .2 * X[:, 0]
+
+    def reject_cuda_allocation(*args, **kwargs):
+        if str(kwargs.get('device', '')).startswith('cuda'):
+            raise AssertionError('CPU-control test attempted a CUDA allocation')
+        return original_empty(*args, **kwargs)
+
+    with monkeypatch.context() as local:
+        local.setattr(torch.cuda, 'is_available', lambda: cuda_available)
+        local.setattr(torch, 'empty', reject_cuda_allocation)
+        assert torch.cuda.is_available() is cuda_available
+        model = inject_torch_cpu(learning.estimator('gam', 'cpu', 42, len(X)), local)
+        rt = torch_cpu_runtime()
+        dx, dy = rt.array(X), rt.array(y)
+        assert dx.device.type == dy.device.type == 'cpu'
+        trace = NumericalTrace(rt, estimator_stages('gam', 'torch', 'fit'))
+        with trace:
+            model.fit(dx, dy)
+        assert trace.report()['device'] == 'cpu'
+        assert model.coef_.device.type == 'cpu'
+        assert learning.validate('gam', model, X, y, model.predict(dx), labels)['status'] == 'pass'
+    assert torch.cuda.is_available is original_available
+
+
+def test_public_gam_explicit_cpu_ignores_cuda_availability(monkeypatch):
+    """Public CPU dispatch is NumPy, unlike the injected internal controls."""
+    torch = pytest.importorskip('torch')
+    monkeypatch.setattr(torch.cuda, 'is_available', lambda: True)
+
+    def reject_torch_allocation(*args, **kwargs):
+        raise AssertionError('Public NumPy CPU request entered Torch allocation')
+
+    monkeypatch.setattr(torch, 'empty', reject_torch_allocation)
+    X, y, labels = learning.data(48, 1, 42)
+    y = np.sin(X[:, 0]) + .2 * X[:, 0]
+    model = learning.estimator('gam', 'cpu', 42, len(X)).fit(X, y)
+    assert model._xp is np
+    assert isinstance(model.coef_, np.ndarray)
+    assert learning.validate('gam', model, X, y, model.predict(X), labels)['status'] == 'pass'
+
+
 @pytest.mark.parametrize('case', CASES)
 def test_algorithm_stages_real_torch_cpu_and_independent_oracle(case, monkeypatch):
     rt = torch_cpu_runtime()
+    # Exercise CPU isolation even on a machine without an actual CUDA device.
+    monkeypatch.setattr(rt.module.cuda, 'is_available', lambda: True)
     X, y, labels = learning.data(48, 4, 42)
     if case in ('kde', 'kernel_regression_nw', 'kernel_regression_local_linear', 'spline', 'gam'):
         X = X[:, :1]
     if case.startswith('kernel_regression') or case == 'gam':
         y = np.sin(X[:, 0]) + .2 * X[:, 0]
     model = inject_torch_cpu(learning.estimator(case, 'cpu', 42, len(X)), monkeypatch)
+    assert not rt.module.cuda.is_available()
     dx, dy = rt.array(X), rt.array(y)
     fit_trace = NumericalTrace(rt, estimator_stages(case, 'torch', 'fit'))
     with fit_trace:
@@ -70,8 +130,10 @@ def test_algorithm_stages_real_torch_cpu_and_independent_oracle(case, monkeypatc
 @pytest.mark.parametrize('case', MODEL_CASES)
 def test_current_model_numerical_paths_real_torch_cpu(case, monkeypatch):
     rt = torch_cpu_runtime()
+    monkeypatch.setattr(rt.module.cuda, 'is_available', lambda: True)
     factory, args, kw, target, contract, inference = models.make_case(case, 48, 3, 20261020, 'numpy')
     model = inject_torch_cpu(factory(), monkeypatch)
+    assert not rt.module.cuda.is_available()
     observer = NumericalTrace(rt, model_stages(case, 'torch'))
     with observer:
         model.fit(*(rt.array(a) for a in args), **kw)

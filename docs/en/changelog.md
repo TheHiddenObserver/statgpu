@@ -11,6 +11,7 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ### PR #257 — Full-scan correctness and evidence repairs
 
+- Isolate injected Torch CPU test controls from ambient CUDA availability; public GAM CPU routing, numerical tolerances, and physical GPU tests are unchanged. The first P100 failure remains historical and requires a new-source rerun.
 - Restore smooth-quadratic FISTA stopping on GPU without increasing iteration budgets or relaxing convergence tolerances.
 - Keep squared-error L2 PenalizedGLM_CV final refits on the requested numerical backend.
 - Evaluate Torch F survival probabilities for numerator degrees of freedom 2 with a stable native exact expression; retain other degrees-of-freedom behavior.
