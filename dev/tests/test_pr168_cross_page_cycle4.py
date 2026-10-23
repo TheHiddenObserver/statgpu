@@ -141,7 +141,9 @@ def test_torch_entry_guide_links_current_device_exceptions(language):
     assert "device-and-memory.md#current-smoothing-and-spline-exceptions" in text
     assert text.count("#current-smoothing-and-spline-exceptions") >= 2
     readme = (ROOT / "README.md").read_text()
-    assert "docs/en/guides/device-and-memory.md#current-smoothing-and-spline-exceptions" in readme
+    assert "[Device and GPU Memory](docs/en/guides/device-and-memory.md)" in readme
+    guide = (ROOT / f"docs/{language}/guides/device-and-memory.md").read_text()
+    assert '<a id="current-smoothing-and-spline-exceptions"></a>' in guide
 
 
 def test_missing_rejection_xfails_cannot_swallow_unrelated_exceptions():
