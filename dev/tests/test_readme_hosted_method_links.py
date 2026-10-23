@@ -58,7 +58,7 @@ def test_device_limitations_live_in_guides_not_readme_feature_section():
     assert 'Explicit backend semantics' not in text
     assert '[Device and GPU Memory](docs/en/guides/device-and-memory.md)' in text
     for language in ('en', 'cn'):
-        assert f'[Source](docs/{language})' in text
+        assert f'[Source](docs/{language})' in text or f'[源码](docs/{language})' in text
         guide = (ROOT / f'docs/{language}/guides/device-and-memory.md').read_text(encoding='utf-8')
         assert '<a id="current-smoothing-and-spline-exceptions"></a>' in guide
         for name in ('KernelRegression', 'SplineTransformer', 'KernelPCA', 'Nystroem'):
@@ -67,11 +67,10 @@ def test_device_limitations_live_in_guides_not_readme_feature_section():
                 else '仍可能得到 Torch CPU 特征' in guide)
 
 
-def test_english_readme_uses_english_navigation_labels_for_chinese_docs():
+def test_readme_preserves_generic_chinese_entrances_without_model_links():
     text = (ROOT / 'README.md').read_text(encoding='utf-8')
-    assert not re.search(r'[\u3400-\u4dbf\u4e00-\u9fff]', text)
-    assert '[Chinese](https://statgpu.github.io/cn/README)' in text
-    assert '**Chinese docs**: [Online documentation](https://statgpu.github.io/cn/README) · [Source](docs/cn)' in text
+    assert '[中文文档](https://statgpu.github.io/cn/README)' in text
+    assert '**Chinese docs**: [在线文档](https://statgpu.github.io/cn/README) · [源码](docs/cn)' in text
     targets = re.findall(r'\]\(([^)]+)\)', text)
     chinese_targets = [target for target in targets
                        if '/cn/' in target or target == 'docs/cn']

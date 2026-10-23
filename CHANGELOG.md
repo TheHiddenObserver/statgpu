@@ -4,7 +4,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — 2026-10-23
 
-### PR #256 — Generic Chinese navigation in English README
+### PR #256 — Remove Chinese model links from English README
 
 ### PR #255 — README method navigation and device-guide links
 
