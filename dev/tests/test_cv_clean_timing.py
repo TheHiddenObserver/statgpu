@@ -108,11 +108,26 @@ def test_existing_profile_or_trace_fails_before_work(clean_fixture, monkeypatch,
     assert getattr(module, attribute)() is sentinel
 
 
-def test_monitoring_tool_fails_closed(clean_fixture, monkeypatch):
-    monkeypatch.setattr(sys, "monitoring", SimpleNamespace(get_tool=lambda i: "coverage" if i == 2 else None))
+@pytest.mark.parametrize("monitoring_exists", [False, True])
+def test_monitoring_tool_fails_closed(clean_fixture, monkeypatch, monitoring_exists):
+    # Python <3.12 has no sys.monitoring; exercise both feature states without
+    # requiring a real monitoring tool or altering the runner's fail-closed gate.
+    if monitoring_exists:
+        monkeypatch.setattr(sys, "monitoring", SimpleNamespace(get_tool=lambda i: None), raising=False)
+    else:
+        monkeypatch.delattr(sys, "monitoring", raising=False)
+    monkeypatch.setattr(sys, "monitoring", SimpleNamespace(get_tool=lambda i: "coverage" if i == 2 else None), raising=False)
     with pytest.raises(RuntimeError, match="sys.monitoring"):
         execute(clean_fixture)
     assert clean_fixture.events == []
+
+
+def test_missing_monitoring_api_allows_clean_uninstrumented_fit(clean_fixture, monkeypatch):
+    monkeypatch.delattr(sys, "monitoring", raising=False)
+    result = execute(clean_fixture)
+    assert result["instrumentation"] == "none"
+    assert result["total_fit_ms"] == 125.0
+    assert not hasattr(sys, "monitoring")
 
 
 def test_profiler_leaked_by_fit_rejects_sample(clean_fixture, monkeypatch):
