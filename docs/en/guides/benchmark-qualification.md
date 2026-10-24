@@ -524,20 +524,23 @@ Before executing newly configured protocols, run the ordinary control/oracle tes
 python -m pytest -q -rs dev/tests/test_campaign_configuration_matrix.py dev/tests/test_registered_benchmark_axes.py dev/tests/test_full_benchmark_matrix.py dev/tests/test_independent_benchmark_registry.py
 ```
 
-The additional physical suite has 38 single-GPU parameter nodes, covering CuPy
+The additional physical suite has 58 single-GPU parameter nodes, covering CuPy
 and Torch weighted model input precision, PCA solvers, GMM covariance modes, and
 all six CV families under two folds/four candidates (six families checked inside
-each of the two backend test calls):
+each of the two backend test calls). This includes 20 additional inference
+combinations across covariance type, input precision, weights and backend; the
+existing four weighted HC3 combinations remain in the original group:
 
 ```bash
 python -m pytest -q -rs -x dev/tests/test_registered_benchmark_axes_physical.py
 ```
 
-Every one of these 38 call phases must pass in the intended two-backend CUDA
+Every one of these 58 call phases must pass in the intended two-backend CUDA
 environment. A missing-backend skip is useful local feedback, not physical
 acceptance. This suite supplements the earlier device/clean-timing tests; it is
 not a replacement or proof of all configurations. Pin the collected node list
-to the actual source before running. No physical run of this extension is claimed.
+to the actual source before running. Passing this suite does not establish that
+the expanded configuration campaign or independent runners have been executed.
 
 ## Explicit execution-count budgets
 

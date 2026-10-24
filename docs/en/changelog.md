@@ -11,6 +11,7 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ### Benchmark qualification improvements (PR #258)
 
+- Correct the configuration-gate guide to 58 mandatory single-GPU parameters, including 20 additional inference combinations; commands and executable contracts are unchanged.
 - Observe actual OLS/WLS covariance-stage arithmetic for nonrobust, HC0 and HC3 inference before timing. Report observed compute precision (including existing weighted-CuPy/Torch promotion), block missing evidence, and keep nested distribution/reporting boundaries explicit; production algorithms and tolerances are unchanged.
 - Preserve clean CV timing on CPython 3.9 by reading its actual thread-default profile/trace hook slots when public getters are absent. Unknown or unreadable hook state still fails closed; no hook is disabled and numerical timing boundaries are unchanged.
 - Authenticate CuPy ufunc `add.at` through its exact native owner and method descriptor when the bound method has no module name; reject replaced owners/methods and retain in-place output, device and dtype checks. Production KMeans arithmetic is unchanged.

@@ -446,13 +446,13 @@ python -m pytest dev/tests/test_qualification_campaign.py -q
 python -m pytest -q -rs dev/tests/test_campaign_configuration_matrix.py dev/tests/test_registered_benchmark_axes.py dev/tests/test_full_benchmark_matrix.py dev/tests/test_independent_benchmark_registry.py
 ```
 
-新增物理测试有38个单GPU参数节点，覆盖CuPy/Torch加权模型输入精度、PCA solver、GMM covariance，以及2 folds/4 candidates下六个CV家族（每个backend测试调用内部核对六家）：
+新增物理测试有58个单GPU参数节点，覆盖CuPy/Torch加权模型输入精度、PCA solver、GMM covariance，以及2 folds/4 candidates下六个CV家族（每个backend测试调用内部核对六家）。其中新增20个推断组合，覆盖协方差类型、输入精度、权重与后端；既有4个加权HC3组合仍保留在原组中：
 
 ```bash
 python -m pytest -q -rs -x dev/tests/test_registered_benchmark_axes_physical.py
 ```
 
-目标双后端CUDA环境中38个call phase均须通过；本地缺后端skip不能记为物理验收通过。这些测试补充此前设备/clean timing门禁，不替代它们，也不证明所有配置。执行前按实际source固定collect节点清单；本次扩展尚无物理GPU实测结论。
+目标双后端CUDA环境中58个call phase均须通过；本地缺后端skip不能记为物理验收通过。这些测试补充此前设备/clean timing门禁，不替代它们，也不证明所有配置。执行前按实际source固定collect节点清单；该测试文件通过不代表expanded配置扫描或独立runner已执行。
 
 ## 显式调用次数预算
 
