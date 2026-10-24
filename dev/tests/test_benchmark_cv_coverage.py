@@ -92,7 +92,7 @@ def test_no_available_backend_partial(monkeypatch):
 
 def fake_torch(monkeypatch):
     class Tensor:
-        def __init__(self,index=0):self.is_cuda=True;self.device=SimpleNamespace(index=index)
+        def __init__(self,index=0):self.is_cuda=True;self.device=SimpleNamespace(index=index);self.dtype='float64'
     module=SimpleNamespace(Tensor=Tensor,cuda=SimpleNamespace(device=lambda i:nullcontext(),synchronize=lambda **kw:None))
     monkeypatch.setitem(sys.modules,'torch',module)
     monkeypatch.setattr(b.legacy.RegionProfiler,'__exit__',lambda *a:False)
@@ -108,22 +108,27 @@ def test_gpu_proof_must_cover_both_regions(monkeypatch):
 
 def test_gpu_observation_and_sync_restore(monkeypatch):
     Tensor=fake_torch(monkeypatch);original=b.legacy.RegionProfiler
+    original_sync=b.legacy._synchronizer
     with b.observed_backend('torch') as proofs:
         p=b.legacy.RegionProfiler(object(),60,lambda:None)
-        p.selector_stack=[-1];p.refit_stack=[-1]
-        frame=SimpleNamespace(f_globals={'__name__':'statgpu.solvers._fista'},f_code=SimpleNamespace(co_name='fista_solver'),f_locals={'X':Tensor()})
-        p._profile(frame,'call',None);p.__exit__(None,None,None)
+        frame=SimpleNamespace(f_globals={'__name__':'statgpu.solvers._newton'},f_code=SimpleNamespace(co_name='newton_solver'),f_locals={key:Tensor() for key in ('grad','hess','params')})
+        p.selector_stack=[-1]
+        p._profile(frame,'c_call',None)
+        p.selector_stack=[];p.refit_stack=[-1]
+        p._profile(frame,'c_call',None);p.__exit__(None,None,None)
         assert proofs[0]['synchronized_device']=='cuda:0'
         assert all(proofs[0]['observed_numerical_calls'].values())
+        assert proofs[0]['status']=='success'
     assert b.legacy.RegionProfiler is original
+    assert b.legacy._synchronizer is original_sync
 
 
 def test_wrong_cuda_device_rejected(monkeypatch):
     Tensor=fake_torch(monkeypatch)
     with b.observed_backend('torch'):
-        p=b.legacy.RegionProfiler(object(),60,lambda:None)
-        frame=SimpleNamespace(f_globals={'__name__':'statgpu.solvers._fista'},f_code=SimpleNamespace(co_name='fista_solver'),f_locals={'X':Tensor(1)})
-        with pytest.raises(RuntimeError,match='unexpected'):p._profile(frame,'call',None)
+        p=b.legacy.RegionProfiler(object(),60,lambda:None);p.selector_stack=[-1]
+        frame=SimpleNamespace(f_globals={'__name__':'statgpu.solvers._newton'},f_code=SimpleNamespace(co_name='newton_solver'),f_locals={key:Tensor(1) for key in ('grad','hess','params')})
+        with pytest.raises(RuntimeError,match='unexpected'):p._profile(frame,'c_call',None)
 
 
 def test_gpu_cpu_dispatch_rejected(monkeypatch):

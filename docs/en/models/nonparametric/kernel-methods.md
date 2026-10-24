@@ -210,26 +210,9 @@ All four estimators accept `device`, but kernel construction, decomposition,
 and outputs do not necessarily stay on one device:
 
 - **KernelRidge / KernelRidgeCV** construct kernels and solve on the selected backend.
-- **KernelPCA** normally decomposes on the selected backend. A linear-algebra
-  exception triggers a NumPy CPU eigendecomposition without a separate fallback
-  indicator. Stored training data and projection coefficients are also NumPy
-  arrays, so do not assume a fully device-resident fit.
-- **Nystroem** copies selected landmarks to NumPy, constructs their kernel and
-  performs its SVD on CPU, then uses the selected array library for query-to-landmark
-  kernels and returned features, subject to the placement limitation below.
-  Custom kernels must also accept NumPy landmark inputs. Landmark indices,
-  normalization, and singular values remain host arrays; selecting a GPU does
-  not move the landmark decomposition there.
+Explicit unavailable device requests raise. KernelPCA and Nystroem convert fit and transform inputs through the selected backend, including host inputs explicitly requesting Torch CUDA. KernelPCA propagates decomposition failures rather than retrying on CPU. Nystroem computes its landmark kernel and SVD on the selected backend; seeded landmark-index selection remains on the host. Custom kernels must support the selected numerical backend.
 
-Explicit unavailable device requests raise.
-
-KernelPCA and Nystroem still reject `device="torch"` when Torch CUDA is unavailable. Passing that check does not guarantee CUDA execution: NumPy or Torch CPU input can remain on CPU during fitting and transformation because the requested-device conversion is not consistently applied.
-
-Inspect the actual `fit_transform`, `transform`, and `predict` outputs with Torch `.device`/`.is_cuda` (or CuPy `.device`), rather than relying on the configured device or selected backend/library.
-
-Their public fitted arrays are stored as NumPy and do not show where the numerical work ran. This also affects Nystroem's query kernel and output, separately from its intentional CPU landmark SVD.
-
-If CUDA placement is required, reject CPU outputs before using them. For a predictable CPU alternative, pass NumPy input with `device="cpu"`. See the [device guide](../../guides/device-and-memory.md#current-smoothing-and-spline-exceptions).
+Public fitted arrays remain NumPy reporting/storage boundaries. Inspect returned features with Torch `.device`/`.is_cuda` or CuPy `.device`; host fitted arrays alone do not prove where numerical work ran. Input transfers and public-array exports are part of end-to-end cost. Use `device="cpu"` for CPU execution. These contracts do not imply GPU performance or physical validation.
 
 `KernelPCA` and `Nystroem` reject NaN/Inf in the supplied input arrays during
 fitting and transformation. This input check does not guarantee finite computed
@@ -337,7 +320,7 @@ launch, synchronization, and memory-transfer overhead.
 ### Does `device="auto"` silently change an explicit request?
 
 No. `"auto"` is itself an automatic selection request. An explicit `"cuda"` or
-`"torch"` request fails if that backend is unavailable. KernelPCA/Nystroem can still leave CPU inputs on CPU after that check passes; inspect actual returned features as described above.
+`"torch"` request fails if that backend is unavailable. KernelPCA/Nystroem place inputs on the selected backend; inspect actual returned features as described above.
 
 ### Are KernelPCA components directly comparable across separate fits?
 

@@ -10,7 +10,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
+from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray, xp_maximum
 from statgpu.nonparametric.kernel_methods._kernels import pairwise_kernels
 
 
@@ -23,14 +23,13 @@ class Nystroem(BaseEstimator):
 
     The approximation is Z = K_nm @ normalization_, with
     normalization_ = U @ diag(1/sqrt(max(s, 1e-12))) @ Vt from the
-    NumPy SVD K_mm = U @ diag(s) @ Vt. For a positive-semidefinite kernel,
+    selected-backend SVD K_mm = U @ diag(s) @ Vt. For a positive-semidefinite kernel,
     this is the symmetric inverse-square-root feature orientation.
 
-    Landmark kernel construction and SVD run on CPU even for GPU fitting;
-    query-to-landmark kernels and returned features use the selected array
-    library, but Torch CPU inputs are not consistently moved to CUDA.
-    This output-placement limitation is separate from the CPU landmark SVD.
-    A custom kernel must also accept NumPy landmark inputs.
+    Landmark and query kernels and the landmark SVD use the selected backend.
+    Seeded landmark-index selection remains on the host, and public fitted
+    arrays are exported to NumPy for reporting. A custom kernel must accept
+    arrays from the selected backend.
 
     Finite input does not guarantee a finite computed kernel. Polynomial
     kernels can overflow; nonfinite kernel/decomposition values can currently
@@ -57,11 +56,8 @@ class Nystroem(BaseEstimator):
     device : str or Device, default='auto'
         Requested device: 'cpu' (NumPy), 'cuda' (CuPy CUDA), 'torch'
         (Torch CUDA), or 'auto'. Unavailable explicit backends raise.
-        After the Torch CUDA availability check succeeds, NumPy or Torch
-        CPU input can still stay on CPU. Inspect returned features with
-        .device/.is_cuda; the selected backend does not prove placement.
-        Public fitted arrays are deliberately NumPy, so inspect outputs
-        instead. For a predictable CPU path use NumPy input, device='cpu'.
+        Inputs are placed on the selected backend device. Public fitted arrays
+        are deliberately NumPy; transformed features use the selected device.
     n_jobs : int or None, default=None
         Shared estimator option; does not parallelize fitting.
 
@@ -72,9 +68,9 @@ class Nystroem(BaseEstimator):
     component_indices_ : numpy.ndarray, shape (m,)
         Host indices of selected landmarks in the training data.
     normalization_ : numpy.ndarray, shape (m, m)
-        Host NumPy SVD inverse-square-root normalization matrix.
+        Host inverse-square-root normalization matrix from the native SVD.
     eigenvalues_ : numpy.ndarray, shape (m,)
-        Host NumPy singular values, floored at 1e-12; not signed eigenvalues.
+        Host singular values, floored at 1e-12; not signed eigenvalues.
     n_features_in_ : int
         Number of input features.
     """
@@ -114,7 +110,7 @@ class Nystroem(BaseEstimator):
         backend = self._get_backend(backend="auto")
         xp = backend.xp
 
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
+        X_arr = backend.asarray(X, dtype=backend.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
@@ -142,21 +138,16 @@ class Nystroem(BaseEstimator):
         # Build kernel params
         kernel_params = self._get_kernel_params()
 
-        # ---- K_mm decomposition on CPU (small matrix, avoid GPU overhead) ----
-        # Use eigendecomposition for PSD kernel matrix: K = V diag(λ) V^T
-        # K^{-1/2} = V diag(1/sqrt(λ)) V^T
-        landmarks_np = _to_numpy(landmarks)
-        K_mm_np = pairwise_kernels(landmarks_np, metric=self.kernel, xp=np, **kernel_params)
-
-        # SVD is stable for both PSD and indefinite kernels (for example,
-        # sigmoid).  Clipping negative eigenvalues from eigh would otherwise
-        # create enormous artificial features.
-        U, singular_values, Vt = np.linalg.svd(K_mm_np, full_matrices=False)
-        singular_values = np.maximum(singular_values, 1e-12)
-        self.normalization_ = (U / np.sqrt(singular_values)[None, :]) @ Vt
-        self.eigenvalues_ = singular_values
+        # Keep the landmark Gram and its decomposition on the numerical backend.
+        # SVD preserves the established normalization for indefinite kernels too.
+        K_mm = pairwise_kernels(landmarks, metric=self.kernel, xp=xp, **kernel_params)
+        U, singular_values, Vt = xp.linalg.svd(K_mm, full_matrices=False)
+        singular_values = xp_maximum(singular_values, 1e-12, xp)
+        normalization = (U / xp.sqrt(singular_values)[None, :]) @ Vt
+        self.normalization_ = _to_numpy(normalization)
+        self.eigenvalues_ = _to_numpy(singular_values)
         self._landmarks = landmarks
-        self._landmarks_np = landmarks_np
+        self._landmarks_np = self.components_
         self._kernel_params = kernel_params
         self._backend_name = backend.name
         self._fitted = True
@@ -173,9 +164,7 @@ class Nystroem(BaseEstimator):
         -------
         X_transformed : backend array, shape (n_samples, m)
             Approximate features, where m = min(n_components, n_training_samples).
-            The selected backend does not guarantee placement: device='torch'
-            rejects unavailable CUDA, but after that check CPU input can still
-            yield CPU tensors. Inspect output .device/.is_cuda. Small singular
+            Inputs and features use the selected backend device. Small singular
             values are floored, not removed; fitted public arrays remain NumPy
             regardless of numerical device.
         """
@@ -183,7 +172,7 @@ class Nystroem(BaseEstimator):
         backend = self._get_backend(backend="auto")
         xp = backend.xp
 
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
+        X_arr = backend.asarray(X, dtype=backend.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
         if X_arr.ndim != 2 or X_arr.shape[1] != self.n_features_in_:
@@ -191,17 +180,8 @@ class Nystroem(BaseEstimator):
         if not bool(_to_float_scalar(xp.all(xp.isfinite(X_arr)))):
             raise ValueError("X must contain only finite values")
 
-        # Compute K_nm on the same device as X
-        if xp is np:
-            # CPU path: use numpy landmarks
-            landmarks = self._landmarks_np
-        else:
-            # GPU path: use GPU landmarks
-            landmarks = self._landmarks
-            if hasattr(X_arr, 'device') and getattr(xp, '__name__', '') == 'torch':
-                # torch: ensure landmarks on same device
-                landmarks = xp.asarray(_to_numpy(landmarks), dtype=xp.float64,
-                                       device=X_arr.device)
+        # Re-align retained landmarks when the requested backend/device changes.
+        landmarks = backend.asarray(self._landmarks, dtype=backend.float64)
 
         K_nm = pairwise_kernels(X_arr, landmarks, metric=self.kernel,
                                 xp=xp, **self._kernel_params)

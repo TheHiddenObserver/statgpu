@@ -791,7 +791,7 @@ def test_scalar_glm_cv_refit_uses_selected_auto_device(monkeypatch):
         )
     ]
     observed_refit_devices = []
-    observed_refit_compute_devices = []
+    observed_refit_backends = []
 
     def select_torch(self, X_value, penalty_name, n_alphas, *, n_folds=None):
         return "torch"
@@ -799,10 +799,17 @@ def test_scalar_glm_cv_refit_uses_selected_auto_device(monkeypatch):
     def finite_scores(self, X_value, y_value, alpha_grid, device, folds, **kwargs):
         return np.zeros((len(folds), len(alpha_grid)), dtype=np.float64)
 
-    def eig_solution(X_value, y_value, alpha, sample_weight=None):
-        assert isinstance(X_value, np.ndarray)
-        assert isinstance(y_value, np.ndarray)
-        observed_refit_compute_devices.append("cpu")
+    # Dispatch-only mock. Numerical/device evidence belongs to the native
+    # refit tests, not to NumPy outputs labelled as a CUDA computation.
+    selected_backend = types.SimpleNamespace(name="torch")
+
+    def resolve_backend(self):
+        assert getattr(self._device, "value", self._device) == "torch"
+        return selected_backend
+
+    def eig_solution(X_value, y_value, alpha, backend, sample_weight=None):
+        assert backend is selected_backend
+        observed_refit_backends.append(backend.name)
         return np.zeros(X_value.shape[1], dtype=np.float64), 0.0
 
     def capture_refit(
@@ -819,7 +826,12 @@ def test_scalar_glm_cv_refit_uses_selected_auto_device(monkeypatch):
     monkeypatch.setattr(
         PenalizedGLM_CV, "_compute_cv_scores", finite_scores
     )
-    monkeypatch.setattr(penalized_cv_module, "_ridge_eig_single", eig_solution)
+    monkeypatch.setattr(PenalizedGeneralizedLinearModel, "_get_backend", resolve_backend)
+    monkeypatch.setattr(penalized_cv_module, "_ridge_eig_single_backend", eig_solution)
+    monkeypatch.setattr(
+        penalized_cv_module, "_ridge_eig_single",
+        lambda *args, **kwargs: pytest.fail("selected Torch refit used CPU solver"),
+    )
     monkeypatch.setattr(PenalizedGLM_CV, "_populate_refit_model", capture_refit)
 
     model = PenalizedGLM_CV(
@@ -833,7 +845,7 @@ def test_scalar_glm_cv_refit_uses_selected_auto_device(monkeypatch):
 
     assert model.cv_selected_device_ == "torch"
     assert observed_refit_devices == ["torch"]
-    assert observed_refit_compute_devices == ["cpu"]
+    assert observed_refit_backends == ["torch"]
     assert getattr(
         model.estimator_.device, "value", model.estimator_.device
     ) == "torch"

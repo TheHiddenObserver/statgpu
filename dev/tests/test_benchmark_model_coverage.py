@@ -159,3 +159,81 @@ def test_glm_inference_benchmark_on_physical_gpu_when_available(backend, case):
     assert row['correctness']['status'] == 'pass'
     assert 'covariance_max_abs_error' in row['correctness']['metrics']
     assert row['timing']['synchronized_device'] == 'cuda:0'
+
+
+class _ExplicitHostReport:
+    """CuPy-like output: forbid implicit export, expose an explicit boundary."""
+    def __init__(self, value):
+        self.value = np.asarray(value)
+        self.exports = 0
+
+    def __array__(self, *args, **kwargs):
+        raise TypeError('Implicit conversion to a NumPy array is not allowed')
+
+    def get(self):
+        self.exports += 1
+        return self.value.copy()
+
+
+class _ExplicitTorchReport:
+    """Torch-like output requiring detach + CPU transfer before NumPy export."""
+    def __init__(self, value):
+        self.value = np.asarray(value)
+        self.exports = 0
+        self.detached = False
+        self.on_host = False
+
+    def __array__(self, *args, **kwargs):
+        raise TypeError('Cannot implicitly convert CUDA tensor to NumPy')
+
+    def detach(self):
+        self.detached = True
+        return self
+
+    def cpu(self):
+        assert self.detached
+        self.on_host = True
+        return self
+
+    def numpy(self):
+        assert self.detached and self.on_host
+        self.exports += 1
+        return self.value.copy()
+
+
+@pytest.mark.parametrize('report_type', [_ExplicitHostReport, _ExplicitTorchReport])
+@pytest.mark.parametrize('layout', ['slopes-only', 'intercept-and-slopes'])
+def test_native_fitted_parameters_export_only_at_oracle_boundary(layout, report_type):
+    from types import SimpleNamespace
+    coef = report_type([1., 2.])
+    intercept = report_type(3.)
+    model = SimpleNamespace(coef_=coef, intercept_=intercept)
+    target = np.array([1., 2.] if layout == 'slopes-only' else [3., 1., 2.])
+    contract = {'parameter_layout': layout, 'coef_atol': 1e-7, 'coef_rtol': 1e-6}
+    assert b.check_fit(model, target, contract, None)['coef_max_abs_error'] == 0.
+    diagnostics = b.fitted_diagnostics(model, target, contract)
+    assert diagnostics['parameters'] == target.tolist()
+    assert diagnostics['parameters_finite'] is True
+    assert coef.exports == 2
+    assert intercept.exports == (0 if layout == 'slopes-only' else 2)
+    assert model.coef_ is coef and model.intercept_ is intercept
+    with pytest.raises(AssertionError, match='parameter oracle mismatch'):
+        b.check_fit(model, target + 1., contract, None)
+    assert 'timing' not in diagnostics
+
+
+@pytest.mark.parametrize('report_type', [_ExplicitHostReport, _ExplicitTorchReport])
+@pytest.mark.parametrize('field', ['bse', 'pvalues', 'conf_int', 'zvalues'])
+def test_native_inference_reporting_arrays_keep_independent_gate(field, report_type):
+    from types import SimpleNamespace
+    expected = {'bse': np.array([.1, .2]), 'pvalues': np.array([.01, .02]),
+                'conf_int': np.array([[.8, 1.2], [1.6, 2.4]]),
+                'zvalues': np.array([10., 10.])}
+    model = SimpleNamespace(coef_=report_type([1., 2.]), **{
+        '_' + key: report_type(value) for key, value in expected.items()})
+    contract = {'parameter_layout': 'slopes-only', 'coef_atol': 1e-7, 'coef_rtol': 1e-6}
+    b.check_fit(model, np.array([1., 2.]), contract, expected)
+    assert all(getattr(model, '_' + key).exports == 1 for key in expected)
+    corrupted = dict(expected, **{field: expected[field] + 1.})
+    with pytest.raises(AssertionError, match='inference'):
+        b.check_fit(model, np.array([1., 2.]), contract, corrupted)

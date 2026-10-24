@@ -61,7 +61,7 @@ print(predictions)
 - `KernelDensityEstimator`（含 `KDE`）执行上述显式加速器规则；`backend="torch", device="cpu"` 仍可使用 Torch CPU。原生 bootstrap 在设备计算后返回 NumPy 结果数组，见[原生 KDE bootstrap](native-kde-bootstrap.md)。
 - 核回归仍有以下例外：`KernelRegression`（含 `KernelRegressionRegressor`）处理 NumPy 或 Torch CPU 输入时，即使设置 `device="torch"` 且 `backend="auto"` 或 `"torch"`，仍可能在 Torch CPU 上拟合。显式 `backend="torch"` 搭配 `device="cuda"` 也可能在 CPU 上执行；显式 `backend="numpy"` 会覆盖这两种 GPU 请求。使用 `device="cuda", backend="auto"` 时，如果 CuPy 不可用而 Torch CUDA 可用，这些估计器可能选择 Torch，但 CPU 输入仍可能留在 CPU 上。
 - `SplineTransformer` 会保留传入 Torch 张量所在的设备。因此，Torch CPU 输入即使搭配 `device="torch"` 或 `"cuda"`，拟合节点与变换特征仍可能留在 CPU 上。相同设置改用 NumPy 输入时，如果请求的加速器不可用，则可能报错。
-- `KernelPCA` 与 `Nystroem` 在 Torch CUDA 不可用时会拒绝 `device="torch"`。但通过检查后，NumPy 或 Torch CPU 输入仍可能得到 Torch CPU 特征。通过可用性检查不代表张量已经位于 GPU。
+- `KernelPCA` 与 `Nystroem` 拒绝不可用的显式加速器，并将拟合／变换输入放到所选后端。数值分解不静默转到 CPU 重试；公开 NumPy 拟合数组仍是报告／存储边界。
 
 请检查这些方法实际使用和返回的数组：
 

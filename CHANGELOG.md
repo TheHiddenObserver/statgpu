@@ -4,6 +4,18 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — 2026-10-23
 
+### PR #257 — Full-scan correctness and evidence repairs
+
+- Export native fitted arrays explicitly only at the benchmark oracle/report boundary, including Fama–MacBeth coefficients; native fitting and numerical tolerances are unchanged. The P100 follow-up failure remains historical pending a new-source rerun.
+
+- Isolate injected Torch CPU test controls from ambient CUDA availability; public GAM CPU routing, numerical tolerances, and physical GPU tests are unchanged. The first P100 failure remains historical and requires a new-source rerun.
+- Restore smooth-quadratic FISTA stopping on GPU without increasing iteration budgets or relaxing convergence tolerances.
+- Keep squared-error L2 PenalizedGLM_CV final refits on the requested numerical backend.
+- Evaluate Torch F survival probabilities for numerator degrees of freedom 2 with a stable native exact expression; retain other degrees-of-freedom behavior.
+- Move Nyström landmark decomposition and GAM knot selection to their selected backends, and propagate KernelPCA decomposition failures without a hidden CPU retry. Public host reporting boundaries remain explicit.
+- Strengthen algorithm-specific benchmark operation evidence and failure diagnostics; local CPU tests do not replace the pending P100 rerun. Existing full-scan evidence and diagnostic-only performance qualification remain unchanged.
+
+
 ### PR #256 — Remove Chinese model links from English README
 
 ### PR #255 — README method navigation and device-guide links

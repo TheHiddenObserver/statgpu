@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import traceback
 from types import SimpleNamespace
 import warnings
 
@@ -144,69 +145,185 @@ def check_external_alignment(case):
             **errors}
 
 
+# Computed intermediates, not input arrays or a fitted backend label. Keep this
+# inventory tied to actual numerical implementations; adding all linear_model
+# frames would allow a GPU-labelled wrapper around a CPU solve to pass.
+_NUMERICAL_GROUPS = {
+    ('statgpu.linear_model.cv._ridge_cv', '_solve_ridge_path_gpu_from_gram_eig'):
+        (('eigvals', 'QTXty', 'coefs'),),
+    ('statgpu.linear_model.cv._ridge_cv', '_solve_ridge_path_native_from_gram'):
+        (('system', 'coef'),),
+    ('statgpu.linear_model.cv._logistic_cv', '_solve_logistic_path_gpu_from_batch'):
+        (('XtWX', 'Xtz', 'params'),),
+    ('statgpu.linear_model.wrappers._lasso', '_solve_lasso_path_gpu_fista_batched_from_gram'):
+        (('grad', 'coef_new', 'coefs'),),
+    ('statgpu.linear_model.wrappers._lasso', '_solve_lasso_path_gpu_fista_multi_fold_from_gram'):
+        (('grad', 'coef_candidate', 'coefs'),),
+    ('statgpu.linear_model.wrappers._lasso', '_solve_lasso_path_gpu_fista_multi_fold_from_gram_torch'):
+        (('grad', 'coef_candidate', 'coefs'),),
+    ('statgpu.linear_model.penalized._fit_mixin', '_fit_gpu_backend'):
+        (('xtx_y', 'coef'), ('grad', 'coef')),
+    ('statgpu.linear_model.penalized._fit_mixin', '_solve_exact_cupy'):
+        (('A', '_returned_solution'),),
+    ('statgpu.linear_model.penalized._fit_mixin', '_solve_exact_torch'):
+        (('A', '_returned_solution'),),
+    ('statgpu.linear_model.wrappers._logistic', '_fit_gpu'):
+        (('XtWX', 'Xtz', 'params'),),
+    ('statgpu.linear_model.wrappers._logistic', '_fit_torch'):
+        (('XtWX', 'Xtz', 'params'),),
+    ('statgpu.linear_model.penalized._penalized_cv', '_ridge_eig_single_backend'):
+        (('gram', 'cross', 'eigvals', 'coef'),),
+    ('statgpu.solvers._newton', 'newton_solver'):
+        (('grad', 'hess', 'params'),),
+    ('statgpu.solvers._fista', 'fista_solver'):
+        (('grad', 'coef'),),
+    ('statgpu.solvers._fista_bb', 'fista_bb_solver'):
+        (('grad', 'coef'),),
+    ('statgpu.losses._cox_ph', '_full_objective_from_eta_backend'):
+        (('score', 'information', 'weighted_second'),),
+}
+
+
+def _numerical_intermediates(frame, event, result):
+    key = (str(frame.f_globals.get('__name__', '')), frame.f_code.co_name)
+    groups = _NUMERICAL_GROUPS.get(key, ())
+    if not groups or event == 'call':
+        return {}
+    values = dict(frame.f_locals)
+    if event == 'return' and result is not None:
+        values['_returned_solution'] = result
+    for names in groups:
+        if all(name in values for name in names):
+            return {name: values[name] for name in names}
+    return {}
+
+
+def _cpu_numerical_dispatch(frame):
+    module = str(frame.f_globals.get('__name__', ''))
+    name = frame.f_code.co_name
+    if module.startswith('statgpu.'):
+        return (name == '_fit_cpu' or name == '_solve_exact_numpy'
+                or (module == 'statgpu.linear_model.penalized._penalized_cv'
+                    and name in {'_ridge_eig_single', '_ridge_eig_batch'})
+                or (module == 'statgpu.linear_model.wrappers._lasso'
+                    and name.startswith('_solve_lasso_path_cpu')))
+    return (module.startswith(('numpy.linalg', 'scipy.linalg'))
+            and name in {'solve', 'lstsq', 'pinv', 'pinvh', 'inv', 'eigh',
+                         'eigvalsh', 'svd', 'cholesky', 'cho_solve', 'solve_triangular'})
+
+
 @contextmanager
 def observed_backend(backend):
-    """Observe, but never modify, numerical arrays in the existing CV regions."""
+    """Observe source-specific native computations in both timed CV regions.
+
+    This is diagnostic instrumentation, not a proof from device-resident input
+    or a model label. Intermediate/C-call events are necessary: some optimized
+    solvers delete numerical temporaries before their Python return event.
+    """
     if backend == 'numpy':
         yield []
         return
     if backend == 'cupy':
         import cupy as xp
-        context=xp.cuda.Device(0)
-        synchronize=lambda: xp.cuda.Device(0).synchronize()
+        context = xp.cuda.Device(0)
+        synchronize = lambda: xp.cuda.Device(0).synchronize()
         def identity(value):
-            return int(value.device.id) if isinstance(value,xp.ndarray) else None
+            return int(value.device.id) if isinstance(value, xp.ndarray) else None
     else:
         import torch as xp
-        context=xp.cuda.device(0)
-        synchronize=lambda: xp.cuda.synchronize(device=0)
+        context = xp.cuda.device(0)
+        synchronize = lambda: xp.cuda.synchronize(device=0)
         def identity(value):
-            return int(value.device.index) if isinstance(value,xp.Tensor) and value.is_cuda else None
-    original_profiler,original_sync=legacy.RegionProfiler,legacy._synchronizer
-    proofs=[]
+            return int(value.device.index) if isinstance(value, xp.Tensor) and value.is_cuda else None
+    original_profiler, original_sync = legacy.RegionProfiler, legacy._synchronizer
+    proofs = []
+
     class ObservedProfiler(original_profiler):
-        def __init__(self,*a,**kw):
-            super().__init__(*a,**kw)
-            self.observed={'selector':set(),'final_refit':set()}
-        def _profile(self,frame,event,arg):
-            if event=='call':
-                module=str(frame.f_globals.get('__name__',''))
-                name=frame.f_code.co_name
-                if module.startswith('statgpu.') and name == '_fit_cpu' and (self.selector_stack or self.refit_stack):
-                    raise RuntimeError('CPU fit dispatch encountered inside requested CUDA CV region')
-                if module.startswith('statgpu.solvers.') and name.endswith('_solver'):
-                    design=frame.f_locals.get('X')
-                    if isinstance(design,np.ndarray):
-                        raise RuntimeError('CPU numerical solver design encountered inside requested CUDA CV region')
-                numerical=(module.startswith(('statgpu.solvers.','statgpu.glm_core.'))
-                           or (module.startswith('statgpu.') and name in {'_fit_gpu','_fit_torch'})
-                           or (module.startswith('statgpu.survival.') and name not in {'fit','__init__'}))
-                if numerical:
-                    devices=[identity(v) for v in frame.f_locals.values()]
-                    devices=[d for d in devices if d is not None]
-                    if any(d != 0 for d in devices):
-                        raise RuntimeError('CV numerical array executed on unexpected CUDA device')
-                    if devices:
-                        if self.selector_stack:self.observed['selector'].add(module+'.'+name)
-                        if self.refit_stack:self.observed['final_refit'].add(module+'.'+name)
-            return super()._profile(frame,event,arg)
-        def __exit__(self,typ,value,tb):
-            result=super().__exit__(typ,value,tb)
-            if typ is None:
-                if not all(self.observed.values()):
-                    raise RuntimeError('Cannot establish native numerical-array execution in both CV selector and final refit')
-                proofs.append({'model':type(self.outer_estimator).__name__,'backend':backend,'device':'cuda:0','synchronized_device':'cuda:0',
-                               'observed_numerical_calls':{k:sorted(v) for k,v in self.observed.items()}})
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.observed = {'selector': {}, 'final_refit': {}}
+            self.failure = None
+            self.rejected_observations = []
+
+        def _observe(self, frame, event, result):
+            values = _numerical_intermediates(frame, event, result)
+            if not values:
+                return
+            call = str(frame.f_globals.get('__name__', '')) + '.' + frame.f_code.co_name
+            devices = {name: identity(value) for name, value in values.items()}
+            dtypes = {name: str(getattr(value, 'dtype', 'unknown')).replace('torch.', '')
+                      for name, value in values.items()}
+            error = None
+            if any(device is None for device in devices.values()):
+                error = f'CPU/non-native numerical intermediate in requested CUDA CV region: {call}'
+            elif any(device != 0 for device in devices.values()):
+                error = f'CV numerical array executed on unexpected CUDA device: {call}'
+            elif any(dtype != 'float64' for dtype in dtypes.values()):
+                error = f'CV float64 baseline executed a different compute dtype: {call}: {dtypes}'
+            if error:
+                self.rejected_observations.append({
+                    'call': call, 'devices': devices, 'computed_array_dtypes': dtypes,
+                    'stage': 'selector' if self.selector_stack else 'final_refit',
+                    'reason': error,
+                })
+                raise RuntimeError(error)
+            observation = {'device': 'cuda:0', 'computed_array_dtypes': dtypes}
+            if self.selector_stack:
+                self.observed['selector'][call] = observation
+            # A nested full-row fit during selection is not final-refit proof.
+            elif self.refit_stack:
+                self.observed['final_refit'][call] = observation
+
+        def _profile(self, frame, event, arg):
+            if self.selector_stack or self.refit_stack:
+                try:
+                    if event == 'call' and _cpu_numerical_dispatch(frame):
+                        raise RuntimeError('CPU fit dispatch/numerical solve encountered inside requested CUDA CV region: '
+                                           + str(frame.f_globals.get('__name__', '')) + '.' + frame.f_code.co_name)
+                    self._observe(frame, event, arg)
+                    # A Python child call can expose the parent's freshly
+                    # computed temporaries before cleanup (notably Logistic).
+                    caller = getattr(frame, 'f_back', None)
+                    if caller is not None and event in {'call', 'return'}:
+                        self._observe(caller, 'intermediate', None)
+                except Exception as exc:
+                    self.failure = str(exc)
+                    raise
+            return super()._profile(frame, event, arg)
+
+        def __exit__(self, typ, value, tb):
+            result = super().__exit__(typ, value, tb)
+            complete = all(self.observed.values())
+            error = self.failure or (str(value) if value is not None else None)
+            if typ is None and not complete:
+                error = 'Cannot establish native numerical-array execution in both CV selector and final refit'
+            proofs.append({
+                'model': type(self.outer_estimator).__name__, 'backend': backend,
+                'device': 'cuda:0', 'synchronized_device': 'cuda:0',
+                'status': 'success' if typ is None and complete and not error else 'failed',
+                'reason': error, 'invocation': getattr(self, 'invocation', None),
+                'input_dtypes': getattr(self, 'input_dtypes', None),
+                'observed_numerical_calls': {k: sorted(v) for k, v in self.observed.items()},
+                'numerical_observations': self.observed,
+                'rejected_numerical_observations': self.rejected_observations,
+                'stage_observed': {k: bool(v) for k, v in self.observed.items()},
+                'stage_active_at_failure': {'selector': bool(self.selector_stack),
+                                            'final_refit': bool(self.refit_stack)},
+                'exception_chain': (''.join(traceback.format_exception(typ, value, tb))
+                                    if typ is not None else error),
+            })
+            if typ is None and error:
+                raise RuntimeError(error)
             return result
+
     try:
-        legacy.RegionProfiler=ObservedProfiler
-        legacy._synchronizer=lambda requested: synchronize if requested==backend else original_sync(requested)
+        legacy.RegionProfiler = ObservedProfiler
+        legacy._synchronizer = lambda requested: synchronize if requested == backend else original_sync(requested)
         with context:
             yield proofs
     finally:
-        legacy.RegionProfiler=original_profiler
-        legacy._synchronizer=original_sync
-
+        legacy.RegionProfiler = original_profiler
+        legacy._synchronizer = original_sync
 
 def run(args):
     if Path(statgpu.__file__).resolve().parent != ROOT/'statgpu':
@@ -223,6 +340,7 @@ def run(args):
                 continue
             options=SimpleNamespace(backends=backend,seed=args.seed,repeats=args.repeats,warmup=args.warmup,
                 n_samples=n,n_features=args.features,include_sklearn=True,env_id='scoped-cv-candidate')
+            proofs = []
             try:
                 with warnings.catch_warnings(), observed_backend(backend) as proofs:
                     convergence_errors()
@@ -231,9 +349,11 @@ def run(args):
             except Exception as exc:
                 for spec in legacy.CASE_SPECS:
                     results.append({'model_id':spec.model_id,'backend':backend,'n_samples':n,
-                        'status':'failed','reason':f'Source construction/validation: {type(exc).__name__}: {exc}','timing':None})
+                        'status':'failed','reason':'Source construction/validation: ' + ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__)), 'timing':None,
+                        'execution_provenance':[proof for proof in proofs if proof['model']==spec.import_name]})
                 continue
-            source['protocol']['instrumentation']='RegionProfiler observes Python selector/refit boundaries; GPU runtime also inspects numerical arrays. Profiling overhead INCLUDED; diagnostic stage timings, not clean uninstrumented fits.'
+            source['protocol']['instrumentation']='RegionProfiler observes Python selector/refit boundaries and source-specific computed numerical intermediates, not input arrays or labels. Profiling overhead INCLUDED; diagnostic stage timings, not clean uninstrumented fits.'
+            source['protocol']['precision_policy']='Explicit float64 accuracy baseline: gpu_cv_mixed_precision=False where exposed. Input and actual computed intermediate dtypes recorded separately in CUDA execution provenance; NumPy compute dtype is not runtime-instrumented.'
             specs={spec.model_id:spec for spec in legacy.CASE_SPECS}
             for case in source['cases']:
                 spec=specs[case['model_id']]
@@ -242,7 +362,9 @@ def run(args):
                      'execution_provenance':[proof for proof in proofs if proof['model']==spec.import_name] if backend!='numpy' else {'device':'cpu','synchronized_device':None}}
                 try:
                     if any(r['status']!='success' for r in case['runs']):
-                        raise ValueError('A required measured/reference run did not succeed')
+                        raise ValueError('A required measured/reference run did not succeed: ' + '; '.join(
+                            f"{r['framework']}/{r.get('backend')}: {r.get('reason')}"
+                            for r in case['runs'] if r['status'] != 'success'))
                     row['correctness']={'direct_refit':direct_refit_check(spec,args.seed,n,args.features),
                                         'external':check_external_alignment(case)}
                     native=next(r for r in case['runs'] if r['framework']=='statgpu')
@@ -271,7 +393,7 @@ def run(args):
             'results':results,'validation':{'status':'failed' if failed else 'partial' if partial else 'complete',
             'tier':'CPU-harness-smoke' if args.smoke else 'benchmark-candidate','canonical_ready':False,
             'limitations':['Not canonical cv_source schema; unrequested backend rows are not fabricated.',
-                'Three folds/fixed grids/float64; sizes configurable; no complete grid-fold-weight sweep.',
+                'Three folds/fixed grids/explicit float64 accuracy baseline (not mixed-precision defaults); sizes configurable; no complete grid-fold-weight sweep.',
                 'Cox and PenalizedGLM use fresh direct-refit invariants, not independent external statistical certification.',
                 'CUDA candidates fail if native numerical arrays are not observed in both selector/refit regions; only concrete device 0 supported. No physical CUDA run claimed.'],
             'source_changed':changed}}

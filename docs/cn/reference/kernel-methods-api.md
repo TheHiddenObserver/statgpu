@@ -175,7 +175,7 @@ $$
 | `predict(X)` | `transform` 的别名，不预测响应。 |
 | `get_params(deep=True)`、`set_params(**params)` | 参数管理规则见上文。 |
 
-没有模型专属的 `score` 或 `inverse_transform` 方法。CPU 上的代表节点核若有 SVD $K_{mm}=U\Sigma V^\top$，实现使用
+没有模型专属的 `score` 或 `inverse_transform` 方法。所选后端上的代表节点核若有 SVD $K_{mm}=U\Sigma V^\top$，实现使用
 
 $$
 N=U\max(\Sigma,10^{-12}I)^{-1/2}V^\top,\qquad Z=K_{qm}N.
@@ -191,7 +191,7 @@ $$
 | `eigenvalues_` | NumPy `(m,)`，截断到 `1e-12` 下限的奇异值。虽然沿用此名称，但**不是带符号的特征值**。 |
 | `n_features_in_` | 输入特征数，整数。 |
 
-代表节点核的构造与 SVD 始终在 CPU 上进行，因此自定义核既须接受 NumPy 代表节点输入，也须支持选中的查询后端。特征映射只能从训练数据拟合；选择下游预测器时，须在每个训练折内重拟合映射。比较 `Z @ Z.T` 和精确核的诊断需要构造稠密对照核，仅适合小数据；更低的核近似误差不一定意味着更好的响应预测。
+代表节点核构造与 SVD 使用所选后端，自定义核须支持该后端的节点与查询数组。特征映射只能从训练数据拟合；选择下游预测器时，须在每个训练折内重拟合映射。比较 `Z @ Z.T` 和精确核的诊断需要构造稠密对照核，仅适合小数据；更低的核近似误差不一定意味着更好的响应预测。
 
 <a id="kernel-parameter-forwarding"></a>
 
@@ -330,12 +330,12 @@ NumPy 将零除零特征项视为零。CuPy/Torch 对每个分母使用 `1e-10` 
 | 估计器 | 执行与存储 |
 |---|---|
 | KernelRidge / KernelRidgeCV | 在所选后端构造核并求解。岭回归拟合数组和预测为后端数组；CV 结果表复制为 NumPy。 |
-| KernelPCA | 通常在所选数组后端分解。线性代数异常会触发 NumPy CPU 特征分解，**没有单独的回退标记**。训练数据、特征值和投影系数保存为 NumPy。 |
-| Nystroem | 把选中的代表节点复制为 NumPy，在 CPU 上构造节点核并执行 SVD，再使用所选数组库计算查询到节点的核与返回特征，另受下述放置限制。公开拟合数组保留为 NumPy，自定义核须接受 NumPy 节点输入。 |
+| KernelPCA | 所选后端分解，不向 CPU 重试；公开拟合数组为 NumPy。 |
+| Nystroem | 所选后端节点核及 SVD；主机索引 RNG 与公开数组。 |
 
-显式请求不可用的设备会报错。Torch CUDA 不可用时，KernelPCA 和 Nystroem 仍拒绝 `device="torch"`；但通过可用性检查不保证 CUDA 执行：请求设备的转换并未始终执行，NumPy 或 Torch CPU 输入可能在拟合与变换时继续留在 CPU。此限制也影响 Nystroem 的查询核与输出，与有意安排在 CPU 的节点 SVD 是两回事。
+显式请求不可用的设备会报错。KernelPCA 与 Nystroem 在拟合和变换时通过所选后端转换输入，包括显式请求 Torch CUDA 的主机输入。KernelPCA 的分解失败会直接传播，不再转到 CPU 重试。Nystroem 的节点核与 SVD 使用所选后端；带种子的节点索引抽样仍在主机进行。自定义核须支持所选数值后端。
 
-请检查实际 `fit_transform`、`transform` 和 `predict` 输出的 Torch `.device`/`.is_cuda`，或 CuPy `.device`。配置的设备和所选数组库不能证明实际放置，公开的 NumPy 拟合数组也不能证明计算发生在哪个设备。必须使用 CUDA 时，应在使用前拒绝 CPU 输出。需要明确 CPU 路径时，请传 NumPy 输入并设置 `device="cpu"`。另见[设备说明](../guides/device-and-memory.md#current-smoothing-and-spline-exceptions)。KernelPCA 和 Nystroem 均不承诺全程 GPU 执行。
+公开拟合数组仍为 NumPy 报告／存储边界。应通过返回特征的 Torch `.device`/`.is_cuda` 或 CuPy `.device` 检查实际位置，不能仅凭主机拟合数组判断数值计算位置。端到端成本包含输入传输和公开数组导出。CPU 执行请使用 `device="cpu"`。这些契约本身不代表 GPU 性能或物理验收通过。
 
 <a id="numerical-failures"></a>
 <a id="limitations-and-failure-modes"></a>

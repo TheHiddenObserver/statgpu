@@ -69,7 +69,7 @@ Distinguish strict KDE device requests from the remaining estimator exceptions:
 - `KernelDensityEstimator` (including `KDE`) follows the explicit accelerator rules above; Torch CPU remains available with `backend="torch", device="cpu"`. Native bootstrap returns NumPy result arrays after device computation. See [native KDE bootstrap](native-kde-bootstrap.md).
 - Kernel regression retains the exceptions below: `KernelRegression` (including `KernelRegressionRegressor`) can fit NumPy or Torch CPU input on Torch CPU with `device="torch"` and `backend="auto"` or `"torch"`. Explicit `backend="torch"` can also run on CPU with `device="cuda"`; explicit `backend="numpy"` overrides either GPU request. With `device="cuda", backend="auto"`, these estimators can select Torch when CuPy is unavailable but Torch CUDA is available, and CPU input can still remain on CPU.
 - `SplineTransformer` preserves a supplied Torch tensor's device. Torch CPU input can therefore leave both fitted knots and transformed features on CPU even with `device="torch"` or `"cuda"`. NumPy input with the same settings can instead raise when the requested accelerator is unavailable.
-- `KernelPCA` and `Nystroem` reject `device="torch"` when Torch CUDA is unavailable. After that check succeeds, NumPy or Torch CPU input can still produce Torch CPU features. Passing the availability check does not establish tensor placement.
+- `KernelPCA` and `Nystroem` reject unavailable explicit accelerators and place fit/transform inputs on the selected backend. Their numerical decompositions do not silently retry on CPU; public fitted NumPy arrays remain reporting/storage boundaries.
 
 Check the arrays that these methods actually use and return:
 

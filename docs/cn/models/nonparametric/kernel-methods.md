@@ -194,22 +194,9 @@ Nystroem 前，还应了解下文的[执行边界](#后端与执行边界)：选
 四类估计器都接受 `device`，但核矩阵构造、分解和输出不一定全在同一设备上：
 
 - **KernelRidge / KernelRidgeCV**：核矩阵构造和求解使用所选后端。
-- **KernelPCA**：通常在所选后端分解；若发生线性代数异常，会改用 NumPy 在 CPU
-  上进行特征分解，且没有单独的回退标记。保存的训练数据和投影系数也是 NumPy
-  数组，因此不能假定整个拟合过程都在 GPU 上完成。
-- **Nystroem**：将选定节点复制到 NumPy，在 CPU 上构造节点核矩阵并完成 SVD，
-  随后使用所选数组库计算查询点到节点的核矩阵并返回特征，实际设备还受下述限制。
-  自定义核也必须接受 NumPy 节点输入。节点索引、归一化矩阵和奇异值保存在 CPU
-  内存中；选择 GPU 不会把节点分解移到 GPU。
+显式请求不可用的设备会报错。KernelPCA 与 Nystroem 在拟合和变换时通过所选后端转换输入，包括显式请求 Torch CUDA 的主机输入。KernelPCA 的分解失败会直接传播，不再转到 CPU 重试。Nystroem 的节点核与 SVD 使用所选后端；带种子的节点索引抽样仍在主机进行。自定义核须支持所选数值后端。
 
-显式请求不可用的设备会报错。
-
-Torch CUDA 不可用时，KernelPCA 与 Nystroem 仍会拒绝 `device="torch"`。通过该检查并不保证 CUDA 执行：这些路径未始终将输入移到请求设备，因此 NumPy 或 Torch CPU 输入在拟合和变换时仍可能留在 CPU。
-
-请检查 `fit_transform`、`transform` 和 `predict` 实际返回的特征：Torch 查看 `.device`/`.is_cuda`，CuPy 查看 `.device`，不能仅依赖设备配置或选中的后端/数组库。两者的公开拟合数组保存为 NumPy，不能说明数值计算所在设备。此限制还影响
-Nystroem 的查询核与输出，应与有意安排在 CPU 的节点 SVD 区分。
-
-必须使用 CUDA 时，应在使用结果前拒绝 CPU 输出。需要明确的 CPU 路径时，请传入 NumPy 数组并设 `device="cpu"`。详见[设备说明](../../guides/device-and-memory.md#current-smoothing-and-spline-exceptions)。
+公开拟合数组仍为 NumPy 报告／存储边界。应通过返回特征的 Torch `.device`/`.is_cuda` 或 CuPy `.device` 检查实际位置，不能仅凭主机拟合数组判断数值计算位置。端到端成本包含输入传输和公开数组导出。CPU 执行请使用 `device="cpu"`。这些契约本身不代表 GPU 性能或物理验收通过。
 
 `KernelPCA` 和 `Nystroem` 在拟合和变换时拒绝输入数组中的 NaN/Inf。这项输入检查
 不保证计算得到的核矩阵或学习数组也是有限值；详见[结果有限性检查](#检查核拟合结果是否有限)。
@@ -298,7 +285,7 @@ RBF 核遇到很大的共同坐标偏移时，请用训练数据确定一个偏�
 ### `device="auto"` 会覆盖显式请求吗？
 
 不会。`"auto"` 本身表示自动选择；显式 `"cuda"` 或 `"torch"` 在对应后端不可用时
-会报错。但 KernelPCA/Nystroem 通过检查后仍可能让 CPU 输入留在 CPU，须按上文检查实际返回的特征。
+会报错。KernelPCA/Nystroem 将输入放到所选后端，仍须按上文检查实际返回的特征。
 
 ### 不同拟合的 KernelPCA 成分是否可直接比较？
 

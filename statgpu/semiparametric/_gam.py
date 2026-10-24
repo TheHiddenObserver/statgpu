@@ -170,21 +170,18 @@ class GAM(BaseEstimator):
                 f"n_splines ({n_splines}) must be greater than degree ({self.degree}) + 1"
             )
 
-        x_np = _to_numpy(x_col)
-
+        # Quantile interpolation and duplicate removal remain on the input
+        # backend. Only the scalar endpoints of uniform spacing cross to host.
+        options = {"dtype": xp.float64}
+        if xp.__name__ == "torch":
+            options["device"] = x_col.device
         if self.knot_method == "uniform":
-            # Uniform knots in data range (like pygam)
-            x_min, x_max = float(np.min(x_np)), float(np.max(x_np))
-            knots = np.linspace(x_min, x_max, n_interior + 2)[1:-1]
+            knots = xp.linspace(float(xp.min(x_col)), float(xp.max(x_col)),
+                                n_interior + 2, **options)[1:-1]
         else:
-            # Quantile knots (default, data-adaptive)
-            percentiles = np.linspace(0, 100, n_interior + 2)[1:-1]
-            knots = np.percentile(x_np, percentiles)
-
-        # Remove duplicate knots (can happen with discrete data)
-        knots = np.unique(knots)
-
-        return xp_asarray(knots, dtype=xp.float64, xp=xp, ref_arr=x_col)
+            probabilities = xp.linspace(0.0, 1.0, n_interior + 2, **options)[1:-1]
+            knots = xp.quantile(x_col, probabilities)
+        return xp.unique(knots)
 
     def _build_basis(self, X, xp):
         """

@@ -7,6 +7,7 @@ not prove that unobserved operators or the whole algorithm ran on the GPU.
 from contextlib import ExitStack
 from functools import wraps
 import sys
+import inspect
 import types
 from pathlib import Path
 from unittest.mock import patch
@@ -36,9 +37,20 @@ def identities(value):
         return []
 
 
-def stage(fn, label, operations=(), minimum_calls=1, placement='requested-backend'):
-    return {'code': fn.__code__, 'label': label, 'operations': tuple(operations),
-            'minimum_calls': minimum_calls, 'placement': placement}
+def stage(fn, label, operations=(), minimum_calls=1, placement='requested-backend',
+          reject_host_numerics=False, host_controls=None, expected_dtype=None):
+    # Estimator validation decorators share one wrapper code object. Resolve
+    # their implementation, or unrelated decorated methods could satisfy a
+    # method-specific stage. This never unwraps native primitive provenance.
+    try:
+        source = inspect.unwrap(fn)
+        code = source.__code__
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise TraceIncomplete('Cannot resolve source stage: ' + label) from exc
+    return {'code': code, 'label': label, 'operations': tuple(operations),
+            'minimum_calls': minimum_calls, 'placement': placement,
+            'reject_host_numerics': reject_host_numerics,
+            'host_controls': host_controls or {}, 'expected_dtype': expected_dtype}
 
 
 class NumericalTrace:
@@ -48,14 +60,17 @@ class NumericalTrace:
     are transferred, values read, or operations synchronized by the observer.
     """
     OPS = ('exp', 'sum', 'mean', 'abs', 'sqrt', 'quantile', 'std', 'var',
-           'dot', 'matmul', 'correlate', 'bincount', 'cumsum', 'searchsorted', 'argsort', 'rand')
-    LINALG = ('inv', 'solve', 'eigh', 'eigvalsh', 'qr', 'svd', 'det')
+           'dot', 'matmul', 'correlate', 'bincount', 'cumsum', 'searchsorted', 'argsort', 'rand',
+           'where', 'min', 'max', 'log', 'argmin', 'diff')
+    LINALG = ('inv', 'solve', 'eigh', 'eigvalsh', 'qr', 'svd', 'det',
+              'solve_ex', 'cholesky', 'solve_triangular')
 
     def __init__(self, runtime, stages):
         self.runtime = runtime
         self.stages = stages
         self.by_code = {s['code']: s for s in stages}
         self.active = {}
+        self.frames = {}
         self.records = []
         self._stack = ExitStack()
 
@@ -66,28 +81,49 @@ class NumericalTrace:
         if event == 'call':
             record = {'stage': spec['label'], 'source': frame.f_code.co_filename,
                       'line': frame.f_code.co_firstlineno, 'operations': [],
-                      'completed': False, 'placement': spec['placement']}
+                      'completed': False, 'placement': spec['placement'],
+                      'expected_floating_dtype': spec['expected_dtype'] or getattr(self.runtime, 'dtype', None)}
             self.active[id(frame)] = record
+            self.frames[id(frame)] = frame
             self.records.append(record)
         elif event == 'return':
             record = self.active.pop(id(frame), None)
+            self.frames.pop(id(frame), None)
             if record is not None:
                 record['completed'] = arg is not None
 
     def _wrap(self, fn, backend, name):
         @wraps(fn)
         def observed(*args, **kwargs):
-            records = tuple(self.active.values())
+            records = tuple(self.active.items())
             if not records:
                 return fn(*args, **kwargs)
             inputs = identities((args, kwargs))
-            result = fn(*args, **kwargs)
+            try:
+                result = fn(*args, **kwargs)
+            except BaseException as exc:
+                for _, record in records:
+                    record['operations'].append({'operation': name, 'backend': backend,
+                        'inputs': inputs, 'outputs': [], 'status': 'failed',
+                        'exception': exception_chain(exc)})
+                raise
             outputs = identities(result)
-            # NumPy/CuPy out= ufuncs return an array; an in-place None result
-            # is intentionally not accepted as numerical execution evidence.
-            event = {'operation': name, 'backend': backend,
-                     'inputs': inputs, 'outputs': outputs}
-            for record in records:
+            # Resolve metadata allowances once against exact source-local
+            # objects; propagate that narrow classification to ancestor stages.
+            controls = []
+            for frame_id, record in records:
+                frame = self.frames[frame_id]
+                spec = self.by_code[frame.f_code]
+                for field in spec['host_controls'].get(name, ()):
+                    if backend == 'numpy' and args and args[0] is frame.f_locals.get(field):
+                        controls.append({'stage': spec['label'], 'field': field})
+            # Allocation/copy and scalar-only calls never establish arithmetic.
+            for _, record in records:
+                event = {'operation': name, 'backend': backend,
+                         'inputs': inputs, 'outputs': outputs, 'status': 'completed'}
+                if controls:
+                    event['host_control'] = controls[0]['field']
+                    event['host_control_sources'] = controls
                 record['operations'].append(event)
             return result
         return observed
@@ -184,7 +220,7 @@ class NumericalTrace:
         self._stack.close()
         return False
 
-    def report(self):
+    def _validate(self):
         required_backend = self.runtime.name
         required_device = self.runtime.device
         for spec in self.stages:
@@ -194,7 +230,14 @@ class NumericalTrace:
             for record in records:
                 observed = set()
                 for event in record['operations']:
+                    if event.get('status') == 'failed':
+                        raise TraceIncomplete('Failed numerical primitive in stage ' + spec['label']
+                                              + ': ' + event['operation'])
                     if event['backend'] != required_backend:
+                        if (spec['reject_host_numerics'] and not event.get('host_control')
+                                and any(a.get('kind') == 'array' for a in event['inputs'])):
+                            raise TraceIncomplete('Host/wrong-backend array arithmetic in stage '
+                                                  + spec['label'] + ': ' + event['operation'])
                         continue
                     matches = lambda item: (item['backend'] == required_backend and item['device'] == required_device
                         and (item.get('kind') == 'array'
@@ -212,16 +255,51 @@ class NumericalTrace:
                             + spec['label'] + ': operation=' + event['operation']
                             + '; expected=' + required_backend + '/' + required_device
                             + '; inputs=' + repr(event['inputs']) + '; outputs=' + repr(event['outputs']))
+                    expected_dtype = spec.get('expected_dtype') or getattr(self.runtime, 'dtype', None)
+                    if expected_dtype is not None:
+                        import numpy as np
+                        expected_dtype = str(expected_dtype).replace('torch.', '')
+                        for item in array_inputs + event['outputs']:
+                            dtype = str(item.get('dtype', '')).replace('torch.', '')
+                            try:
+                                control_dtype = np.dtype(dtype).kind in 'biu'
+                            except TypeError:
+                                control_dtype = False
+                            if not control_dtype and dtype != expected_dtype:
+                                raise TraceIncomplete('Wrong floating dtype in stage ' + spec['label']
+                                    + ': operation=' + event['operation'] + '; expected=' + expected_dtype
+                                    + '; observed=' + dtype)
                     if (array_inputs or event['operation'] in ('rand', 'RandomState.random_sample')) and event['outputs']:
                         observed.add(event['operation'])
                 if not set(spec['operations']).issubset(observed):
                     raise TraceIncomplete('No matching native arithmetic for stage ' + spec['label'] + ': expected ' + ','.join(spec['operations']))
-        return {'status': 'observed', 'backend': required_backend, 'device': required_device,
+
+    def snapshot(self, status='incomplete', reason=None):
+        report = {'status': status, 'backend': self.runtime.name, 'device': self.runtime.device,
                 'stages': self.records,
                 'scope': 'selected native numerical primitive calls within source-identified stage invocations; not whole-algorithm GPU residency',
-                'instrumentation': 'Python stage profiler and native function wrappers included in measured diagnostic call',
+                'instrumentation': 'Python stage profiler and native function wrappers; see runner for timed versus untimed scope',
                 'scalar_controls': 'NumPy scalar inputs retain host identities but do not establish array execution; outputs and all ndarrays remain placement-checked',
                 'unobserved': 'array operator overloads, fused kernels, library-internal operations and unregistered functions are not exhaustively traced'}
+        if reason is not None:
+            report['reason'] = str(reason)
+        return report
+
+    def report(self):
+        try:
+            self._validate()
+        except TraceIncomplete as exc:
+            exc.execution_trace = self.snapshot(reason=exc)
+            raise
+        return self.snapshot(status='observed')
+
+
+def exception_chain(exc):
+    """JSON-safe complete cause/context chain, without dropping partial evidence."""
+    import traceback
+    return {'type': type(exc).__name__, 'message': str(exc),
+            'traceback': ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}
+
 
 
 def learning_stages(case, backend):
@@ -277,3 +355,89 @@ def learning_stages(case, backend):
     else:
         raise ValueError('No stage contract for ' + case)
     return specs
+
+
+def estimator_stages(case, backend, phase):
+    """Algorithm-specific contracts for fitted estimators, never field ownership."""
+    from statgpu.nonparametric.kernel_smoothing import _kde, _kernel_regression, _kernel_common
+    from statgpu.nonparametric.kernel_methods import _kpca, _nystroem, _kernels
+    from statgpu.nonparametric.splines import _transformer, _bspline_basis, _penalized
+    from statgpu.semiparametric._gam import GAM
+    from statgpu.unsupervised._agglomerative import AgglomerativeClustering
+    from statgpu.unsupervised._utils import squared_euclidean_distances
+
+    def native(fn, label, operations):
+        return stage(fn, label, operations, reject_host_numerics=True, expected_dtype='float64')
+
+    if case in ('kde', 'kernel_regression_nw', 'kernel_regression_local_linear'):
+        cls = _kde.KernelDensityEstimator if case == 'kde' else _kernel_regression.KernelRegression
+        if phase == 'fit':
+            fit = cls._fit_samples if case == 'kde' else cls.fit
+            return [native(fit, case + '-fit', ('sum',)),
+                    native(_kernel_common._weighted_covariance, 'weighted-covariance', ('sum',))]
+        fn = (cls._evaluate_density if case == 'kde' else
+              cls._evaluate_nadaraya_watson if case.endswith('_nw') else cls._evaluate_local_linear)
+        return [native(fn, case + '-evaluation', ('exp',) if case == 'kde' else ('exp', 'sum'))]
+    if case == 'spline':
+        return ([native(_transformer.SplineTransformer._build_knots, 'spline-knot-range', ('min', 'max'))]
+                if phase == 'fit' else
+                [native(_transformer.SplineTransformer._basis_degree, 'spline-de-boor-recurrence', ('where',))])
+    if case == 'kernel_pca':
+        return ([native(_kpca.KernelPCA.fit, 'kernel-pca-eigensystem', ('mean', 'linalg.eigh', 'sqrt')),
+                 native(_kernels.rbf_kernel, 'kernel-pca-training-gram', ('sum',))]
+                if phase == 'fit' else
+                [native(_kpca.KernelPCA.transform, 'kernel-pca-query-centering', ('mean',)),
+                 native(_kernels.rbf_kernel, 'kernel-pca-query-gram', ('sum',))])
+    if case == 'nystroem':
+        return ([native(_nystroem.Nystroem.fit, 'nystroem-landmark-svd', ('linalg.svd', 'sqrt')),
+                 native(_kernels.rbf_kernel, 'nystroem-landmark-gram', ('sum',))]
+                if phase == 'fit' else
+                [native(_kernels.rbf_kernel, 'nystroem-query-gram', ('sum',))])
+    if case == 'gam':
+        basis = stage(_bspline_basis.bspline_basis, 'gam-de-boor-recurrence', ('where',),
+                      placement='native-basis-with-host-knot-validation-and-scalar-loop-controls',
+                      reject_host_numerics=True, expected_dtype='float64',
+                      host_controls={'diff': ('knots_np',)})
+        if phase == 'fit':
+            return [native(GAM._create_knots, 'gam-knot-quantiles', ('quantile',)), basis,
+                    native(_penalized.penalized_ls, 'gam-penalized-system', ('linalg.solve',))]
+        return [basis]
+    if case == 'agglomerative':
+        if phase != 'fit':
+            return []  # This operation accesses stored host labels, not numerics.
+        if backend == 'numpy':
+            return [stage(AgglomerativeClustering.fit, 'host-scipy-linkage',
+                          placement='host-scipy-linkage-not-native-primitive-observed')]
+        return [native(squared_euclidean_distances, 'agglomerative-distances', ('sum', 'matmul')),
+                native(AgglomerativeClustering._fit_gpu, 'agglomerative-merge-selection', ('argmin',)),
+                stage(AgglomerativeClustering._labels_from_children, 'agglomerative-host-label-assembly',
+                      placement='host-index-bookkeeping-and-report')]
+    raise ValueError('No estimator stage contract for ' + case)
+
+
+def model_stages(case, backend):
+    """Current Cox and panel numerical dispatch, excluding public report copies."""
+    from statgpu.survival import _cox_counting
+    from statgpu.losses._cox_ph import CoxPartialLikelihoodLoss
+    from statgpu.panel import _linalg, _reductions
+    if case in ('cox:breslow', 'cox:efron'):
+        return [stage(CoxPartialLikelihoodLoss._full_objective_from_eta_backend,
+                      'cox-risk-set-likelihood-score-information', ('exp', 'sum', 'cumsum'),
+                      reject_host_numerics=True, expected_dtype='float64',
+                      placement='native-risk-moments-with-host-event-index-bookkeeping',
+                      host_controls={'cumsum': ('counts',), 'searchsorted': ('first_indices',)}),
+                stage(_cox_counting._solve, 'cox-newton-system', ('linalg.solve',),
+                      reject_host_numerics=True, expected_dtype='float64')]
+    if case == 'panel:fama_macbeth':
+        solve = 'linalg.solve_ex' if backend == 'torch' else 'linalg.solve'
+        return [stage(_reductions._validate_group_reduction_inputs, 'panel-host-group-counts',
+                      minimum_calls=0, placement='host-index-bookkeeping',
+                      host_controls={'bincount': ('codes_np',)}),
+                stage(_linalg.panel_lstsq_gram_certified_batched, 'panel-certified-period-systems',
+                      ('matmul', 'linalg.eigvalsh', solve), reject_host_numerics=True, expected_dtype='float64'),
+                stage(_linalg._panel_svd, 'panel-svd-fallback', ('linalg.svd',),
+                      minimum_calls=0, reject_host_numerics=True, expected_dtype='float64')]
+    if case.startswith('panel:'):
+        return [stage(_linalg._panel_svd, 'panel-least-squares-svd', ('linalg.svd',),
+                      reject_host_numerics=True, expected_dtype='float64')]
+    return []

@@ -1,7 +1,7 @@
 # Nystroem Kernel Approximation
 
 > Language: English  
-> Last updated: 2026-10-13  
+> Last updated: 2026-10-23<br>
 > Switch: [Chinese](../../../cn/models/nonparametric/kernel-nystroem.md)
 
 ## Replace a full kernel with reusable features
@@ -47,7 +47,7 @@ needed, $ZZ^\top$ approximates the full kernel as
 $K_{nm}K_{mm}^{\dagger}K_{mn}$. Landmarks provide a smaller set of similarity
 comparisons through which to represent the observations.
 
-The implementation uses **NumPy SVD**, rather than directly using signed
+The implementation uses **selected-backend SVD**, rather than directly using signed
 eigenvalues:
 
 $$
@@ -220,7 +220,7 @@ Finite numeric inputs are required for `fit` and `transform`; NaN/Inf inputs
 are rejected. A one-dimensional `X` means multiple observations of one feature.
 Keep feature order and count unchanged for queries. Chi-squared requires
 nonnegative input; a custom kernel must obey pairwise shape and backend
-requirements and also accept NumPy landmark inputs.
+requirements for both landmark and query inputs.
 
 Finite inputs do not ensure finite kernels. Polynomial overflow or invalid
 kernel controls can produce a successful return with nonfinite normalization,
@@ -239,16 +239,9 @@ training kernel. The normalization is dense, so applying it also has a cost.
 Nystroem is an explicit low-rank approximation, not a silent fallback for an
 exact estimator or an approximate inference mode.
 
-Explicit unavailable backend requests raise. Landmarks are copied to NumPy;
-landmark kernel construction and SVD run on CPU. Query-to-landmark kernels and outputs use the selected array library, subject
-to the current placement limitation: `device="torch"` rejects unavailable CUDA,
-but after that check, NumPy or Torch CPU input can still yield CPU tensors.
+Explicit unavailable device requests raise. KernelPCA and Nystroem convert fit and transform inputs through the selected backend, including host inputs explicitly requesting Torch CUDA. KernelPCA propagates decomposition failures rather than retrying on CPU. Nystroem computes its landmark kernel and SVD on the selected backend; seeded landmark-index selection remains on the host. Custom kernels must support the selected numerical backend.
 
-Inspect outputs using Torch `.device`/`.is_cuda` or CuPy `.device`; reject CPU
-outputs if CUDA placement is required. `components_`, `component_indices_`,
-`normalization_`, and `eigenvalues_` are host NumPy arrays and cannot establish
-where query computation occurred. NumPy input with `device="cpu"` provides a
-predictable CPU path. See the [device guide](../../guides/device-and-memory.md#current-smoothing-and-spline-exceptions).
+Public fitted arrays remain NumPy reporting/storage boundaries. Inspect returned features with Torch `.device`/`.is_cuda` or CuPy `.device`; host fitted arrays alone do not prove where numerical work ran. Input transfers and public-array exports are part of end-to-end cost. Use `device="cpu"` for CPU execution. These contracts do not imply GPU performance or physical validation.
 
 When comparing other implementations, align selected landmarks, kernel settings,
 feature orientation, and the `1e-12` singular-value floor. CPU comparisons do

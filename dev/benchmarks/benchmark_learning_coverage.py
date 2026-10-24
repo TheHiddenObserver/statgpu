@@ -7,6 +7,7 @@ Invariant-only stochastic cases are diagnostic timings, never speedup evidence.
 """
 from __future__ import annotations
 import argparse
+from contextlib import contextmanager
 import hashlib
 import importlib.metadata
 import json
@@ -34,7 +35,10 @@ CASES = ('kde','kernel_regression_nw','kernel_regression_local_linear','kernel_r
 LEARNED = ('components_', 'cluster_centers_', 'embedding_', 'means_', 'dual_coef_',
            'labels_', 'coef_', 'covariances_', 'eigenvectors_')
 
-from dev.benchmarks.learning_execution_trace import NumericalTrace, TraceIncomplete, learning_stages
+from dev.benchmarks.learning_execution_trace import NumericalTrace, TraceIncomplete, learning_stages, estimator_stages, exception_chain, identities
+
+ESTIMATOR_TRACE_CASES = {'kde', 'kernel_regression_nw', 'kernel_regression_local_linear',
+                         'spline', 'kernel_pca', 'nystroem', 'gam', 'agglomerative'}
 
 TRACE_CASES = {c for c in CASES if c.startswith(('bandwidth', 'knockoff'))} | {'kde_bootstrap', 'kde_normal_ci'}
 
@@ -226,7 +230,7 @@ def validate(case,m,X,y,z,labels):
             'scope':'named fixture only; not all hyperparameter/degeneracy regimes'}
 
 
-def verify_device(model,out,runtime):
+def _legacy_ownership(model,out,runtime):
     if runtime.name=='numpy':return {'observed_array_device':'cpu','compute_placement':'explicit CPU adapter','proof':'CPU inputs and explicit CPU estimator'}
     native=[]
     for name in LEARNED:
@@ -242,6 +246,54 @@ def verify_device(model,out,runtime):
     return {'observed_array_device':runtime.device,'native_fitted_fields':native,'output':out_id,
             'compute_placement':'unverified: native array ownership does not prove numerical execution placement',
             'scope':'ownership-only diagnostic with possible host work; not physical acceleration evidence'}
+
+
+# Public host reports are intentionally distinct from retained native numerical
+# state. These fields validate the API boundary only; stage traces prove selected
+# arithmetic, and ownership alone cannot satisfy the execution gate.
+FIELD_CONTRACTS = {
+    'kde': (('samples_', 'weights_', 'covariance_', 'inv_covariance_'), (), 'native'),
+    'kernel_regression_nw': (('samples_', 'targets_', 'weights_', 'inv_covariance_'), (), 'native'),
+    'kernel_regression_local_linear': (('samples_', 'targets_', 'weights_', 'inv_covariance_'), (), 'native'),
+    'spline': (('knots_', 'boundary_lo_', 'boundary_hi_'), (), 'native'),
+    'kernel_pca': ((), ('lambdas_', 'alphas_', 'X_fit_'), 'native'),
+    'nystroem': (('_landmarks',), ('components_', 'normalization_', 'eigenvalues_'), 'native'),
+    'gam': (('coef_', 'knots_', '_basis_mean_'), (), 'host-report'),
+    'agglomerative': ((), ('labels_', 'children_', 'distances_'), 'host-report'),
+}
+
+
+def verify_device(model, out, runtime, case=None):
+    if case not in FIELD_CONTRACTS:
+        return _legacy_ownership(model, out, runtime)
+    native_fields, host_fields, output_role = FIELD_CONTRACTS[case]
+    fields = {}
+    for names, backend, device, role in (
+        (native_fields, runtime.name, runtime.device, 'retained-numerical-state'),
+        (host_fields, 'numpy', 'cpu', 'public-host-report')):
+        for name in names:
+            values = identities(getattr(model, name, None))
+            if not values or any(v.get('kind') != 'array' or v['backend'] != backend
+                                 or v['device'] != device for v in values):
+                raise Blocked('Fitted field ownership mismatch: ' + name
+                              + '; expected ' + backend + '/' + device)
+            dtype = 'int64' if name in ('labels_', 'children_') else 'float64'
+            if any(v['dtype'] != dtype for v in values):
+                raise Blocked('Fitted field dtype mismatch: ' + name + '; expected ' + dtype)
+            fields[name] = {'role': role, 'expected_dtype': dtype, 'arrays': values}
+    output = identities(out)
+    backend, device = (('numpy', 'cpu') if output_role == 'host-report'
+                       else (runtime.name, runtime.device))
+    if not output or any(v.get('kind') != 'array' or v['backend'] != backend
+                         or v['device'] != device for v in output):
+        raise Blocked('Output ownership mismatch: expected ' + backend + '/' + device)
+    output_dtype = 'int64' if case == 'agglomerative' else 'float64'
+    if any(v['dtype'] != output_dtype for v in output):
+        raise Blocked('Output dtype mismatch: expected ' + output_dtype)
+    return {'observed_array_device': runtime.device, 'fitted_fields': fields,
+            'output': {'role': output_role, 'expected_dtype': output_dtype, 'arrays': output},
+            'compute_placement': 'separately gated by algorithm-specific numerical stages',
+            'scope': 'API ownership/report boundary only; not numerical execution evidence'}
 
 
 def timed(fn,rt):
@@ -272,25 +324,58 @@ def validate_knockoff(result,truth):
             'scope':'one seeded trial; empirical FDR calibration requires many independent seeds'}
 
 
-def traced_call(case, call, rt, traces):
-    if case not in TRACE_CASES:
+@contextmanager
+def retain_partial_trace(traces):
+    """Keep observed preflight work if a later oracle or timed call raises."""
+    try:
+        yield
+    except Exception as exc:
+        if not hasattr(exc, 'execution_trace'):
+            exc.execution_trace = list(traces)
+        raise
+
+
+def traced_call(case, call, rt, traces, *, phase=None, allow_incomplete=False):
+    if phase is None and case not in TRACE_CASES:
         return call()
-    observer = NumericalTrace(rt, learning_stages(case, rt.name))
-    with observer:
-        result = call()
+    specs = (estimator_stages(case, rt.name, phase) if phase is not None
+             else learning_stages(case, rt.name))
+    if not specs:
+        return call()
+    observer = NumericalTrace(rt, specs)
+    try:
+        with observer:
+            result = call()
+    except Exception as exc:
+        traces.append(observer.snapshot(reason=exc))
+        exc.execution_trace = list(traces)
+        raise
     try:
         traces.append(observer.report())
     except TraceIncomplete as exc:
-        raise Blocked(str(exc)) from exc
+        traces.append(exc.execution_trace)
+        if not allow_incomplete:
+            blocked = Blocked(str(exc))
+            blocked.execution_trace = list(traces)
+            raise blocked from exc
     return result
 
 
-def add_trace(row, traces):
+def add_trace(row, traces, *, instrumented=True):
     if traces:
         row['execution_trace'] = traces
         row['performance_eligible'] = False
-        row['timing']['instrumentation'] = 'Includes stage profiler/native primitive observation overhead; diagnostic only'
-        row['timing']['transfer_policy'] = 'Public-call input conversion and internal host/device transfers included'
+        incomplete = [trace for trace in traces if trace['status'] != 'observed']
+        if incomplete:
+            row.update(status='blocked', blocked_kind='incomplete-execution-evidence',
+                       reason='; '.join(trace['reason'] for trace in incomplete))
+            row.pop('timing', None)
+        elif 'timing' in row:
+            row['timing']['instrumentation'] = (
+                'Includes stage profiler/native primitive observation overhead; diagnostic only'
+                if instrumented else
+                'Algorithm-specific primitive tracing in untimed preflight only; timed calls unprofiled')
+            row['timing']['transfer_policy'] = 'Public-call internal host/device transfers included'
     return row
 
 
@@ -340,8 +425,8 @@ def helper_case(case,rt,n,seed,warmup,repeats):
                 if name=='sigmoid':params.update(coef0=1.)
                 assert_close(host(a),sk_kernels(X,Q,metric=name,**params))
     values=[];traces=[]
-    observed=lambda:traced_call(case,call,rt,traces)
-    with rt.context():
+    observed=lambda:traced_call(case,call,rt,traces,allow_incomplete=True)
+    with rt.context(), retain_partial_trace(traces):
         check(observed())
         for i in range(warmup+repeats):
             result,t=timed(observed,rt);check(result)
@@ -410,8 +495,8 @@ def special_case(case,rt,n,seed,warmup,repeats):
                     if error>2e-3:raise AssertionError(f'{case} boundary constraint violation: max error {error:.6g}; no timing eligible')
                     ref='SciPy reconstructed spline boundary derivatives; unit interval only'
         return {'status':'pass','reference':ref,'strength':strength,'metrics':metrics}
-    traces=[];observed=lambda:traced_call(case,call,rt,traces)
-    with rt.context():
+    traces=[];observed=lambda:traced_call(case,call,rt,traces,allow_incomplete=True)
+    with rt.context(), retain_partial_trace(traces):
         value=observed();correct=check(value);values=[]
         for i in range(warmup+repeats):
             value,t=timed(observed,rt);correct=check(value)
@@ -427,7 +512,7 @@ def classify_placement(row,rt):
             'array_device':rt.device,
             'compute_placement':'host-scalar' if row['case']=='bandwidth_helpers' else ('host' if rt.name=='numpy' else ('observed-native-arithmetic-with-host-control-and-api-boundaries' if row['case']=='kde_bootstrap' or (row['case'].startswith('bandwidth_') and row['case']!='bandwidth_cv') else 'mixed-host-and-observed-native-arithmetic')),
             'evidence':'Per-invocation source-identified numerical stages and native arithmetic observations; not full GPU residency',
-            'timing_use':'Instrumented diagnostic public-call duration only, not canonical speedup evidence'}
+            'timing_use':'Diagnostic public-call duration only, not canonical speedup evidence; instrumentation scope is recorded in timing'}
         return row
     if rt.name!='numpy' and row.get('status')=='pass':
         row['performance_eligible']=False
@@ -455,29 +540,48 @@ def run_case(case,rt,n,p,seed,warmup,repeats):
         row['problem']['true_signals']=truth.tolist();row['problem']['q']=.2;row['problem']['positive_statistics_needed_for_knockoff_plus']=5
         row['problem']['data_id']=hashlib.sha256(X.tobytes()+y.tobytes()).hexdigest()
         vals=[];traces=[]
-        with rt.context():
+        with rt.context(), retain_partial_trace(traces):
           for i in range(warmup+repeats):
-            result,t=timed(lambda:traced_call(case,lambda:knockoff(case,rt,X,y,seed),rt,traces),rt);check=validate_knockoff(result,truth)
+            result,t=timed(lambda:traced_call(case,lambda:knockoff(case,rt,X,y,seed),rt,traces,allow_incomplete=True),rt);check=validate_knockoff(result,truth)
             if i>=warmup:vals.append(t)
         row.update(status='pass',performance_eligible=False,correctness=check,timing={'scope':'construction+statistics+selection','samples_seconds':vals,'median_seconds':statistics.median(vals),'warmup':warmup,'repeats':repeats,'synchronized_device':rt.device})
         return classify_placement(add_trace(row,traces),rt)
     device={'numpy':'cpu','cupy':'cuda','torch':'torch'}[rt.name]
-    with rt.context():
+    traces=[]
+    with rt.context(), retain_partial_trace(traces):
         dx,dy=rt.array(X),rt.array(y)
         def fitted():
             m=estimator(case,device,seed,n)
             if case in ('kernel_regression_nw','kernel_regression_local_linear','kernel_ridge','kernel_ridge_cv','gam'):m.fit(dx,dy)
             else:m.fit(dx)
             return m
-        m=fitted();out=operation(case,m,dx);proof=verify_device(m,out,rt);check=validate(case,m,X,y,out,labels)
+        if case in ESTIMATOR_TRACE_CASES:
+            m=traced_call(case,fitted,rt,traces,phase='fit',allow_incomplete=True)
+            out=traced_call(case,lambda:operation(case,m,dx),rt,traces,
+                            phase='operation',allow_incomplete=True)
+        else:
+            m=fitted();out=operation(case,m,dx)
+        # Correctness remains independently visible when observation is incomplete.
+        check=validate(case,m,X,y,out,labels)
+        row['correctness']=check
+        try:
+            proof=verify_device(m,out,rt,case)
+        except Blocked as exc:
+            row.update(status='blocked', performance_eligible=False, reason=str(exc),
+                       blocked_kind='ownership-boundary-mismatch', execution_trace=traces)
+            return row
+        row['execution']=proof
+        if any(trace['status']!='observed' for trace in traces):
+            return add_trace(row,traces,instrumented=False)
+
         fits=[];ops=[]
         for i in range(warmup+repeats):
             m,t=timed(fitted,rt);out,t_op=timed(lambda:operation(case,m,dx),rt)
-            verify_device(m,out,rt);check=validate(case,m,X,y,out,labels)
+            verify_device(m,out,rt,case);check=validate(case,m,X,y,out,labels)
             if i>=warmup:fits.append(t);ops.append(t_op)
         operation_name='stored-output-access' if case in ('tsne','umap','umap_nndescent','dbscan','agglomerative') else ('predict' if case in ('kde','kernel_regression_nw','kernel_regression_local_linear','kernel_ridge','kernel_ridge_cv','gam','kmeans','minibatch_kmeans','gaussian_mixture') else 'transform')
         row.update(status='pass',performance_eligible=check['strength']=='external-or-analytic',correctness=check,execution=proof,timing={'fit':{'scope':'public-fit','samples_seconds':fits,'median_seconds':statistics.median(fits)},operation_name:{'scope':operation_name,'samples_seconds':ops,'median_seconds':statistics.median(ops)},'warmup':warmup,'repeats':repeats,'synchronized_device':proof['observed_array_device'],'transfer_policy':'input transfer excluded; internal casts/report transfers included'})
-        return classify_placement(row,rt)
+        return classify_placement(add_trace(row,traces,instrumented=False),rt)
 
 
 def main(argv=None):
@@ -519,9 +623,9 @@ def main(argv=None):
                     row.pop('timing',None)
                     row['status']='blocked';row['reason']='Convergence warning: '+str(convergence[0].message)
             except UnsupportedCapability as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'blocked','blocked_kind':'unsupported-capability','reason':str(e)}
-            except Blocked as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'blocked','reason':str(e)}
+            except Blocked as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'blocked','reason':str(e),'exception':exception_chain(e),'execution_trace':getattr(e,'execution_trace',[])}
             except ImportError as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'skipped','reason':str(e)}
-            except Exception as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'failed','reason':f'{type(e).__name__}: {e}'}
+            except Exception as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'failed','reason':f'{type(e).__name__}: {e}','exception':exception_chain(e),'execution_trace':getattr(e,'execution_trace',[])}
             rows.append(row)
     after=source_identity();changed=after!=source
     failed=changed or any(x['status']=='failed' for x in rows) or (a.require_backends and any(x['status']!='pass' for x in rows))

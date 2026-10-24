@@ -73,11 +73,45 @@ def native(x, runtime):
         raise AssertionError(f'Operational output misplaced: {ident}, expected {runtime.name}/{runtime.device}')
     return ident
 
-def close(actual, expected, atol=1e-7, rtol=1e-6):
+class ComparisonError(AssertionError):
+    """A rejected comparison with machine-readable, full-precision evidence."""
+
+    def __init__(self, diagnostics):
+        self.diagnostics = diagnostics
+        super().__init__(json.dumps(diagnostics, sort_keys=True, allow_nan=False))
+
+
+def _diagnostic_value(value):
+    # JSON cannot represent NaN/Inf. Keep their identity explicit rather than
+    # dropping a failed comparison or emitting invalid JSON.
+    if isinstance(value, dict):
+        return {key: _diagnostic_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_diagnostic_value(item) for item in value]
+    if isinstance(value, (float, np.floating)) and not np.isfinite(value):
+        return str(value)
+    return value
+
+
+def close(actual, expected, atol=1e-7, rtol=1e-6, *, label=None, context=None):
     a,b=np.asarray(host(actual)),np.asarray(expected)
-    if a.shape!=b.shape or not np.all(np.isfinite(a)) or not np.all(np.isfinite(b)):
-        raise AssertionError(f'Nonfinite or shape mismatch: {a.shape}/{b.shape}')
-    np.testing.assert_allclose(a,b,atol=atol,rtol=rtol)
+    try:
+        if a.shape!=b.shape or not np.all(np.isfinite(a)) or not np.all(np.isfinite(b)):
+            raise AssertionError(f'Nonfinite or shape mismatch: {a.shape}/{b.shape}')
+        np.testing.assert_allclose(a,b,atol=atol,rtol=rtol)
+    except AssertionError:
+        if label is None:
+            raise
+        diagnostic = {'quantity':label, 'actual':a.tolist(), 'expected':b.tolist(),
+            'actual_shape':list(a.shape), 'expected_shape':list(b.shape),
+            'actual_dtype':str(a.dtype), 'expected_dtype':str(b.dtype),
+            'atol':atol, 'rtol':rtol, 'context':context or {}}
+        if a.shape == b.shape:
+            with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
+                error = np.abs(a.astype(float)-b.astype(float))
+                diagnostic['max_abs_error'] = float(np.max(error, initial=0))
+                diagnostic['max_relative_error'] = float(np.max(error/np.abs(b), initial=0))
+        raise ComparisonError(_diagnostic_value(diagnostic)) from None
     return float(np.max(np.abs(a.astype(float)-b.astype(float)),initial=0))
 
 def prepare(case, runtime, n, p, seed, resamples):
@@ -212,11 +246,29 @@ def prepare(case, runtime, n, p, seed, resamples):
         grand=np.mean(np.concatenate(groups));ssb=sum(len(g)*(g.mean()-grand)**2 for g in groups);ssw=sum(np.sum((g-g.mean())**2) for g in groups)
         def check(out):
             if runtime.name!='numpy' and op!='partial_eta_squared' and not observed:raise AssertionError('No native device reduction observed')
-            if op=='f_oneway':
-                ref=stats.f_oneway(*groups);err=max(close(out.statistic,ref.statistic),close(out.pvalue,ref.pvalue));close(out.eta_squared,ssb/(ssb+ssw))
-            elif op=='f_welch':
-                from statsmodels.stats.oneway import anova_oneway
-                ref=anova_oneway(groups,use_var='unequal');err=max(close(out.statistic,ref.statistic),close(out.pvalue,ref.pvalue))
+            f_diagnostics = None
+            if op in ('f_oneway', 'f_welch'):
+                if op == 'f_oneway':
+                    ref = stats.f_oneway(*groups)
+                    ref_df = (len(groups)-1, sum(len(g) for g in groups)-len(groups))
+                else:
+                    from statsmodels.stats.oneway import anova_oneway
+                    ref = anova_oneway(groups, use_var='unequal')
+                    ref_df = ref.df
+                f_diagnostics = {'statistic':out.statistic, 'pvalue':out.pvalue,
+                    'dfn':out.df_between, 'dfd':out.df_within,
+                    'reference_statistic':float(ref.statistic),
+                    'reference_pvalue':float(ref.pvalue),
+                    'reference_dfn':float(ref_df[0]), 'reference_dfd':float(ref_df[1]),
+                    'backend':runtime.name, 'device':runtime.device,
+                    'input_dtype':str(groups[0].dtype),
+                    'native_reductions':list(observed)}
+                err = max(close(out.statistic, ref.statistic, label='statistic', context=f_diagnostics),
+                          close(out.pvalue, ref.pvalue, label='pvalue', context=f_diagnostics))
+                close(out.df_between, ref_df[0], label='dfn', context=f_diagnostics)
+                close(out.df_within, ref_df[1], label='dfd', context=f_diagnostics)
+                if op == 'f_oneway':
+                    close(out.eta_squared, ssb/(ssb+ssw), label='eta_squared', context=f_diagnostics)
             elif op=='cohens_f':err=close(out,np.sqrt(ssb/ssw))
             elif op=='partial_eta_squared':err=close(out,.3)
             elif op in ('tukey_hsd','bonferroni'):
@@ -230,7 +282,10 @@ def prepare(case, runtime, n, p, seed, resamples):
                 mean=cells.mean(); ma=cells.mean(axis=(1,2));mb=cells.mean(axis=(0,2)); mc=cells.mean(axis=2)
                 se=np.sum((cells-mc[:,:,None])**2); mse=se/(6*(n-1));sa=3*n*np.sum((ma-mean)**2); sb=2*n*np.sum((mb-mean)**2);si=n*np.sum((mc-ma[:,None]-mb[None,:]+mean)**2)
                 err=max(close(out.factor_a_statistic,sa/mse),close(out.factor_b_statistic,sb/2/mse),close(out.interaction_statistic,si/2/mse),close(out.ss_within,se))
-            return {'max_abs_error':err,'native_reduction_observed':bool(observed),'host_reporting':True}
+            metrics = {'max_abs_error':err,'native_reduction_observed':bool(observed),'host_reporting':True}
+            if f_diagnostics is not None:
+                metrics['f_distribution'] = f_diagnostics
+            return metrics
         reference={'name':'SciPy/statsmodels ANOVA and independent balanced sums-of-squares/effect identities','type':'external-python/analytic','limitation':'Timing includes reduction observation and host scalar distribution reporting.'}
     elif family=='panel-primitives':
         from statgpu import panel
@@ -380,7 +435,10 @@ def main(argv=None):
                         row={'case_id':case,'backend':name,'n':n,'status':'skipped','reason':f'Reference dependency unavailable: {exc.name}'}
                     else:
                         row={'case_id':case,'backend':name,'n':n,'status':'failed','reason':f'{type(exc).__name__}: {exc}'};failed=True
-                except Exception as exc:row={'case_id':case,'backend':name,'n':n,'status':'failed','reason':f'{type(exc).__name__}: {exc}'};failed=True
+                except Exception as exc:
+                    row={'case_id':case,'backend':name,'n':n,'status':'failed','reason':f'{type(exc).__name__}: {exc}'};failed=True
+                    if isinstance(exc, ComparisonError):
+                        row['correctness'] = {'status':'fail', 'comparison':exc.diagnostics}
                 if case=='distributions/f/rvs':row['known_issue']='https://github.com/TheHiddenObserver/statgpu/issues/173'
                 rows.append(row)
     after=source_identity()

@@ -214,3 +214,7 @@ prediction_gpu = gam_gpu.predict(X_test)  # NumPy 输出
 
 - Hastie, T., & Tibshirani, R. (1990). *Generalized Additive Models*. Chapman & Hall.
 - Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R* (2nd ed.). Chapman & Hall/CRC.
+
+### GAM 节点构造与输出边界
+
+GAM 在所选后端计算分位数和唯一节点。样条节点验证仍可能检查主机数组，公开预测结果返回 NumPy 数组。这些明确边界不代表整个流程都驻留设备，也不构成性能声明。
