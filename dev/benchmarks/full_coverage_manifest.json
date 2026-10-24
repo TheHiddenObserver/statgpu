@@ -73,7 +73,7 @@
         "ridge"
       ],
       "case_selection_flag": "--models",
-      "script_sha256": "0693f38691f29d774cec5406b19459377c97743183169e1590959ba31fab1a6e",
+      "script_sha256": "b768b1c7b9d8e6e3a5b9ced3aad4ef072b5602fd73e2cff26a778d6a17154865",
       "invocation_validation": "Source CLI reviewed; initial pilot independent tests and CPU smoke passed"
     },
     {
@@ -829,14 +829,14 @@
       ],
       "case_registry_validation": "imported runner registry, not inferred from title",
       "case_selection_flag": "--cases",
-      "script_sha256": "d6cfc23837a9d1308c3238d933b932d9a5bf2789e1eefdc7fecb9819d7f42cdc",
+      "script_sha256": "64fcb84451bc9a1ce8d5e8c40f4428099ab4b88d1456d4bd1b98185de65262c8",
       "historical_v2_execution_status": "CPU42pass2known_defect_blocked",
       "historical_v2_invocation_validation": "CLIverified; worker44CPUcases42pass2knownblockeddefects#191#216;61contracttests pass",
       "source_dependencies_sha256": {
         "statgpu/nonparametric/kernel_smoothing/_native_bandwidth.py": "7d7772b7fbcbe9316f5c523513c8aada4436b21207eabbfb699e81e073c19c6d",
         "statgpu/nonparametric/kernel_smoothing/_native_bootstrap.py": "9235b22cb062eebaec8b286ff8da9bc25cf5816711a78657fd6c6313f34dd7a9",
-        "dev/benchmarks/learning_execution_trace.py": "d0fce13bd4a05e7f3f2bcdf49e7800f7dee8adda7747e3b648dcbcd8b4ed683a",
-        "dev/benchmarks/benchmark_release_refresh.py": "0693f38691f29d774cec5406b19459377c97743183169e1590959ba31fab1a6e",
+        "dev/benchmarks/learning_execution_trace.py": "f43551062260f356060c2e90a9eb3299606b95b4f8124ac7d3ada6b1adf5ba54",
+        "dev/benchmarks/benchmark_release_refresh.py": "b768b1c7b9d8e6e3a5b9ced3aad4ef072b5602fd73e2cff26a778d6a17154865",
         "statgpu/nonparametric/kernel_methods/_kpca.py": "2b38043117fab404dfdda16b8dec38aed31685dbc18b0f176ad2d96ee931b407",
         "statgpu/nonparametric/kernel_methods/_nystroem.py": "54f97b07e55240d869de8cf0e9ce8a18787395d3af01c83f4e99be07961d5f23",
         "statgpu/semiparametric/_gam.py": "7c259e7f4c453647aed27a9f852dc40e31fb6ffda37ea51e59cd2b9d800200d7"
@@ -911,7 +911,7 @@
       ],
       "case_registry_validation": "imported runner registry, not inferred from title",
       "case_selection_flag": "--cases",
-      "script_sha256": "61449d125dbde4af610de3401d1d5661a594c54f867bc272ff73521f6ce7f0ee"
+      "script_sha256": "f046fa65b8876916bed2877857e2d6c5c4977b870067e97d846c8320aeada0e6"
     },
     {
       "id": "six-family-cv",
@@ -979,9 +979,9 @@
         "CoxPHCV"
       ],
       "case_selection_flag": null,
-      "script_sha256": "24f58937a2360c5d36f312a668516a98e06e9b41922aabcacbff128b581082f0",
+      "script_sha256": "4bf85f8aa8e8e9f3b3cac6ffcdd7a7c91a645349bdac0ca76179fe32e72d56c1",
       "source_dependencies_sha256": {
-        "dev/benchmarks/benchmark_cv_models.py": "3f04799a9ab3deb3db9be17558fbd6eb292243f83b1d404c3c5e7e64db822ff2",
+        "dev/benchmarks/benchmark_cv_models.py": "8b8a27907e553309201e651d4b28a236c528c39227a4b9d4f727a568cb0d6b8d",
         "statgpu/linear_model/penalized/_penalized_cv.py": "cd4e73cb5d54175a420309bc0d7f8551dbb2a0ae8fa9b15554385875d606b152",
         "statgpu/solvers/_fista.py": "eed363c62a2a3a52eced13cb38d984ba74be388f4ab208048de4f580df87f9ad"
       }
@@ -3753,5 +3753,20 @@
     "physical_validation": "Historical fullscan failures and blocked rows remain unchanged; repaired source requires targeted P100 validation and a new complete 21-call scan.",
     "performance_qualification": "diagnostic-only; exclusivity unverified; no acceleration or canonical dashboard qualification",
     "prior_fields": "local_repair_state and entry CPU smoke statuses describe historical source-specific evidence, not certification of this repair."
+  },
+  "benchmark_qualification_state": {
+    "base_sha": "48d03262e765fe276888c4781fd2819b16888bad",
+    "status": "new-runner-qualification-physical-validation-pending",
+    "scope": "Seven representative suites, not exhaustive API coverage or a canonical dashboard artifact.",
+    "default_invocations": 21,
+    "default_rows": 1692,
+    "allowed_host_only_not_applicable_rows": 16,
+    "learning_case_contracts": 44,
+    "performance_qualification": "diagnostic_only; exclusivity unverified; no speedup comparisons or canonical dashboard eligibility",
+    "source_dependencies_sha256": {
+      "dev/benchmarks/benchmark_qualification.py": "d966f8ae7fb35f95a2f794f14cf08e73a2b97900bd5ab5170f9deeab215015ee",
+      "dev/benchmarks/run_qualification_campaign.py": "bcaa1a8b3e85152072e0c1f4754254cdfac847a1a436bd66574cd1eac6d55426",
+      "dev/benchmarks/run_coverage_benchmarks.py": "cb9d27d017eea33ae24f442c744d05b6af5209cd44c503e3c0c918e99752e14b"
+    }
   }
 }

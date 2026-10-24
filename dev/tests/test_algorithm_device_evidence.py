@@ -29,11 +29,18 @@ def inject_torch_cpu(model, monkeypatch):
     This is not a public ``device='torch'`` request (which means CUDA).
     GAM's internal Torch ingress also consults CUDA availability, so replacing
     only its backend/xp leaves this CPU-only test dependent on the host GPU.
-    The caller's function-scoped monkeypatch restores availability afterward;
+    Inject the ingress/backend for nested estimators as well: TSNE constructs
+    PCA, GMM constructs KMeans, and KernelRidgeCV refits KernelRidge. Patching
+    only the outer object leaves those children on the public NumPy CPU path.
+    Numerical implementations and native primitives are not replaced. The
+    caller's function-scoped monkeypatch restores all state afterward;
     physical GPU tests below never use this helper.
     """
     from statgpu.backends import TorchBackend
+    from statgpu._base import BaseEstimator
     backend = TorchBackend(device='cpu')
+    monkeypatch.setattr(BaseEstimator, '_get_backend', lambda self, **kwargs: backend)
+    monkeypatch.setattr(BaseEstimator, '_to_array', lambda self, X, **kwargs: backend.asarray(X))
     monkeypatch.setattr(backend.xp.cuda, 'is_available', lambda: False)
     model.set_params(device='cpu')
     monkeypatch.setattr(model, '_get_backend', lambda **kwargs: backend)
@@ -105,12 +112,28 @@ def test_algorithm_stages_real_torch_cpu_and_independent_oracle(case, monkeypatc
         X = X[:, :1]
     if case.startswith('kernel_regression') or case == 'gam':
         y = np.sin(X[:, 0]) + .2 * X[:, 0]
+    if case in ('nmf', 'minibatch_nmf'):
+        X = np.abs(X)  # Match the runner's nonnegative factorization fixture.
     model = inject_torch_cpu(learning.estimator(case, 'cpu', 42, len(X)), monkeypatch)
     assert not rt.module.cuda.is_available()
     dx, dy = rt.array(X), rt.array(y)
-    fit_trace = NumericalTrace(rt, estimator_stages(case, 'torch', 'fit'))
+    fit_specs = estimator_stages(case, 'torch', 'fit')
+    if case == 'dbscan':
+        # A CPU tensor truthfully has is_cuda=False, so public DBSCAN fit uses
+        # its tensor-distance/host-label fallback, not the CUDA-only dispatch.
+        # Observe that real branch here. The unchanged CUDA branch is covered
+        # by the physical tests and a separate direct real-Torch-CPU primitive
+        # test in test_learning_compute_qualification.py.
+        from statgpu.unsupervised import DBSCAN
+        fit_specs = [stage(DBSCAN._neighbor_graph_sparse, 'dbscan-cpu-tensor-distances',
+                           ('sum', 'matmul'), expected_dtype='float32',
+                           reject_host_numerics=True, intermediates=('X_f32', 'distances')),
+                     stage(DBSCAN._fit_gpu_fallback, 'dbscan-cpu-host-label-fallback',
+                           expected_backend='numpy', placement='host-connected-components')]
+    fit_trace = NumericalTrace(rt, fit_specs)
+    supervised = case.startswith('kernel_regression') or case in ('gam', 'kernel_ridge', 'kernel_ridge_cv')
     with fit_trace:
-        model.fit(dx, dy) if case.startswith('kernel_regression') or case == 'gam' else model.fit(dx)
+        model.fit(dx, dy) if supervised else model.fit(dx)
     fit_report = fit_trace.report()
     operation_trace = NumericalTrace(rt, estimator_stages(case, 'torch', 'operation'))
     with operation_trace:

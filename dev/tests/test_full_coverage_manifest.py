@@ -172,3 +172,16 @@ def test_fullscan_repair_keeps_failed_physical_evidence_and_repins_dependencies(
         assert entry['script_sha256'] == hashlib.sha256((ROOT / entry['script']).read_bytes()).hexdigest()
         for path, digest in entry.get('source_dependencies_sha256', {}).items():
             assert digest == hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
+
+
+def test_qualification_state_is_separate_from_historical_physical_evidence():
+    manifest = json.loads(MANIFEST.read_text())
+    state = manifest['benchmark_qualification_state']
+    assert state['base_sha'] == '48d03262e765fe276888c4781fd2819b16888bad'
+    assert state['status'] == 'new-runner-qualification-physical-validation-pending'
+    assert (state['default_invocations'], state['default_rows']) == (21, 1692)
+    assert state['allowed_host_only_not_applicable_rows'] == 16
+    assert state['learning_case_contracts'] == 44
+    assert 'exclusivity unverified' in state['performance_qualification']
+    for path, digest in state['source_dependencies_sha256'].items():
+        assert digest == hashlib.sha256((ROOT / path).read_bytes()).hexdigest()

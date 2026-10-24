@@ -9,6 +9,10 @@ from functools import wraps
 import sys
 import inspect
 import types
+import ast
+import dis
+import textwrap
+from collections import Counter
 from pathlib import Path
 from unittest.mock import patch
 
@@ -38,7 +42,9 @@ def identities(value):
 
 
 def stage(fn, label, operations=(), minimum_calls=1, placement='requested-backend',
-          reject_host_numerics=False, host_controls=None, expected_dtype=None):
+          reject_host_numerics=False, host_controls=None, expected_dtype=None,
+          expected_backend=None, intermediates=(), operation_counts=None, operator_sites=(),
+          control_outputs=None, executed_assignments=None):
     # Estimator validation decorators share one wrapper code object. Resolve
     # their implementation, or unrelated decorated methods could satisfy a
     # method-specific stage. This never unwraps native primitive provenance.
@@ -50,7 +56,71 @@ def stage(fn, label, operations=(), minimum_calls=1, placement='requested-backen
     return {'code': code, 'label': label, 'operations': tuple(operations),
             'minimum_calls': minimum_calls, 'placement': placement,
             'reject_host_numerics': reject_host_numerics,
-            'host_controls': host_controls or {}, 'expected_dtype': expected_dtype}
+            'host_controls': host_controls or {}, 'expected_dtype': expected_dtype,
+            'expected_backend': expected_backend, 'intermediates': tuple(intermediates),
+            'operation_counts': operation_counts or {},
+            'operator_sites': _operator_sites(source, operator_sites),
+            'control_outputs': control_outputs or {},
+            'assignment_sites': _assignment_sites(source, executed_assignments or {})}
+
+
+def _operator_sites(fn, contracts):
+    """Resolve exact source @ sites without rewriting or re-executing math.
+
+    Only simple named operands (and their transpose/fitted attributes) are
+    supported. Bytecode positions must uniquely identify the source expression.
+    Unsupported interpreters fail closed, rather than treating return ownership
+    as arithmetic. The recorded native slots execute with original operands.
+    """
+    if not contracts:
+        return {}
+    source, start = inspect.getsourcelines(fn)
+    tree = ast.parse(textwrap.dedent(''.join(source)))
+    sites = {}
+    for expression, output in contracts:
+        matches = [node for node in ast.walk(tree) if isinstance(node, ast.BinOp)
+                   and isinstance(node.op, ast.MatMult) and ast.unparse(node) == expression]
+        if len(matches) != 1:
+            raise TraceIncomplete('Cannot resolve unique numerical operator: ' + expression)
+        node = matches[0]
+        instructions = []
+        current_line = None
+        for op in dis.get_instructions(fn):
+            current_line = op.starts_line if op.starts_line is not None else current_line
+            position = getattr(op, 'positions', None)
+            line = position.lineno if position is not None else current_line
+            if (op.opname == 'BINARY_MATRIX_MULTIPLY'
+                or (op.opname == 'BINARY_OP' and op.argrepr == '@')) and line == start + node.lineno - 1:
+                instructions.append(op)
+        if len(instructions) != 1:
+            raise TraceIncomplete('Cannot resolve executed operator bytecode: ' + expression)
+        paths = []
+        for operand in (node.left, node.right):
+            # Transpose is a native array view. The underlying array has the
+            # same device/dtype and we do not create an extra view while tracing.
+            if isinstance(operand, ast.Attribute) and operand.attr == 'T':
+                operand = operand.value
+            if isinstance(operand, ast.Name):
+                paths.append((operand.id,))
+            elif isinstance(operand, ast.Attribute) and isinstance(operand.value, ast.Name):
+                paths.append((operand.value.id, operand.attr))
+            else:
+                raise TraceIncomplete('Unsupported operator operand: ' + expression)
+        sites[instructions[0].offset] = {'expression': expression, 'paths': paths,
+                                         'output': output, 'line': start + node.lineno - 1}
+    return sites
+
+
+def _assignment_sites(fn, requirements):
+    """Count one exact numerical loop site, not ancestor operation totals."""
+    result = {}
+    for local, expected in requirements.items():
+        instructions = [op for op in dis.get_instructions(fn)
+                        if op.opname == 'STORE_FAST' and op.argval == local]
+        if len(instructions) != 1:
+            raise TraceIncomplete('Cannot resolve unique numerical assignment: ' + local)
+        result[instructions[0].offset] = {'local': local, 'expected_count': expected}
+    return result
 
 
 class NumericalTrace:
@@ -61,9 +131,11 @@ class NumericalTrace:
     """
     OPS = ('exp', 'sum', 'mean', 'abs', 'sqrt', 'quantile', 'std', 'var',
            'dot', 'matmul', 'correlate', 'bincount', 'cumsum', 'searchsorted', 'argsort', 'rand',
-           'where', 'min', 'max', 'log', 'argmin', 'diff')
+           'where', 'min', 'max', 'log', 'argmin', 'diff', 'einsum', 'tanh',
+           'maximum', 'minimum', 'clip', 'argmax', 'nonzero', 'topk', 'randint',
+           'sin', 'cos', 'floor', 'argpartition', 'divide')
     LINALG = ('inv', 'solve', 'eigh', 'eigvalsh', 'qr', 'svd', 'det',
-              'solve_ex', 'cholesky', 'solve_triangular')
+              'solve_ex', 'cholesky', 'solve_triangular', 'norm')
 
     def __init__(self, runtime, stages):
         self.runtime = runtime
@@ -72,7 +144,9 @@ class NumericalTrace:
         self.active = {}
         self.frames = {}
         self.records = []
+        self._constant_arrays = {}
         self._stack = ExitStack()
+        self._needs_opcodes = any(s['operator_sites'] or s['assignment_sites'] for s in stages)
 
     def _profile(self, frame, event, arg):
         spec = self.by_code.get(frame.f_code)
@@ -82,7 +156,10 @@ class NumericalTrace:
             record = {'stage': spec['label'], 'source': frame.f_code.co_filename,
                       'line': frame.f_code.co_firstlineno, 'operations': [],
                       'completed': False, 'placement': spec['placement'],
-                      'expected_floating_dtype': spec['expected_dtype'] or getattr(self.runtime, 'dtype', None)}
+                      'expected_floating_dtype': spec['expected_dtype'] or getattr(self.runtime, 'dtype', None),
+                      'expected_backend': spec['expected_backend'] or self.runtime.name,
+                      'intermediates': {}, 'operator_evidence': [],
+                      'executed_assignments': {site['local']: 0 for site in spec['assignment_sites'].values()}}
             self.active[id(frame)] = record
             self.frames[id(frame)] = frame
             self.records.append(record)
@@ -91,8 +168,73 @@ class NumericalTrace:
             self.frames.pop(id(frame), None)
             if record is not None:
                 record['completed'] = arg is not None
+                for field in spec['intermediates']:
+                    record['intermediates'][field] = identities(frame.f_locals.get(field))
+                for event in record['operator_evidence']:
+                    result = arg if event['output_local'] == '$return' else frame.f_locals.get(event['output_local'])
+                    event['outputs'] = identities(result)
+                    record['operations'].append(event)
+                for key, constant in list(self._constant_arrays.items()):
+                    if constant[1] == id(frame):
+                        self._constant_arrays.pop(key)
 
-    def _wrap(self, fn, backend, name):
+    def _trace_operator(self, frame, event, arg):
+        spec = self.by_code.get(frame.f_code)
+        if spec is None or not (spec['operator_sites'] or spec['assignment_sites']):
+            return None
+        frame.f_trace_opcodes = True
+        frame.f_trace_lines = False
+        record = self.active.get(id(frame))
+        if record and event == 'opcode' and frame.f_lasti in spec['assignment_sites']:
+            local = spec['assignment_sites'][frame.f_lasti]['local']
+            record['executed_assignments'][local] += 1
+        if record and record['operator_evidence']:
+            pending = record['operator_evidence'][-1]
+            if pending['status'] == 'pending':
+                if event == 'exception':
+                    pending['status'] = 'failed'
+                elif event == 'opcode':
+                    pending['status'] = 'completed'
+        if event == 'opcode' and frame.f_lasti in spec['operator_sites']:
+            site = spec['operator_sites'][frame.f_lasti]
+            record = self.active.get(id(frame))
+            if record is None:
+                return self._trace_operator
+            arrays = []
+            valid = True
+            for path in site['paths']:
+                value = frame.f_locals.get(path[0])
+                for attr in path[1:]:
+                    value = getattr(value, attr, None)
+                ident = identities(value)
+                arrays.extend(ident)
+                # Reject subclasses and foreign Python slots, including a
+                # tensor-looking CPU-and-recast replacement of __matmul__.
+                backend = ident[0]['backend'] if len(ident) == 1 else None
+                module = sys.modules.get(backend)
+                native_type = getattr(module, 'Tensor' if backend == 'torch' else 'ndarray', None)
+                descriptor = getattr(native_type, '__matmul__', None)
+                valid &= (type(value) is native_type and isinstance(descriptor,
+                    (types.WrapperDescriptorType, types.MethodDescriptorType)))
+            record['operator_evidence'].append({
+                'operation': 'operator.matmul', 'backend': arrays[0]['backend'] if arrays else 'unknown',
+                'inputs': arrays, 'outputs': [], 'status': 'pending' if valid else 'unverifiable',
+                'evidence_kind': 'executed-source-opcode-with-exact-native-operand-slots',
+                'source_expression': site['expression'], 'line': site['line'],
+                'output_local': site['output']})
+        return self._trace_operator
+
+    @staticmethod
+    def _mutation_version(value):
+        # Torch's host-side counter detects normal version-tracked in-place
+        # mutation, not arbitrary .data bypasses. It reads no tensor values and
+        # does not synchronize CUDA. A missing counter fails closed.
+        try:
+            return value._version
+        except (AttributeError, RuntimeError):
+            return None
+
+    def _wrap(self, fn, backend, name, mutated_argument=None):
         @wraps(fn)
         def observed(*args, **kwargs):
             records = tuple(self.active.items())
@@ -107,7 +249,7 @@ class NumericalTrace:
                         'inputs': inputs, 'outputs': [], 'status': 'failed',
                         'exception': exception_chain(exc)})
                 raise
-            outputs = identities(result)
+            outputs = identities(args[mutated_argument] if mutated_argument is not None else result)
             # Resolve metadata allowances once against exact source-local
             # objects; propagate that narrow classification to ancestor stages.
             controls = []
@@ -117,15 +259,63 @@ class NumericalTrace:
                 for field in spec['host_controls'].get(name, ()):
                     if backend == 'numpy' and args and args[0] is frame.f_locals.get(field):
                         controls.append({'stage': spec['label'], 'field': field})
+            dtype_controls = []
+            dtype_input_controls = []
+            for frame_id, record in records:
+                spec = self.by_code[self.frames[frame_id].f_code]
+                control = spec['control_outputs'].get(name)
+                caller = sys._getframe(1)
+                caller_matches = bool(control)
+                for via in control.get('via', ()) if control else ():
+                    if caller is None or caller.f_code is not via.__code__:
+                        caller_matches = False
+                        break
+                    caller = caller.f_back
+                caller_matches = caller_matches and caller is not None and caller.f_code is spec['code']
+                if control and caller_matches and control.get('allow_control_inputs') and name == 'where':
+                    for argument_index, argument in enumerate(args):
+                        prior = self._constant_arrays.get(id(argument))
+                        if (argument_index in (1, 2) and prior is not None
+                            and prior[0] is argument and prior[1] == frame_id
+                            and prior[3] is not None and self._mutation_version(argument) == prior[3]):
+                            dtype_input_controls.append(dict(prior[2],
+                                input_index=len(identities(args[:argument_index]))))
+                if (control and caller_matches and backend == 'torch' and len(args) == 3
+                    and type(args[1]) is float and type(args[2]) is float
+                    and (args[1], args[2]) == tuple(control['values'])
+                    and len(inputs) == 1 and inputs[0].get('dtype') == 'bool'
+                    and len(outputs) == 1 and outputs[0].get('dtype') == control['dtype']):
+                    dtype_controls.append({'stage': spec['label'], 'dtype': control['dtype'],
+                        'values': list(control['values']), 'role': 'exact-branch-constants',
+                        'source': caller.f_code.co_filename, 'line': caller.f_lineno})
+                    if control.get('allow_control_inputs'):
+                        # Keep the exact returned constant tensor alive only for
+                        # this observation. A copied/recast/same-shaped tensor
+                        # cannot inherit its narrowly scoped input permission.
+                        self._constant_arrays[id(result)] = (result, frame_id, dtype_controls[-1],
+                                                            self._mutation_version(result))
             # Allocation/copy and scalar-only calls never establish arithmetic.
             for _, record in records:
                 event = {'operation': name, 'backend': backend,
                          'inputs': inputs, 'outputs': outputs, 'status': 'completed'}
+                if dtype_controls:
+                    event['floating_dtype_controls'] = dtype_controls
+                if dtype_input_controls:
+                    event['floating_dtype_input_controls'] = dtype_input_controls
                 if controls:
                     event['host_control'] = controls[0]['field']
                     event['host_control_sources'] = controls
                 record['operations'].append(event)
             return result
+        # NumPy reductions use np.minimum.reduce / np.maximum.reduce.
+        # Preserve the native ufunc protocol rather than replacing it with an
+        # ordinary function lacking methods. These forwarded methods remain
+        # outside observation unless their enclosing primitive is registered.
+        for attribute in ('reduce', 'accumulate', 'reduceat', 'outer', 'at',
+                          'types', 'nin', 'nout', 'nargs', 'signature', 'identity',
+                          'ntypes', 'resolve_dtypes'):
+            if hasattr(fn, attribute):
+                setattr(observed, attribute, getattr(fn, attribute))
         return observed
 
     @staticmethod
@@ -174,6 +364,11 @@ class NumericalTrace:
                 raise TraceIncomplete('Untrusted replacement of native primitive: ' + backend + '.' + name)
         else:
             kind=type(fn)
+            if kind in (types.MethodDescriptorType, types.WrapperDescriptorType):
+                owner = getattr(fn, '__objclass__', None)
+                if backend == 'torch' and getattr(owner, '__module__', '').startswith('torch'):
+                    return
+                raise TraceIncomplete('Unverifiable native method: ' + backend + '.' + name)
             recognized=(kind is types.BuiltinFunctionType or
                         (backend=='numpy' and kind.__module__=='numpy' and kind.__name__ in ('ufunc','_ArrayFunctionDispatcher')) or
                         (backend=='cupy' and kind.__module__.startswith('cupy.') and kind.__name__=='ufunc'))
@@ -186,6 +381,8 @@ class NumericalTrace:
     def __enter__(self):
         if sys.getprofile() is not None:
             raise TraceIncomplete('Existing profiler prevents isolated numerical trace')
+        if sys.gettrace() is not None and self._needs_opcodes:
+            raise TraceIncomplete('Existing trace function prevents isolated operator observation')
         import numpy as np
         modules = [('numpy', np)]
         if self.runtime.name != 'numpy':
@@ -202,6 +399,23 @@ class NumericalTrace:
                     if callable(fn):
                         self._verify_native_callable(fn, module, backend, 'linalg.' + name)
                         self._stack.enter_context(patch.object(module.linalg, name, self._wrap(fn, backend, 'linalg.' + name)))
+            if self.runtime.name == 'torch':
+                module = self.runtime.module
+                for method in ('__matmul__', 'sum', 'clamp_', 'scatter_reduce_', 'index_add'):
+                    name = 'Tensor.' + method
+                    if any(name in spec['operations'] for spec in self.stages):
+                        fn = getattr(module.Tensor, method)
+                        self._verify_native_callable(fn, module, 'torch', name)
+                        self._stack.enter_context(patch.object(module.Tensor, method,
+                            self._wrap(fn, 'torch', name)))
+            if self.runtime.name == 'cupy' and any('add.at' in spec['operations'] for spec in self.stages):
+                module = self.runtime.module
+                add = module.add
+                self._verify_native_callable(add, module, 'cupy', 'add')
+                self._verify_native_callable(add.at, module, 'cupy', 'add.at')
+                wrapper = self._wrap(add, 'cupy', 'add')
+                wrapper.at = self._wrap(add.at, 'cupy', 'add.at', mutated_argument=0)
+                self._stack.enter_context(patch.object(module, 'add', wrapper))
             if self.runtime.name == 'cupy' and any('RandomState.random_sample' in spec['operations'] for spec in self.stages):
                 module = self.runtime.module
                 fn = module.random.RandomState.random_sample
@@ -209,28 +423,59 @@ class NumericalTrace:
                 self._stack.enter_context(patch.object(module.random.RandomState, 'random_sample',
                     self._wrap(fn, 'cupy', 'RandomState.random_sample')))
             sys.setprofile(self._profile)
+            if self._needs_opcodes:
+                # CPython 3.12 enables opcode events globally only when a
+                # current frame requests them at settrace time (3.13 reverted
+                # this requirement). No user frame flags are modified.
+                sys._getframe().f_trace_opcodes = True
+                sys.settrace(self._trace_operator)
             return self
         except BaseException:
             sys.setprofile(None)
+            if self._needs_opcodes:
+                sys.settrace(None)
             self._stack.close()
             raise
 
     def __exit__(self, *exc):
         sys.setprofile(None)
+        if self._needs_opcodes:
+            sys.settrace(None)
         self._stack.close()
+        self._constant_arrays.clear()
         return False
 
     def _validate(self):
-        required_backend = self.runtime.name
-        required_device = self.runtime.device
         for spec in self.stages:
+            required_backend = spec['expected_backend'] or self.runtime.name
+            required_device = 'cpu' if required_backend == 'numpy' else self.runtime.device
             records = [r for r in self.records if r['stage'] == spec['label']]
             if len(records) < spec['minimum_calls'] or any(not r['completed'] for r in records):
                 raise TraceIncomplete('Missing or incomplete numerical stage: ' + spec['label'])
             for record in records:
-                observed = set()
+                observed = Counter()
+                for site in spec['assignment_sites'].values():
+                    if record.get('executed_assignments', {}).get(site['local']) != site['expected_count']:
+                        raise TraceIncomplete('Incomplete numerical loop execution in stage '
+                            + spec['label'] + ': expected ' + str(site['expected_count'])
+                            + ' assignments to ' + site['local'] + ', observed '
+                            + str(record.get('executed_assignments', {}).get(site['local'])))
+                for field in spec['intermediates']:
+                    values = record.get('intermediates', {}).get(field, [])
+                    if not values or any(v.get('kind') != 'array'
+                        or v.get('backend') != required_backend or v.get('device') != required_device
+                        for v in values):
+                        raise TraceIncomplete('Missing/wrong-device numerical intermediate in stage '
+                                              + spec['label'] + ': ' + field)
+                    expected = spec.get('expected_dtype')
+                    allowed = expected if isinstance(expected, (tuple, list)) else (expected,)
+                    for value in values:
+                        dtype = value.get('dtype', '')
+                        if expected and dtype not in allowed and dtype not in ('bool', 'int32', 'int64'):
+                            raise TraceIncomplete('Wrong floating dtype in intermediate ' + field)
+
                 for event in record['operations']:
-                    if event.get('status') == 'failed':
+                    if event.get('status') in ('failed', 'unverifiable', 'pending'):
                         raise TraceIncomplete('Failed numerical primitive in stage ' + spec['label']
                                               + ': ' + event['operation'])
                     if event['backend'] != required_backend:
@@ -258,29 +503,45 @@ class NumericalTrace:
                     expected_dtype = spec.get('expected_dtype') or getattr(self.runtime, 'dtype', None)
                     if expected_dtype is not None:
                         import numpy as np
-                        expected_dtype = str(expected_dtype).replace('torch.', '')
-                        for item in array_inputs + event['outputs']:
+                        expected_dtype = (tuple(str(dt).replace('torch.', '') for dt in expected_dtype)
+                            if isinstance(expected_dtype, (tuple, list)) else
+                            (str(expected_dtype).replace('torch.', ''),))
+                        operands = [(a, 'input', i) for i, a in enumerate(event['inputs']) if not scalar_control(a)]
+                        operands += [(a, 'output', i) for i, a in enumerate(event['outputs'])]
+                        for item, role, index in operands:
                             dtype = str(item.get('dtype', '')).replace('torch.', '')
                             try:
                                 control_dtype = np.dtype(dtype).kind in 'biu'
                             except TypeError:
                                 control_dtype = False
-                            if not control_dtype and dtype != expected_dtype:
+                            exact_sign_output = (role == 'output' and event.get('operation') == 'where'
+                                and any(control.get('role') == 'exact-branch-constants'
+                                        and control.get('dtype') == dtype
+                                        and control.get('values') in ([-1.0, 1.0], [1.0, 0.0])
+                                        for control in event.get('floating_dtype_controls', [])))
+                            exact_constant_input = (role == 'input' and event.get('operation') == 'where'
+                                and any(control.get('input_index') == index and control.get('dtype') == dtype
+                                        and control.get('values') == [1.0, 0.0]
+                                        and control.get('role') == 'exact-branch-constants'
+                                        for control in event.get('floating_dtype_input_controls', [])))
+                            if not control_dtype and dtype not in expected_dtype and not (exact_sign_output or exact_constant_input):
                                 raise TraceIncomplete('Wrong floating dtype in stage ' + spec['label']
-                                    + ': operation=' + event['operation'] + '; expected=' + expected_dtype
+                                    + ': operation=' + event['operation'] + '; expected=' + repr(expected_dtype)
                                     + '; observed=' + dtype)
                     if (array_inputs or event['operation'] in ('rand', 'RandomState.random_sample')) and event['outputs']:
-                        observed.add(event['operation'])
+                        observed[event['operation']] += 1
+                if any(observed[name] < count for name, count in spec['operation_counts'].items()):
+                    raise TraceIncomplete('Incomplete numerical primitive count in stage ' + spec['label'])
                 if not set(spec['operations']).issubset(observed):
                     raise TraceIncomplete('No matching native arithmetic for stage ' + spec['label'] + ': expected ' + ','.join(spec['operations']))
 
     def snapshot(self, status='incomplete', reason=None):
         report = {'status': status, 'backend': self.runtime.name, 'device': self.runtime.device,
                 'stages': self.records,
-                'scope': 'selected native numerical primitive calls within source-identified stage invocations; not whole-algorithm GPU residency',
-                'instrumentation': 'Python stage profiler and native function wrappers; see runner for timed versus untimed scope',
+                'scope': 'selected native numerical primitives and source-bound operator slots within stage invocations; not whole-algorithm GPU residency',
+                'instrumentation': 'Python stage profiler, native function/method wrappers and source-bound opcode observation; untimed preflight only',
                 'scalar_controls': 'NumPy scalar inputs retain host identities but do not establish array execution; outputs and all ndarrays remain placement-checked',
-                'unobserved': 'array operator overloads, fused kernels, library-internal operations and unregistered functions are not exhaustively traced'}
+                'unobserved': 'unregistered array operator overloads, fused kernels and library internals are not exhaustively traced'}
         if reason is not None:
             report['reason'] = str(reason)
         return report
@@ -308,13 +569,18 @@ def learning_stages(case, backend):
     from statgpu.nonparametric.kernel_smoothing import _kernel_common as common
     from statgpu.feature_selection import _knockoff_utils as ku
     specs = []
+    if case in ('bspline_basis', 'natural_spline', 'cyclic_spline', 'thin_plate_spline',
+                'smoothing_helpers', 'pairwise_kernels', 'chi2_kernel'):
+        return helper_stages(case, backend)
     if case.startswith('knockoff'):
         fn = ku._build_fixed_x_knockoffs if case == 'knockoff_fixed' else ku._build_model_x_knockoffs
         specs = [stage(fn, 'knockoff-construction', ('linalg.solve', 'linalg.eigh')),
                  stage(ku._corr_diff_statistics, 'knockoff-statistic', ('mean', 'abs')),
                  stage(ku._knockoff_threshold_and_path, 'host-threshold', placement='host-report-and-selection')]
     elif case == 'bandwidth_helpers':
-        specs = [stage(bw.select_bandwidth, 'host-scalar-rule', minimum_calls=2, placement='host-scalar-no-GPU-work-required')]
+        specs = [stage(bw.select_bandwidth, 'bandwidth-input-validation-and-scalar-rule', ('sum',),
+                       minimum_calls=2, expected_dtype='float64', reject_host_numerics=True,
+                       placement='array-input-validation-with-host-scalar-rule')]
     elif case.startswith('bandwidth_'):
         method = case[len('bandwidth_'):]
         if method == 'cv':
@@ -412,7 +678,214 @@ def estimator_stages(case, backend, phase):
                 native(AgglomerativeClustering._fit_gpu, 'agglomerative-merge-selection', ('argmin',)),
                 stage(AgglomerativeClustering._labels_from_children, 'agglomerative-host-label-assembly',
                       placement='host-index-bookkeeping-and-report')]
+    return broad_estimator_stages(case, backend, phase)
+
+
+def broad_estimator_stages(case, backend, phase):
+    """Source-specific contracts for the remaining learning adapters.
+
+    These describe the runner's actual configured branch, not all settings of
+    the estimator. Stages that contain real host numerics are observed as such,
+    never exempted by case-name placement whitelists.
+    """
+    from statgpu.nonparametric.kernel_methods import _krr, _krr_cv, _kernels
+    from statgpu.unsupervised import (_pca, _incremental_pca, _truncated_svd,
+        _kmeans, _minibatch_kmeans, _dbscan, _gmm, _nmf, _minibatch_nmf,
+        _tsne, _umap, _nndescent, _utils)
+
+    def native(fn, label, ops, **kwargs):
+        return stage(fn, label, ops, reject_host_numerics=True,
+                     expected_dtype='float64', **kwargs)
+
+    from statgpu.backends import TorchBackend
+    sign_controls = native(_utils.svd_flip_components, 'decomposition-sign-convention',
+        ('abs', 'argmax', 'where'),
+        control_outputs={'where': {'values': (-1.0, 1.0), 'dtype': 'float32',
+                                   'via': (TorchBackend.where,)}})
+
+    if case in ('kernel_ridge', 'kernel_ridge_cv'):
+        gram = native(_kernels.rbf_kernel, 'kernel-ridge-gram', ('sum',), intermediates=('K',))
+        if phase == 'operation':
+            return [gram, native(_krr.KernelRidge.predict, 'kernel-ridge-dual-prediction',
+                ('operator.matmul',), intermediates=('K_test', 'y_pred'),
+                operator_sites=(('K_test @ self.dual_coef_', 'y_pred'),))]
+        specs = [gram, native(_krr.KernelRidge.fit, 'kernel-ridge-regularized-solve',
+                             ('linalg.solve',), intermediates=('K_reg',))]
+        if case == 'kernel_ridge_cv':
+            specs += [native(_krr_cv.KernelRidgeCV.fit, 'kernel-ridge-folds-score-selection-refit',
+                ('linalg.eigh', 'mean', 'argmin', 'linalg.solve'),
+                operation_counts={'linalg.eigh': 3},
+                control_outputs={'where': {'values': (1.0, 0.0), 'dtype': 'float32',
+                                           'allow_control_inputs': True}},
+                intermediates=('mse_table', 'r2_table', 'dual_coefs', 'residuals'))]
+        return specs
+    if case in ('pca', 'incremental_pca', 'truncated_svd'):
+        cls = {'pca': _pca.PCA, 'incremental_pca': _incremental_pca.IncrementalPCA,
+               'truncated_svd': _truncated_svd.TruncatedSVD}[case]
+        if phase == 'operation':
+            return [native(cls.transform, case + '-projection', ('matmul',))]
+        if case == 'pca':
+            return [sign_controls, native(cls.fit, 'pca-centered-svd', ('mean', 'linalg.svd', 'sum'),
+                           intermediates=('X_centered', 'singular_values_all', 'vh'))]
+        if case == 'incremental_pca':
+            return [sign_controls, native(cls.partial_fit, 'incremental-pca-batch-svd',
+                ('mean', 'linalg.svd', 'sum'), intermediates=('matrix', 'batch_var', 'vh'))]
+        return [sign_controls, native(_utils.randomized_svd, 'truncated-svd-randomized-subspace',
+                       ('matmul', 'linalg.qr', 'linalg.svd'),
+                       intermediates=('omega', 'Q', 'B', 'singular_values')),
+                native(_utils.backend_random_normal, 'truncated-svd-projection-rng',
+                       ('sin', 'floor', 'log', 'sqrt', 'cos'), intermediates=('u1', 'u2', 'z'))]
+    if case in ('kmeans', 'minibatch_kmeans'):
+        cls = _kmeans.KMeans if case == 'kmeans' else _minibatch_kmeans.MiniBatchKMeans
+        specs = [native(_kmeans.KMeans._squared_distances_with_x_norm,
+                        'kmeans-distance-gram', ('sum', 'matmul'), intermediates=('distances',))]
+        if phase == 'operation':
+            return specs + [native(cls.predict, 'kmeans-label-assignment', ('argmin',))]
+        specs += [stage(_kmeans.KMeans._init_centers, 'kmeans-host-probability-initialization',
+                        ('sum',), expected_backend='numpy', expected_dtype='float64',
+                        placement='host-probability-choice-with-native-distance-work'),
+                  stage(_kmeans.KMeans._compute_centers, 'kmeans-centroid-update', ('bincount',),
+                        expected_dtype='float64', intermediates=('sums', 'new_centers'),
+                        placement='native-centroid-update-with-host-empty-cluster-handling')]
+        sums_op = {'numpy': 'operator.matmul', 'torch': 'Tensor.index_add', 'cupy': 'add.at'}[backend]
+        sums_operator = (('indicator.T @ X', '$return'),) if backend == 'numpy' else ()
+        specs += [native(_kmeans.KMeans._label_sums, 'kmeans-cluster-sufficient-statistics',
+                         (sums_op,), operator_sites=sums_operator)]
+        if case == 'minibatch_kmeans':
+            specs += [native(cls._single_batch_step, 'minibatch-kmeans-online-update',
+                ('bincount', 'where'), intermediates=('batch_sums', 'batch_means', 'updated'))]
+        return specs
+    if case == 'dbscan':
+        if phase != 'fit':
+            return []  # Stored labels, not numerical execution.
+        if backend == 'numpy':
+            return [stage(_dbscan.DBSCAN._fit_numpy, 'dbscan-host-neighbor-label-dispatch',
+                          expected_backend='numpy', intermediates=('labels', 'core_indices'),
+                          placement='host-external-neighbor-search-and-connected-components')]
+        if backend == 'torch':
+            # Observe native tensor distance, mask reduction and scatter-label
+            # primitives as well as source-local graph intermediates. Sparse
+            # library internals remain outside this observer's exhaustive scope.
+            return [stage(_dbscan.DBSCAN._fit_gpu, 'dbscan-torch-neighbor-graph-propagation',
+                          ('Tensor.__matmul__', 'Tensor.sum', 'Tensor.clamp_', 'Tensor.scatter_reduce_', 'nonzero', 'minimum'), expected_dtype='float32',
+                          reject_host_numerics=True, intermediates=('X_f32', 'x_norm', 'counts', 'labels_core'),
+                          placement='native-float32-neighbors-and-integer-propagation-with-host-report')]
+        return [stage(_dbscan.DBSCAN._neighbor_graph_sparse, 'dbscan-cupy-distance-graph',
+                      ('sum', 'matmul'), expected_dtype='float32', reject_host_numerics=True,
+                      intermediates=('X_f32', 'distances'), placement='native-distances-host-edge-assembly'),
+                stage(_dbscan.DBSCAN._fit_gpu_cupy, 'dbscan-cupy-counts-host-controlled-propagation',
+                      ('bincount',), expected_dtype='float64',
+                      intermediates=('counts', 'labels_core'), placement='host-scalar-edge-label-propagation')]
+    if case == 'gaussian_mixture':
+        specs = [native(_gmm.GaussianMixture._estimate_log_gaussian_prob,
+                        'gmm-gaussian-log-density', ('log', 'sum', 'matmul'),
+                        intermediates=('quad', 'log_det')),
+                 native(_gmm.GaussianMixture._e_step, 'gmm-responsibilities', ('exp', 'mean'),
+                        intermediates=('weighted_log_prob', 'log_resp'))]
+        if phase == 'fit':
+            specs += [native(_gmm.GaussianMixture._m_step, 'gmm-weighted-moments',
+                ('sum', 'matmul'), intermediates=('nk', 'means', 'second_moment', 'diag_covariances'))]
+        return specs
+    if case in ('nmf', 'minibatch_nmf'):
+        cls = _nmf.NMF if case == 'nmf' else _minibatch_nmf.MiniBatchNMF
+        specs = [native(cls._update_w, case + '-coefficient-update', ('matmul',),
+                        intermediates=('numerator', 'denominator'))]
+        if phase == 'fit':
+            if case == 'nmf':
+                specs += [native(cls._update_h, 'nmf-dictionary-update', ('matmul',),
+                                 intermediates=('numerator', 'denominator')),
+                          native(cls._reconstruction_error, 'nmf-residual-objective', ('matmul', 'sum') if backend == 'numpy' else ('matmul', 'sum', 'sqrt'),
+                                 intermediates=('residual',))]
+            else:
+                specs += [native(cls._batch_stats, 'minibatch-nmf-sufficient-statistics', ('matmul',)),
+                          native(cls._update_h_from_stats, 'minibatch-nmf-dictionary-update', ('matmul',),
+                                 intermediates=('denominator',)),
+                          native(cls._reconstruction_error_from_stats, 'minibatch-nmf-statistics-objective',
+                                 ('sum', 'matmul') if backend == 'numpy' else ('sum', 'matmul', 'sqrt'))]
+        return specs
+    if case == 'tsne':
+        if phase != 'fit':
+            return []
+        return [sign_controls, native(_tsne.TSNE._joint_probabilities, 'tsne-entropy-affinities',
+                       ('exp', 'sum', 'log', 'where'), intermediates=('distances', 'beta', 'P')),
+                native(_tsne.TSNE.fit, 'tsne-gradient-optimization',
+                       ('matmul', 'sum', 'mean', 'where', 'log'),
+                       executed_assignments={'grad': 250}, intermediates=('grad', 'Q', 'forces', 'velocity'))]
+    if case in ('umap', 'umap_nndescent'):
+        if phase != 'fit':
+            return []
+        # NumPy's eye promotes the exact neighbor distance to float64, and
+        # NNDescent explicitly stores float64 distances after float32 arithmetic.
+        specs = [stage(_umap.UMAP._smooth_knn_membership, 'umap-neighbor-memberships',
+                       ('mean', 'exp'), reject_host_numerics=True,
+                       expected_dtype=('float32', 'float64'), intermediates=('adjusted', 'membership')),
+                 stage(_umap.UMAP._fuzzy_graph, 'umap-host-fuzzy-graph-union', ('clip',),
+                       expected_backend='numpy', expected_dtype=('float32', 'float64'),
+                       placement='host-scipy-graph-union-with-native-neighbor-search'),
+                 stage(_umap.UMAP._initial_embedding, 'umap-host-spectral-initialization',
+                       expected_backend='numpy', expected_dtype='float64',
+                       intermediates=('eigenvectors', 'embedding_np'), placement='host-scipy-spectral-eigensolver'),
+                 stage(_umap.UMAP._attraction_curve_params, 'umap-host-attraction-curve-fit',
+                       ('exp', 'where'), expected_backend='numpy', expected_dtype='float64',
+                       intermediates=('xv', 'yv'), placement='host-scipy-nonlinear-curve-fit'),
+                 stage(_umap.UMAP.fit, 'umap-layout-gradient', ('sum', 'mean'),
+                       expected_dtype=('float32', 'float64'),
+                       executed_assignments={'grad': 100},
+                       intermediates=('grad_attr', 'grad_rep', 'grad', 'diff_attr', 'diff_rep'),
+                       placement='native-layout-with-observed-host-graph-and-initialization')]
+        if case == 'umap_nndescent':
+            fn = getattr(_nndescent, 'nndescent_' + backend)
+            specs += [stage(fn, 'umap-nndescent-neighbor-refinement', ('sum', 'argsort'),
+                            reject_host_numerics=True, expected_dtype=('float32', 'float64'),
+                            intermediates=('distances', 'dists', 'indices'))]
+        else:
+            specs += [stage(_utils.squared_euclidean_distances, 'umap-exact-neighbor-distances',
+                            ('sum', 'matmul'), reject_host_numerics=True,
+                            expected_dtype='float32', intermediates=('distances',))]
+        return specs
     raise ValueError('No estimator stage contract for ' + case)
+
+
+def helper_stages(case, backend):
+    from statgpu.nonparametric.splines import _bspline_basis, _cyclic, _thin_plate
+    from statgpu.nonparametric.kernel_methods import _kernels
+    from statgpu.nonparametric.kernel_smoothing import _kde, _kernel_regression, _kernel_common
+    def native(fn, label, ops, **kwargs):
+        return stage(fn, label, ops, reject_host_numerics=True, expected_dtype='float64', **kwargs)
+    if case == 'smoothing_helpers':
+        return [native(_kde.KernelDensityEstimator._fit_samples, 'helper-kde-covariance-fit', ('sum',), minimum_calls=2),
+                native(_kde.KernelDensityEstimator._evaluate_density, 'helper-kde-density', ('exp',), minimum_calls=2),
+                native(_kernel_regression.KernelRegression.fit, 'helper-regression-fit', ('sum',), minimum_calls=2),
+                native(_kernel_regression.KernelRegression._evaluate_nadaraya_watson, 'helper-regression-weights', ('exp', 'sum'), minimum_calls=2),
+                native(_kernel_common._weighted_covariance, 'helper-weighted-covariance', ('sum',), minimum_calls=4, intermediates=('centered', 'cov'))]
+    if case == 'pairwise_kernels':
+        return [native(_kernels.linear_kernel, 'pairwise-linear-dot-products', ('operator.matmul',),
+                       operator_sites=(('X @ Y.T', '$return'),)),
+                native(_kernels.polynomial_kernel, 'pairwise-polynomial-dot-products', ('operator.matmul',),
+                       operator_sites=(('X @ Y.T', '$return'),)),
+                native(_kernels.rbf_kernel, 'pairwise-rbf-distances', ('sum',), intermediates=('K',)),
+                native(_kernels.laplacian_kernel, 'pairwise-laplacian-distances', ('exp',), intermediates=('dist',)),
+                native(_kernels.cosine_kernel, 'pairwise-cosine-normalization', ('sqrt',), intermediates=('X_norm', 'Y_norm')),
+                native(_kernels.sigmoid_kernel, 'pairwise-sigmoid-transform', ('tanh',))]
+    if case == 'chi2_kernel':
+        return [native(_kernels.chi2_kernel, 'chi2-distance-exponentiation',
+                       ('exp',) if backend == 'numpy' else ('sum', 'exp'))]
+    if case == 'thin_plate_spline':
+        return [native(_thin_plate.thin_plate_spline_basis, 'thin-plate-radial-distances',
+                       ('sum', 'sqrt'), intermediates=('diff', 'r_sq', 'phi'))]
+    basis = native(_bspline_basis.bspline_basis, 'basis-de-boor-recurrence', ('where',),
+                   intermediates=('B_new', 'w1', 'w2'), host_controls={'diff': ('knots_np',)},
+                   placement='native-basis-with-host-knot-validation-and-scalar-loop-controls')
+    if case == 'bspline_basis':
+        return [basis]
+    if case == 'natural_spline':
+        return [basis, native(_bspline_basis.natural_cubic_spline_basis, 'natural-boundary-nullspace',
+            ('linalg.svd',), intermediates=('C', 'null_space', 'B_natural'), host_controls={'diff': ('knots_np',)})]
+    if case == 'cyclic_spline':
+        return [basis, stage(_cyclic.cyclic_cubic_spline_basis, 'cyclic-boundary-nullspace',
+            ('linalg.svd',), expected_dtype='float64', intermediates=('constraints', 'vt', 'result'),
+            placement='host-constraint-normalization-and-native-nullspace-projection')]
+    raise ValueError('No helper stage contract for ' + case)
 
 
 def model_stages(case, backend):

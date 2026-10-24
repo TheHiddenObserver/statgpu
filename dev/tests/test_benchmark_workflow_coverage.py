@@ -52,7 +52,8 @@ def test_failure_gate_has_no_successful_timing(tmp_path,monkeypatch):
 def test_measure_validates_every_repetition():
     checks=[]
     _,record=bench.measure(lambda:3,lambda x:checks.append(x),bench.common.Runtime('numpy'),2,3,'test')
-    assert checks==[3]*5 and len(record['raw_seconds'])==3
+    assert checks==[3]*6 and len(record['raw_seconds'])==3
+    assert record['correctness_preflight_calls']==1
 
 
 @pytest.mark.parametrize('value,expected',[(np.nan,0.),(np.inf,0.),([1,2],[1]),([1],[4])])

@@ -7,6 +7,15 @@
 
 ## 未发布 — 工作区修复
 
+### Benchmark 资格完善（PR 待创建）
+
+- CV 干净同步公开拟合计时与 selector/refit 插桩诊断分离，保留目标函数、折分、参数网格及数值阈值。
+- 干净计时拒绝活动中的 Torch 原生 profiler，并检查 CV/最终 refit 的显式收敛状态，包括 Cox RuntimeWarning 对应的不收敛。
+- Gaussian ingress 观察移到计时外；workflow 增加正确性预检并明确 host/mixed 计时口径。
+- 扩展 learning 算法阶段证据并分离 helper 追踪与计时；未闭合或混合计算不标记为全原生。
+- 增加七套统一资格与扫描入口，保留精确节点清单、独立线程 profile、有限规模及不可改写的原始证据。GPU 独占未验证时仅为诊断，不产生加速比或 dashboard 资格。
+- 不修改生产算法或 Logistic 默认值；新源码仍需物理 GPU 验收。
+
 ### PR #257 — 完整扫描正确性与证据修复
 
 - 在 benchmark 的独立 oracle/报告边界显式导出原生拟合数组，包括 Fama–MacBeth 系数；不改变原生拟合及数值容差。P100 复验失败保留为历史，需按修复后的新源码重跑。

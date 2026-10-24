@@ -9,6 +9,7 @@
 - [打开交互式基准面板](../../assets/benchmarks/index.html)
 - [了解筛选、图表、指标与数据来源](../../en/guides/statgpu_benchmark_dashboard.md)
 - [对齐工作负载并复现测量](../benchmarks.md)
+- [规划并审计七套 qualification campaign](benchmark-qualification.md)
 
 先选择环境和模型类别，再按方法、求解器、规模及后端缩小范围。**Metric scope** 用于区分拟合（Fit）、交叉验证（CV）、推断（Inference）、预测（Prediction）和特征选择（Selection）。明细面板只显示所选记录中实际存在的指标组；缺少面板不表示结果为零，也不表示库不支持该功能。
 

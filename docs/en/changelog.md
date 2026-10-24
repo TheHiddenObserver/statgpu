@@ -9,6 +9,15 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ## Unreleased — working-tree repairs
 
+### Benchmark qualification improvements (PR pending)
+
+- Separate clean synchronized CV public-fit samples from profiled selector/refit diagnostics; preserve objective, folds, grids and numerical thresholds.
+- Reject active native Torch profiling and explicit nonconverged CV/final-refit results before retaining clean samples, including Cox RuntimeWarnings.
+- Keep Gaussian ingress observation outside measured fits and add explicit workflow preflight and host/mixed timing labels.
+- Expand learning algorithm-stage evidence and separate helper tracing from timing; unresolved or hybrid computation is not labelled wholly native.
+- Add a seven-suite qualification/campaign interface with exact selected inventories, independent thread profiles, bounded scales and immutable raw evidence. Unknown GPU exclusivity remains diagnostic-only, never a speedup or dashboard claim.
+- This harness change does not modify production algorithms or Logistic defaults. New-source physical GPU validation remains pending.
+
 ### PR #257 — Full-scan correctness and evidence repairs
 
 - Export native fitted arrays explicitly only at the benchmark oracle/report boundary, including Fama–MacBeth coefficients; native fitting and numerical tolerances are unchanged. The P100 follow-up failure remains historical pending a new-source rerun.

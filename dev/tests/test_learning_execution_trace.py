@@ -118,12 +118,13 @@ def test_real_torch_cpu_normal_ci_internal_stages():
     assert {'kde-fit','kde-density','host-interval-assembly'}=={r['stage'] for r in report['stages']}
 
 
-def test_host_scalar_rule_is_reported_without_gpu_compute_claim():
+def test_bandwidth_validation_is_not_misclassified_by_case_whitelist():
     row=b.run_case('bandwidth_helpers',b.Runtime('numpy'),32,4,42,0,1)
     assert row['performance_eligible'] is False
-    assert row['execution_qualification']['compute_placement']=='host-scalar'
+    assert row['execution_qualification']['compute_placement']=='host'
+    assert row['execution_qualification']['observations']['requested_backend_array_events'] > 0
     assert len(row['execution_trace'][0]['stages'])==2
-    assert all(r['placement']=='host-scalar-no-GPU-work-required' for r in row['execution_trace'][0]['stages'])
+    assert all(r['placement']=='array-input-validation-with-host-scalar-rule' for r in row['execution_trace'][0]['stages'])
 
 
 def test_torch_cpu_bootstrap_observes_native_rng_and_quantiles():
