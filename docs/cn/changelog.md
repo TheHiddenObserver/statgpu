@@ -9,6 +9,7 @@
 
 ### Benchmark 资格完善（PR #258）
 
+- 兼容 CPython 3.9 的 clean CV 计时：缺少公开 getter 时读取其实际线程默认 profile/trace hook 状态；未知或不可读状态仍拒绝计时，不关闭调用方 hook，数值及计时边界不变。
 - 对没有模块名的 CuPy ufunc `add.at` 绑定方法，改用精确原生所有者和方法描述符验证身份；拒绝替换的所有者或方法，保留原地输出、设备及精度检查，生产 KMeans 运算不变。
 - 修正 CuPy DBSCAN 外层追踪阶段对嵌套既有 float32 距离计算的精度声明，保留整数标签/计数证据、严格设备检查与独立聚类 oracle；生产精度和数值容差不变。
 - 同步不支持能力 CLI 回归测试的显式配置关键字契约，校验预期 blocked 原因，避免 mock 签名 TypeError 干扰测试。

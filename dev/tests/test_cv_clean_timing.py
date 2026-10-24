@@ -101,7 +101,7 @@ def test_clean_clock_contains_only_public_fit_and_post_sync(clean_fixture, monke
 ])
 def test_existing_profile_or_trace_fails_before_work(clean_fixture, monkeypatch, module, attribute):
     sentinel = object()
-    monkeypatch.setattr(module, attribute, lambda: sentinel)
+    monkeypatch.setattr(module, attribute, lambda: sentinel, raising=False)
     with pytest.raises(RuntimeError, match="profiling/tracing"):
         execute(clean_fixture)
     assert clean_fixture.events == []
@@ -570,3 +570,80 @@ def test_physical_cv_clean_lane_matches_observed_cuda_workload(backend,model_id)
     assert clean['synchronized_device']=='cuda:0'
     assert len(clean['raw_seconds'])==1
     assert clean['performance_eligible'] is False
+
+
+@pytest.mark.parametrize('module_name', ['sys', 'threading'])
+@pytest.mark.parametrize('kind', ['profile', 'trace'])
+def test_actual_instrumentation_setters_block_and_restore(module_name, kind):
+    module = sys if module_name == 'sys' else threading
+    previous = (getattr(sys, 'get' + kind)() if module_name == 'sys'
+                else runner._thread_instrumentation_hook(kind))
+    def hook(frame, event, arg):
+        return hook
+    setter = getattr(module, 'set' + kind)
+    try:
+        setter(hook)
+        with pytest.raises(RuntimeError, match='profiling/tracing'):
+            runner._require_uninstrumented()
+        current = (getattr(sys, 'get' + kind)() if module_name == 'sys'
+                   else runner._thread_instrumentation_hook(kind))
+        assert current is hook
+    finally:
+        setter(previous)
+    restored = (getattr(sys, 'get' + kind)() if module_name == 'sys'
+                else runner._thread_instrumentation_hook(kind))
+    assert restored is previous
+    if previous is None:
+        runner._require_uninstrumented()
+
+
+@pytest.mark.parametrize('kind', ['profile', 'trace'])
+@pytest.mark.parametrize('state', ['clean', 'active', 'missing'])
+def test_cpython39_private_thread_hook_contract(monkeypatch, kind, state):
+    sentinel = object()
+    module = ModuleType('threading')
+    if state != 'missing':
+        setattr(module, '_' + kind + '_hook', None if state == 'clean' else sentinel)
+    monkeypatch.setattr(runner, 'threading', module)
+    monkeypatch.setattr(runner, 'sys', SimpleNamespace(
+        implementation=SimpleNamespace(name='cpython'), version_info=(3, 9, 25)))
+    if state == 'missing':
+        with pytest.raises(RuntimeError, match='Cannot verify threading'):
+            runner._thread_instrumentation_hook(kind)
+    else:
+        assert runner._thread_instrumentation_hook(kind) is (None if state == 'clean' else sentinel)
+
+
+@pytest.mark.parametrize('kind', ['profile', 'trace'])
+@pytest.mark.parametrize('implementation,version', [('pypy', (3, 9)), ('cpython', (3, 10))])
+def test_private_hook_fallback_does_not_guess_other_runtimes(monkeypatch, kind, implementation, version):
+    module = ModuleType('threading')
+    setattr(module, '_' + kind + '_hook', None)
+    monkeypatch.setattr(runner, 'threading', module)
+    monkeypatch.setattr(runner, 'sys', SimpleNamespace(
+        implementation=SimpleNamespace(name=implementation), version_info=version))
+    with pytest.raises(RuntimeError, match='Cannot verify threading'):
+        runner._thread_instrumentation_hook(kind)
+
+
+@pytest.mark.parametrize('kind', ['profile', 'trace'])
+@pytest.mark.parametrize('public_state', ['active', 'noncallable', 'raises'])
+def test_public_thread_getter_has_precedence_and_fails_closed(monkeypatch, kind, public_state):
+    sentinel = object()
+    def getter():
+        if public_state == 'raises':
+            raise LookupError('unreadable hook')
+        return sentinel
+    module = ModuleType('threading')
+    setattr(module, '_' + kind + '_hook', None)
+    setattr(module, 'get' + kind, None if public_state == 'noncallable' else getter)
+    monkeypatch.setattr(runner, 'threading', module)
+    monkeypatch.setattr(runner, 'sys', SimpleNamespace(
+        implementation=SimpleNamespace(name='cpython'), version_info=(3, 9)))
+    if public_state == 'active':
+        assert runner._thread_instrumentation_hook(kind) is sentinel
+    else:
+        with pytest.raises(RuntimeError, match='Cannot verify threading') as exc:
+            runner._thread_instrumentation_hook(kind)
+        if public_state == 'raises':
+            assert isinstance(exc.value.__cause__, LookupError)

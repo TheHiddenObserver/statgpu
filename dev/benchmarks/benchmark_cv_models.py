@@ -637,10 +637,34 @@ def _run_once(spec: CaseSpec, backend: str, seed: int, n_samples: int, n_feature
             "total_fit_ms": total_ms, "workload_identity": identity}
 
 
+def _thread_instrumentation_hook(kind):
+    """Read thread-default hooks without treating an unavailable API as clean.
+
+    CPython 3.9's setprofile/settrace store the hooks in these module globals;
+    public getters were added in 3.10. No other private-runtime fallback is
+    assumed. Never disable or replace a caller's hook to obtain clean timing.
+    """
+    missing = object()
+    getter = getattr(threading, "get" + kind, missing)
+    if getter is not missing:
+        if not callable(getter):
+            raise RuntimeError("Cannot verify threading " + kind + " hook")
+        try:
+            return getter()
+        except Exception as exc:
+            raise RuntimeError("Cannot verify threading " + kind + " hook") from exc
+    if (sys.implementation.name == "cpython" and sys.version_info[:2] == (3, 9)):
+        hook = vars(threading).get("_" + kind + "_hook", missing)
+        if hook is not missing:
+            return hook
+    raise RuntimeError("Cannot verify threading " + kind + " hook on this runtime")
+
+
 def _require_uninstrumented():
     """Fail closed instead of silently disabling a caller's profiling hooks."""
     if (sys.getprofile() is not None or sys.gettrace() is not None
-            or threading.getprofile() is not None or threading.gettrace() is not None):
+            or _thread_instrumentation_hook("profile") is not None
+            or _thread_instrumentation_hook("trace") is not None):
         raise RuntimeError("Clean CV timing requires no active profiling/tracing hooks")
     torch = sys.modules.get("torch")
     autograd = getattr(torch, "autograd", None)

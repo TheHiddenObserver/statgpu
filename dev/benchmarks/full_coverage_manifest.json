@@ -981,7 +981,7 @@
       "case_selection_flag": null,
       "script_sha256": "a6ae3c17948a1cde54cbe8dab3df7fcfc0e4d9d502c0c85eb46d80200c79624a",
       "source_dependencies_sha256": {
-        "dev/benchmarks/benchmark_cv_models.py": "e3704b5bf47f50952e33e38fe9c06255d53c18319e92ca75ae79ad93be370f9f",
+        "dev/benchmarks/benchmark_cv_models.py": "474bf48dc0c002c803d20a8f27d505d112150ce6fabb3ea3a005c8d7190a8126",
         "statgpu/linear_model/penalized/_penalized_cv.py": "cd4e73cb5d54175a420309bc0d7f8551dbb2a0ae8fa9b15554385875d606b152",
         "statgpu/solvers/_fista.py": "eed363c62a2a3a52eced13cb38d984ba74be388f4ab208048de4f580df87f9ad"
       }
