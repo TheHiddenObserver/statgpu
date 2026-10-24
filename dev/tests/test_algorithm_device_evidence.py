@@ -2,6 +2,7 @@
 from contextlib import nullcontext
 from types import SimpleNamespace
 import warnings
+import json
 
 import numpy as np
 import pytest
@@ -29,11 +30,18 @@ def inject_torch_cpu(model, monkeypatch):
     This is not a public ``device='torch'`` request (which means CUDA).
     GAM's internal Torch ingress also consults CUDA availability, so replacing
     only its backend/xp leaves this CPU-only test dependent on the host GPU.
-    The caller's function-scoped monkeypatch restores availability afterward;
+    Inject the ingress/backend for nested estimators as well: TSNE constructs
+    PCA, GMM constructs KMeans, and KernelRidgeCV refits KernelRidge. Patching
+    only the outer object leaves those children on the public NumPy CPU path.
+    Numerical implementations and native primitives are not replaced. The
+    caller's function-scoped monkeypatch restores all state afterward;
     physical GPU tests below never use this helper.
     """
     from statgpu.backends import TorchBackend
+    from statgpu._base import BaseEstimator
     backend = TorchBackend(device='cpu')
+    monkeypatch.setattr(BaseEstimator, '_get_backend', lambda self, **kwargs: backend)
+    monkeypatch.setattr(BaseEstimator, '_to_array', lambda self, X, **kwargs: backend.asarray(X))
     monkeypatch.setattr(backend.xp.cuda, 'is_available', lambda: False)
     model.set_params(device='cpu')
     monkeypatch.setattr(model, '_get_backend', lambda **kwargs: backend)
@@ -105,12 +113,28 @@ def test_algorithm_stages_real_torch_cpu_and_independent_oracle(case, monkeypatc
         X = X[:, :1]
     if case.startswith('kernel_regression') or case == 'gam':
         y = np.sin(X[:, 0]) + .2 * X[:, 0]
+    if case in ('nmf', 'minibatch_nmf'):
+        X = np.abs(X)  # Match the runner's nonnegative factorization fixture.
     model = inject_torch_cpu(learning.estimator(case, 'cpu', 42, len(X)), monkeypatch)
     assert not rt.module.cuda.is_available()
     dx, dy = rt.array(X), rt.array(y)
-    fit_trace = NumericalTrace(rt, estimator_stages(case, 'torch', 'fit'))
+    fit_specs = estimator_stages(case, 'torch', 'fit')
+    if case == 'dbscan':
+        # A CPU tensor truthfully has is_cuda=False, so public DBSCAN fit uses
+        # its tensor-distance/host-label fallback, not the CUDA-only dispatch.
+        # Observe that real branch here. The unchanged CUDA branch is covered
+        # by the physical tests and a separate direct real-Torch-CPU primitive
+        # test in test_learning_compute_qualification.py.
+        from statgpu.unsupervised import DBSCAN
+        fit_specs = [stage(DBSCAN._neighbor_graph_sparse, 'dbscan-cpu-tensor-distances',
+                           ('sum', 'matmul'), expected_dtype='float32',
+                           reject_host_numerics=True, intermediates=('X_f32', 'distances')),
+                     stage(DBSCAN._fit_gpu_fallback, 'dbscan-cpu-host-label-fallback',
+                           expected_backend='numpy', placement='host-connected-components')]
+    fit_trace = NumericalTrace(rt, fit_specs)
+    supervised = case.startswith('kernel_regression') or case in ('gam', 'kernel_ridge', 'kernel_ridge_cv')
     with fit_trace:
-        model.fit(dx, dy) if case.startswith('kernel_regression') or case == 'gam' else model.fit(dx)
+        model.fit(dx, dy) if supervised else model.fit(dx)
     fit_report = fit_trace.report()
     operation_trace = NumericalTrace(rt, estimator_stages(case, 'torch', 'operation'))
     with operation_trace:
@@ -153,7 +177,9 @@ def test_learning_algorithm_stages_physical_gpu_when_available(backend, case):
     except learning.BackendUnavailable as exc:
         pytest.skip(str(exc))
     row = learning.run_case(case, rt, 48, 4, 42, 0, 1)
-    assert row['status'] == 'pass', row
+    if row['status'] != 'pass':
+        # Keep full operation identities/partial traces in JUnit, not a truncated dict repr.
+        pytest.fail(json.dumps(row, indent=2, sort_keys=True), pytrace=False)
     assert row['correctness']['status'] == 'pass'
     assert all(t['status'] == 'observed' for t in row['execution_trace'])
     assert row['performance_eligible'] is False
@@ -473,3 +499,82 @@ def test_source_stage_wrapper_cycle_fails_closed():
     cyclic.__wrapped__ = cyclic
     with pytest.raises(TraceIncomplete, match='Cannot resolve source stage'):
         stage(cyclic, 'invalid-wrapper', ('exp',))
+
+
+def _cupy_dbscan_source_trace_on_numpy(monkeypatch, geometry_dtype=np.float32):
+    """Exercise the actual nested CuPy source with CPU primitives, not CUDA proof."""
+    import sys
+    from statgpu.unsupervised import DBSCAN
+    # Only the module boundary is substituted. Both DBSCAN method code objects
+    # and the exact registered stage contracts remain unchanged.
+    monkeypatch.setitem(sys.modules, 'cupy', np)
+    monkeypatch.setattr(np, 'asnumpy', np.asarray, raising=False)
+    class Backend:
+        float32 = geometry_dtype
+        def __getattr__(self, name):
+            return getattr(np, name)
+    X = np.array([[0., 0.], [.05, 0.], [0., .05],
+                  [2., 2.], [2.05, 2.], [2., 2.05]], dtype=np.float64)
+    model = DBSCAN(eps=.2, min_samples=2, device='cpu')
+    trace = NumericalTrace(SimpleNamespace(name='numpy', module=np, device='cpu'),
+                           estimator_stages('dbscan', 'cupy', 'fit'))
+    with trace:
+        labels, core = model._fit_gpu_cupy(Backend(), X, len(X), X.shape[1])
+    assert labels.dtype == core.dtype == np.int64
+    np.testing.assert_array_equal(labels, [0, 0, 0, 1, 1, 1])
+    return trace
+
+
+def test_cupy_dbscan_nested_float32_geometry_integer_counts_contract(monkeypatch):
+    trace = _cupy_dbscan_source_trace_on_numpy(monkeypatch)
+    report = trace.report()
+    assert report['status'] == 'observed'
+    assert len(trace.records) == 2
+    for record in trace.records:
+        sums = [event for event in record['operations'] if event['operation'] == 'sum']
+        assert sums and all(item['dtype'] == 'float32'
+                            for event in sums for item in event['inputs'] + event['outputs'])
+    outer = next(record for record in trace.records if 'counts-host' in record['stage'])
+    assert {item['dtype'] for item in outer['intermediates']['counts']} == {'int64'}
+    assert {item['dtype'] for item in outer['intermediates']['labels_core']} == {'int64'}
+
+
+@pytest.mark.parametrize('dtype', [np.float16, np.float64])
+def test_cupy_dbscan_geometry_contract_rejects_unexpected_precision(monkeypatch, dtype):
+    trace = _cupy_dbscan_source_trace_on_numpy(monkeypatch, dtype)
+    with pytest.raises(TraceIncomplete, match='Wrong floating dtype'):
+        trace.report()
+
+
+@pytest.mark.parametrize('field,value', [('backend', 'cupy'), ('device', 'cuda:0')])
+def test_cupy_dbscan_nested_geometry_still_rejects_wrong_placement(monkeypatch, field, value):
+    trace = _cupy_dbscan_source_trace_on_numpy(monkeypatch)
+    outer = next(record for record in trace.records if 'counts-host' in record['stage'])
+    event = next(event for event in outer['operations'] if event['operation'] == 'sum')
+    event['outputs'] = [dict(item, **{field: value}) for item in event['outputs']]
+    with pytest.raises(TraceIncomplete, match='wrong backend/device'):
+        trace.report()
+
+
+def test_unrelated_float64_stage_still_rejects_float32_numpy_arithmetic():
+    def target(x):
+        return np.sum(x.astype(np.float32))
+    trace = NumericalTrace(SimpleNamespace(name='numpy', module=np, device='cpu'),
+                           [stage(target, 'strict-float64', ('sum',), expected_dtype='float64')])
+    with trace:
+        target(np.ones(4, dtype=np.float64))
+    with pytest.raises(TraceIncomplete, match='Wrong floating dtype'):
+        trace.report()
+
+
+def test_physical_learning_failure_keeps_full_trace_diagnostics(monkeypatch):
+    row = {'status': 'blocked', 'reason': 'wrong dtype',
+           'execution_trace': [{'operations': [{'operation': 'sum',
+                'inputs': [{'backend': 'cupy', 'device': 'cuda:0', 'dtype': 'float32'}],
+                'outputs': [{'backend': 'cupy', 'device': 'cuda:0', 'dtype': 'float32'}]}],
+                'padding': list(range(200)), 'last_field': 'must-not-be-truncated'}]}
+    monkeypatch.setattr(learning, 'Runtime', lambda *args: object())
+    monkeypatch.setattr(learning, 'run_case', lambda *args: row)
+    with pytest.raises(pytest.fail.Exception) as error:
+        test_learning_algorithm_stages_physical_gpu_when_available('cupy', 'dbscan')
+    assert json.loads(str(error.value)) == row

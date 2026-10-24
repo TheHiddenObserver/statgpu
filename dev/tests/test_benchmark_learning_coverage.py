@@ -109,7 +109,8 @@ def test_unavailable_backend_recorded_without_fallback(monkeypatch,tmp_path):
     out=tmp_path/'missing.json'
     assert b.main(['--cases','pca','--backends','cupy','--require-backends','--output',str(out)])==2
     rows=json.loads(out.read_text())['results']
-    assert rows==[{'case':'pca','backend':'cupy','seed':42,'status':'skipped','reason':'test unavailable'}]
+    assert rows==[{'case':'pca','backend':'cupy','seed':42,'status':'skipped','reason':'test unavailable',
+                   'performance_eligible':False,'oracle_comparison_eligible':False}]
 
 
 def test_failure_does_not_publish_timing(monkeypatch,tmp_path):

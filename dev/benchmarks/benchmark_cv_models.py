@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """Run the six-family canonical cross-validation benchmark package.
 
-The runner profiles the public ``fit`` call and observes two nested Python
-regions in the same execution:
+The canonical compatibility runner profiles public ``fit`` and observes two
+nested Python regions in the same execution:
 
 1. the estimator's CV candidate/fold selection region;
 2. the final non-CV estimator ``fit`` on the full training set.
 
 A run is retained as ``failed`` when either boundary cannot be observed. The
 runner never estimates CV time by subtracting a separately measured refit from
-an aggregate public-fit time.
+an aggregate public-fit time. These instrumented measurements are diagnostic,
+not clean performance samples. The scoped coverage adapter separately calls
+``_run_clean_once`` with matched diagnostic evidence and no profiler installed.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import importlib.metadata
 import inspect
@@ -24,9 +27,11 @@ import platform
 import socket
 import subprocess
 import sys
+import threading
 import time
 import traceback
-from dataclasses import dataclass
+from contextlib import nullcontext
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -49,6 +54,7 @@ class CaseSpec:
     scoring_name: str
     scoring_direction: str
     scoring_normalization: str
+    cv_folds: int = 3
 
 
 CASE_SPECS = (
@@ -84,6 +90,25 @@ CASE_SPECS = (
         "held_out_partial_likelihood", "maximize", "per-observed-event",
     ),
 )
+
+
+def configured_specs(*, folds=3, grid_size=3):
+    """Build real candidate grids without mutating canonical default specs."""
+    import numpy as np
+    if type(folds) is not int or folds < 2:
+        raise ValueError('folds must be an integer >=2')
+    if type(grid_size) is not int or grid_size < 2:
+        raise ValueError('grid_size must be an integer >=2')
+    configured = []
+    for spec in CASE_SPECS:
+        grid = dict(spec.grid_parameters)
+        if grid_size != 3:
+            for key in ('alphas', 'Cs', 'alpha_grid', 'penalties'):
+                if key in grid:
+                    values = grid[key]
+                    grid[key] = np.geomspace(values[0], values[-1], grid_size).tolist()
+        configured.append(replace(spec, grid_parameters=grid, cv_folds=folds))
+    return tuple(configured)
 
 
 class RegionProfiler:
@@ -223,14 +248,23 @@ def _backend_status(backend: str) -> tuple[bool, str | None, str | None]:
     raise ValueError(f"unknown backend: {backend}")
 
 
-def _synchronizer(backend: str) -> Callable[[], None]:
+def _synchronizer(backend: str, device: str | None = None) -> Callable[[], None]:
+    """Capture a concrete device, never a mutable default stream/device."""
+    if backend == "numpy":
+        if device not in (None, "cpu"):
+            raise ValueError("NumPy timing requires the CPU device")
+        return lambda: None
+    if device is not None and (not device.startswith("cuda:") or not device[5:].isdigit()):
+        raise ValueError("GPU timing requires a concrete cuda:<ordinal> device")
     if backend == "cupy":
         import cupy as cp
-        return lambda: cp.cuda.get_current_stream().synchronize()
+        ordinal = cp.cuda.runtime.getDevice() if device is None else int(device[5:])
+        return lambda: cp.cuda.Device(ordinal).synchronize()
     if backend == "torch":
         import torch
-        return torch.cuda.synchronize
-    return lambda: None
+        ordinal = torch.cuda.current_device() if device is None else int(device[5:])
+        return lambda: torch.cuda.synchronize(device=ordinal)
+    raise ValueError(f"unknown backend: {backend}")
 
 
 def _to_backend(value: Any, backend: str):
@@ -305,7 +339,7 @@ def _construct(cls, kwargs: dict[str, Any]):
 def _model_kwargs(spec: CaseSpec, backend: str, seed: int) -> dict[str, Any]:
     device = {"numpy": "cpu", "cupy": "cuda", "torch": "torch"}[backend]
     common = {
-        "cv": 3,
+        "cv": spec.cv_folds,
         "random_state": seed,
         "device": device,
         "compute_inference": False,
@@ -410,13 +444,13 @@ def _validation_score(model, spec: CaseSpec) -> float:
     raise RuntimeError("fitted CV estimator did not expose a validation score")
 
 
-def _clear_cv_caches() -> None:
+def _clear_cv_caches(*, strict: bool = False) -> None:
     """Prevent warmups or repeats from reusing global CV-selection caches."""
     for module_name, module in list(sys.modules.items()):
         if module is None or not module_name.startswith("statgpu."):
             continue
         for name, value in list(vars(module).items()):
-            if "CACHE" not in name.upper():
+            if "CACHE" not in name.upper() or isinstance(value, type):
                 continue
             try:
                 if isinstance(value, dict):
@@ -425,8 +459,13 @@ def _clear_cv_caches() -> None:
                     value.clear()
                 elif isinstance(getattr(value, "_cache", None), dict):
                     value._cache.clear()
-            except Exception:
-                # Cache cleanup is an isolation aid; never hide the measured fit.
+                if strict:
+                    contents = value if isinstance(value, dict) else getattr(value, "_cache", None)
+                    if isinstance(contents, dict) and contents:
+                        raise RuntimeError("cache remained nonempty after clear")
+            except Exception as exc:
+                if strict:
+                    raise RuntimeError(f"Cannot clear CV cache {module_name}.{name}") from exc
                 continue
 
 
@@ -444,71 +483,283 @@ def _candidate_count(spec: CaseSpec) -> int:
     raise ValueError(f"{spec.model_id}: no explicit candidate grid")
 
 
-def _run_once(spec: CaseSpec, backend: str, seed: int, n_samples: int, n_features: int, *, run_kind="repeat"):
+def _array_identity(value) -> dict[str, Any]:
     import numpy as np
+    array = np.ascontiguousarray(_to_numpy(value))
+    return {"shape": list(array.shape), "dtype": str(array.dtype),
+            "sha256": hashlib.sha256(array.tobytes()).hexdigest()}
 
-    generator = {
-        "regression": _regression_data,
-        "classification": _classification_data,
-        "survival": _survival_data,
-    }[spec.task]
-    X, target, X_test, target_test = generator(seed, n_samples, n_features)
-    X_backend = _to_backend(X, backend)
-    X_test_backend = _to_backend(X_test, backend)
-    if spec.task == "survival":
-        target_backend = tuple(_to_backend(value, backend) for value in target)
-        target_test_backend = tuple(_to_backend(value, backend) for value in target_test)
-    else:
-        target_backend = _to_backend(target, backend)
-        target_test_backend = _to_backend(target_test, backend)
 
-    module = importlib.import_module(spec.import_module)
-    cls = getattr(module, spec.import_name)
-    _clear_cv_caches()
+def _workload_identity(spec, backend, seed, data, model):
+    """Content and public-settings identity, computed outside every clock."""
+    from statgpu.cross_validation._base import kfold_indices
+
+    def identify(value):
+        return [identify(item) for item in value] if isinstance(value, tuple) else _array_identity(value)
+
+    X = data[0]
+    folds = kfold_indices(len(X), n_splits=spec.cv_folds, random_state=seed, shuffle=True)
+    identity = {
+        "model": spec.import_module + "." + spec.import_name,
+        "backend": backend, "seed": seed,
+        "data": [identify(value) for value in data],
+        "folds": [[_array_identity(train), _array_identity(valid)] for train, valid in folds],
+        "grid": spec.grid_parameters,
+        "requested_settings": _model_kwargs(spec, backend, seed),
+        "effective_settings": model.get_params(deep=False),
+        "cache_policy": "fresh-estimator; strict-global-CV-cache-clear-before-every-fit",
+    }
+    # These six explicit-grid configurations contain only JSON-valued settings.
+    # Failing here is preferable to unstable repr-based evidence fingerprints.
+    canonical = json.dumps(identity, sort_keys=True, allow_nan=False)
+    return {**json.loads(canonical), "sha256": hashlib.sha256(canonical.encode()).hexdigest()}
+
+
+def _prepare_fit(spec, backend, seed, n_samples, n_features):
+    generator = {"regression": _regression_data, "classification": _classification_data,
+                 "survival": _survival_data}[spec.task]
+    data = generator(seed, n_samples, n_features)
+    def convert(value):
+        return tuple(convert(item) for item in value) if isinstance(value, tuple) else _to_backend(value, backend)
+    converted = tuple(convert(value) for value in data)
+    cls = getattr(importlib.import_module(spec.import_module), spec.import_name)
     model = _construct(cls, _model_kwargs(spec, backend, seed))
+    identity = _workload_identity(spec, backend, seed, data, model)
+    def identify(value):
+        return [identify(item) for item in value] if isinstance(value, tuple) else _array_identity(value)
+    if [identify(value) for value in converted] != identity["data"]:
+        raise RuntimeError("Backend conversion changed CV input dtype/content")
+    # After imports and construction, so caches first loaded by these steps are
+    # also cleared. Fresh models never reuse fitted-state selection caches.
+    _clear_cv_caches(strict=True)
+    return model, converted, identity
+
+
+def _validate_convergence(model):
+    """Reject exposed nonconvergence, including Cox RuntimeWarning outcomes.
+
+    Missing public flags are not fabricated: report which concrete fields were
+    checked, alongside the runner's warning-as-error and full-grid gates.
+    """
+    import numpy as np
+    evidence = {"flags": {}, "finite_paths": []}
+    targets = [("cv", model), ("final_refit", getattr(model, "estimator_", None))]
+    for label, target in targets:
+        if target is None:
+            continue
+        if hasattr(target, "converged_"):
+            flags = np.asarray(_to_numpy(getattr(target, "converged_")))
+            if flags.size == 0 or flags.dtype.kind != "b" or not bool(flags.all()):
+                raise RuntimeError("CV nonconvergence: " + label + ".converged_")
+            evidence["flags"][label + ".converged_"] = True
+    details = getattr(model, "cv_results_", None)
+    if isinstance(details, dict):
+        for key in ("fold_valid", "candidate_complete", "attempted_path", "converged_path", "convergence"):
+            if key not in details:
+                continue
+            flags = np.asarray(_to_numpy(details[key]))
+            if flags.size == 0 or flags.dtype.kind != "b" or not bool(flags.all()):
+                raise RuntimeError("CV incomplete/nonconverged candidate or fold: " + key)
+            evidence["flags"][key] = True
+        if "failure_path" in details:
+            failures = np.asarray(_to_numpy(details["failure_path"]), dtype=object)
+            if any(value is not None and str(value) != "" for value in failures.flat):
+                raise RuntimeError("CV recorded candidate/fold failure_path")
+        for key in ("pl_path", "all_scores", "mse_path", "loss_path"):
+            if key in details:
+                values = np.asarray(_to_numpy(details[key]), dtype=float)
+                if not values.size or not np.isfinite(values).all():
+                    raise RuntimeError("CV incomplete/nonfinite score path: " + key)
+                evidence["finite_paths"].append("cv_results_." + key)
+    for key in ("mse_path_", "loss_path_"):
+        value = getattr(model, key, None)
+        if value is not None:
+            values = np.asarray(_to_numpy(value), dtype=float)
+            if not values.size or not np.isfinite(values).all():
+                raise RuntimeError("CV incomplete/nonfinite score path: " + key)
+            evidence["finite_paths"].append(key)
+    return evidence
+
+
+def _fit_result(model, spec, seed, data):
+    import numpy as np
+    convergence_evidence = _validate_convergence(model)
+    selected = _selected_parameters(model)
+    if not selected:
+        raise RuntimeError("fitted estimator did not expose selected hyperparameters")
+    n_iter_value = getattr(model, "n_iter_", None)
+    try:
+        n_iter = int(np.max(np.asarray(n_iter_value))) if n_iter_value is not None else None
+    except (TypeError, ValueError):
+        n_iter = None
+    result = {
+        "seed": seed, "selected_parameters": selected, "convergence_evidence": convergence_evidence,
+        "validation_score": _validation_score(model, spec),
+        "final_score": _score_model(model, spec, data[2], data[3]),
+        "n_iter": n_iter,
+        "coefficients": _to_numpy(model.coef_).tolist(),
+        "coefficient_dtype": str(_to_numpy(model.coef_).dtype),
+    }
+    if not np.all(np.isfinite(result["coefficients"])):
+        raise RuntimeError("Nonfinite CV final-refit coefficients")
+    if any(not np.isfinite(result[key]) for key in ("validation_score", "final_score")):
+        raise RuntimeError("Nonfinite CV/final score")
+    return result
+
+
+def _run_once(spec: CaseSpec, backend: str, seed: int, n_samples: int, n_features: int, *, run_kind="repeat"):
+    model, data, identity = _prepare_fit(spec, backend, seed, n_samples, n_features)
+    X_backend, target_backend, _, _ = data
     sync = _synchronizer(backend)
-    sync()
-    total_start = time.perf_counter()
     profiler = RegionProfiler(model, n_samples, sync)
     profiler.input_dtypes = {
         "X": str(X_backend.dtype),
         "target": ([str(value.dtype) for value in target_backend]
                    if isinstance(target_backend, tuple) else str(target_backend.dtype)),
     }
+    profiler.workload_identity = identity
     profiler.invocation = {"kind": run_kind, "seed": seed,
                            "n_samples": n_samples, "n_features": n_features}
+    sync()
+    total_start = time.perf_counter()
     with profiler:
         model.fit(*_fit_args(spec, X_backend, target_backend))
     sync()
     total_ms = (time.perf_counter() - total_start) * 1000.0
-
     if profiler.selector_ms <= 0.0:
         raise RuntimeError("CV selector boundary was not observed")
     if profiler.refit_ms <= 0.0:
         raise RuntimeError("final full-data refit boundary was not observed")
     if total_ms < max(profiler.selector_ms, profiler.refit_ms):
         raise RuntimeError("profiled component exceeded public fit duration")
+    return {**_fit_result(model, spec, seed, data),
+            "cv_evaluation_ms": profiler.selector_ms, "final_refit_ms": profiler.refit_ms,
+            "total_fit_ms": total_ms, "workload_identity": identity}
 
-    selected = _selected_parameters(model)
-    if not selected:
-        raise RuntimeError("fitted estimator did not expose selected hyperparameters")
 
-    n_iter_value = getattr(model, "n_iter_", None)
-    try:
-        n_iter = int(np.max(np.asarray(n_iter_value))) if n_iter_value is not None else None
-    except (TypeError, ValueError):
-        n_iter = None
+def _thread_instrumentation_hook(kind):
+    """Read thread-default hooks without treating an unavailable API as clean.
 
-    return {
-        "seed": seed,
-        "cv_evaluation_ms": profiler.selector_ms,
-        "final_refit_ms": profiler.refit_ms,
-        "total_fit_ms": total_ms,
-        "selected_parameters": selected,
-        "validation_score": _validation_score(model, spec),
-        "final_score": _score_model(model, spec, X_test_backend, target_test_backend),
-        "n_iter": n_iter,
-    }
+    CPython 3.9's setprofile/settrace store the hooks in these module globals;
+    public getters were added in 3.10. No other private-runtime fallback is
+    assumed. Never disable or replace a caller's hook to obtain clean timing.
+    """
+    missing = object()
+    getter = getattr(threading, "get" + kind, missing)
+    if getter is not missing:
+        if not callable(getter):
+            raise RuntimeError("Cannot verify threading " + kind + " hook")
+        try:
+            return getter()
+        except Exception as exc:
+            raise RuntimeError("Cannot verify threading " + kind + " hook") from exc
+    if (sys.implementation.name == "cpython" and sys.version_info[:2] == (3, 9)):
+        hook = vars(threading).get("_" + kind + "_hook", missing)
+        if hook is not missing:
+            return hook
+    raise RuntimeError("Cannot verify threading " + kind + " hook on this runtime")
+
+
+def _require_uninstrumented():
+    """Fail closed instead of silently disabling a caller's profiling hooks."""
+    if (sys.getprofile() is not None or sys.gettrace() is not None
+            or _thread_instrumentation_hook("profile") is not None
+            or _thread_instrumentation_hook("trace") is not None):
+        raise RuntimeError("Clean CV timing requires no active profiling/tracing hooks")
+    torch = sys.modules.get("torch")
+    autograd = getattr(torch, "autograd", None)
+    profiler_enabled = getattr(autograd, "_profiler_enabled", None)
+    if callable(profiler_enabled) and profiler_enabled():
+        raise RuntimeError("Clean CV timing requires no active Torch native profiler")
+    monitoring = getattr(sys, "monitoring", None)
+    if monitoring is not None and any(monitoring.get_tool(i) is not None for i in range(6)):
+        raise RuntimeError("Clean CV timing requires no active sys.monitoring tools")
+
+
+def _verify_input_device(value, backend, executed_device):
+    values = value if isinstance(value, tuple) else (value,)
+    for array in values:
+        if backend == "numpy":
+            import numpy as np
+            valid = isinstance(array, np.ndarray) and executed_device == "cpu"
+        elif backend == "cupy":
+            import cupy as cp
+            valid = isinstance(array, cp.ndarray) and f"cuda:{array.device.id}" == executed_device
+        elif backend == "torch":
+            import torch
+            valid = (isinstance(array, torch.Tensor) and array.is_cuda
+                     and f"cuda:{array.device.index}" == executed_device)
+        else:
+            valid = False
+        if not valid:
+            raise RuntimeError("Clean CV input device does not match observed executed device")
+
+
+
+def _execution_context(backend, device):
+    if backend == "numpy":
+        return nullcontext()
+    if not isinstance(device, str) or not device.startswith("cuda:") or not device[5:].isdigit():
+        raise RuntimeError("Clean CV requires a concrete observed CUDA device")
+    ordinal = int(device[5:])
+    if backend == "cupy":
+        import cupy as cp
+        return cp.cuda.Device(ordinal)
+    if backend == "torch":
+        import torch
+        return torch.cuda.device(ordinal)
+    raise ValueError(f"unknown backend: {backend}")
+
+
+def _run_clean_once(spec, backend, seed, n_samples, n_features, *, diagnostic,
+                    executed_device, check_source):
+    """Time only synchronized public fit; validate every result outside clocks.
+
+    Native numerical dispatch/dtype evidence comes from the separate matched
+    diagnostic run. No profiling is installed in this call, and its timing is
+    never split into estimated selector/refit components.
+    """
+    import numpy as np
+    _require_uninstrumented()
+    with _execution_context(backend, executed_device):
+        source = check_source()
+        model, data, identity = _prepare_fit(spec, backend, seed, n_samples, n_features)
+        if identity != diagnostic["workload_identity"]:
+            raise RuntimeError("Clean/diagnostic CV workload identity mismatch")
+        for array in data:
+            _verify_input_device(array, backend, executed_device)
+        sync = _synchronizer(backend, executed_device)
+        fit_args = _fit_args(spec, data[0], data[1])
+        _require_uninstrumented()
+        sync()
+        started = time.perf_counter()
+        try:
+            model.fit(*fit_args)
+        finally:
+            # Failed fits may have enqueued work too; drain this same device
+            # before another case, but never publish their partial duration.
+            sync()
+        total_ms = (time.perf_counter() - started) * 1000.0
+        _require_uninstrumented()
+        if not np.isfinite(total_ms) or total_ms < 0:
+            raise RuntimeError("Invalid clean public-fit duration")
+        result = _fit_result(model, spec, seed, data)
+        if result["selected_parameters"] != diagnostic["selected_parameters"]:
+            raise RuntimeError("Clean CV selection disagrees with diagnostic run")
+        for key in ("validation_score", "final_score"):
+            np.testing.assert_allclose(result[key], diagnostic[key], rtol=2e-5, atol=2e-6,
+                                       err_msg="Clean/diagnostic CV score mismatch")
+        if result["coefficient_dtype"] != diagnostic["coefficient_dtype"]:
+            raise RuntimeError("Clean/diagnostic CV coefficient dtype mismatch")
+        np.testing.assert_allclose(result["coefficients"], diagnostic["coefficients"],
+                                   rtol=2e-5, atol=2e-6,
+                                   err_msg="Clean/diagnostic CV final-refit coefficient mismatch")
+        if check_source() != source:
+            raise RuntimeError("Source changed during clean CV fit")
+        return {**result, "total_fit_ms": total_ms, "workload_identity": identity,
+                "source": source, "executed_device": executed_device,
+                "synchronized_device": None if backend == "numpy" else executed_device,
+                "instrumentation": "none"}
 
 
 def _non_success(backend: str, status: str, reason: str) -> dict[str, Any]:
@@ -550,7 +801,7 @@ def _aggregate_run(spec: CaseSpec, backend: str, samples: list[dict[str, Any]]) 
         },
         "convergence": {
             "candidate_count": _candidate_count(spec),
-            "fold_count": 3,
+            "fold_count": spec.cv_folds,
             "failed_candidates": 0,
             "failed_folds": 0,
             "final_refit_converged": True,
@@ -568,7 +819,7 @@ def _aggregate_run(spec: CaseSpec, backend: str, samples: list[dict[str, Any]]) 
     }
 
 
-def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int, n_features: int, warmup: int, include_sklearn: bool):
+def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int, n_features: int, warmup: int, include_sklearn: bool, diagnostic_samples=None):
     runs = []
     for backend in backends:
         available, _, reason = _backend_status(backend)
@@ -587,7 +838,11 @@ def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int,
             phase = "repeat"
             samples = []
             for invocation_index, seed in enumerate(seeds):
-                samples.append(_run_once(spec, backend, seed, n_samples, n_features))
+                sample = _run_once(spec, backend, seed, n_samples, n_features)
+                samples.append(sample)
+                if diagnostic_samples is not None:
+                    diagnostic_samples.append({"model_id": spec.model_id, "backend": backend,
+                                               "sample": sample})
             runs.append(_aggregate_run(spec, backend, samples))
         except Exception as exc:
             runs.append(
@@ -622,7 +877,7 @@ def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int,
             "parameters": {"seeds": seeds, "signal_features": min(5, n_features)},
         },
         "cv": {
-            "fold_count": 3,
+            "fold_count": spec.cv_folds,
             "split_strategy": "statgpu-deterministic-kfold",
             "shuffle": True,
             "subject_preserving": spec.task == "survival",
@@ -676,13 +931,14 @@ def build_source(args) -> dict[str, Any]:
             "repeats": args.repeats,
             "dtype": "float64",
             "synchronization": "backend synchronize immediately before and after each observed timing region",
-            "timing_scope": "host-orchestrated public fit with directly observed CV selector and final full-data refit; explicit float64 accuracy baseline (gpu_cv_mixed_precision=False where supported), not constructor-default performance",
+            "timing_scope": "DIAGNOSTIC ONLY: profiling overhead included; host-orchestrated public fit with directly observed CV selector and final full-data refit; explicit float64 accuracy baseline (gpu_cv_mixed_precision=False where supported), not constructor-default performance",
             "transfer_policy": "input conversion occurs before timed public fit; device-resident timing",
             "failure_policy": "retain_explicit_disposition",
         },
         "cases": [
-            _case(spec, backends, seeds, args.n_samples, args.n_features, args.warmup, args.include_sklearn)
-            for spec in CASE_SPECS
+            _case(spec, backends, seeds, args.n_samples, args.n_features, args.warmup, args.include_sklearn,
+                  getattr(args, "diagnostic_samples", None))
+            for spec in configured_specs(folds=getattr(args, "folds", 3), grid_size=getattr(args, "grid_size", 3))
         ],
     }
     return source
@@ -698,11 +954,15 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=20260807)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--warmup", type=int, default=1)
+    parser.add_argument("--folds", type=int, default=3)
+    parser.add_argument("--grid-size", type=int, default=3)
     parser.add_argument("--include-sklearn", action="store_true", help="measure aligned sklearn references for the four equivalent estimator families")
     args = parser.parse_args()
 
     if args.repeats < 1 or args.warmup < 0:
         parser.error("repeats must be positive and warmup must be non-negative")
+    if args.folds<2 or args.folds>args.n_samples//2 or args.grid_size<2:
+        parser.error('Require 2<=folds<=n-samples//2 and grid-size>=2')
     source = build_source(args)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(source, indent=2, sort_keys=False, allow_nan=False) + "\n", encoding="utf-8")

@@ -115,7 +115,7 @@ def cox_objective(beta,X,t,e,alpha=0.,ties='breslow'):
     return float(out/len(t)+alpha*np.dot(beta,beta)/2)
 
 
-def make_case(case,n,p,seed,backend):
+def _make_default_case(case,n,p,seed,backend):
     """Return factory, host fit arguments, independent target and contract."""
     if case.startswith('glm_inference:'):
         import statsmodels.api as sm
@@ -268,21 +268,113 @@ def make_case(case,n,p,seed,backend):
     return factory,args,fitkw,np.asarray(target),contract,infer
 
 
+class UnsupportedCapability(RuntimeError):
+    """A requested benchmark configuration has no aligned supported contract."""
+
+
+def capability_exclusion(case, *, dtype='float64', weights='none', solver='default', sparse='dense', n=None):
+    """Keep unsupported axes explicit; never silently drop an option."""
+    if dtype not in ('float32', 'float64') or weights not in ('none', 'analytic'):
+        return 'Unsupported input dtype or weight mode'
+    if sparse != 'dense':
+        return 'Registered model adapters have no aligned sparse public-fit/oracle contract; no implicit densification'
+    kind, variant = case.split(':', 1)
+    if n is not None and n > 2000 and (kind == 'quantile' or case == 'wrapper:QuantileRegression'):
+        return 'quantile independent dense LP oracle budget is n<=2000; use maintained scalable quantile validator'
+    if dtype != 'float64' and kind not in ('glm', 'glm_inference', 'inference'):
+        return 'float32 input/oracle alignment is configured only for glm, glm_inference and OLS inference cases'
+    if weights != 'none' and kind not in ('glm', 'inference'):
+        return 'analytic weights are aligned only for coefficient-only ordinary GLM and OLS/WLS inference; weighted GLM covariance is not certified'
+    if solver != 'default':
+        allowed = set()
+        if kind in ('glm', 'glm_inference'):
+            allowed = {'auto', 'irls', 'newton', 'lbfgs', 'fista'}
+        elif kind == 'penalty':
+            allowed = {'auto', 'fista', 'fista_bb'}
+            if variant == 'l2':
+                allowed.update(('newton', 'lbfgs'))
+            if variant in ('l1', 'l2', 'elasticnet'):
+                allowed.add('admm')
+        if solver not in allowed:
+            return f'{case} has no aligned benchmark oracle/dispatch contract for explicit solver={solver}'
+    return None
+
+
+def _glm_reference_family(name):
+    import statsmodels.api as sm
+    return {'gaussian': sm.families.Gaussian(), 'binomial': sm.families.Binomial(),
+            'poisson': sm.families.Poisson(), 'gamma': sm.families.Gamma(link=sm.families.links.Log()),
+            'inverse_gaussian': sm.families.InverseGaussian(link=sm.families.links.Log()),
+            'negative_binomial': sm.families.NegativeBinomial(alpha=1.),
+            'tweedie': sm.families.Tweedie(var_power=1.5, link=sm.families.links.Log())}[name]
+
+
+def make_case(case,n,p,seed,backend, *, dtype='float64', weights='none', solver='default', sparse='dense'):
+    reason = capability_exclusion(case, dtype=dtype, weights=weights, solver=solver, sparse=sparse, n=n)
+    if reason:
+        raise UnsupportedCapability(reason)
+    factory,args,fitkw,target,contract,infer = _make_default_case(case,n,p,seed,backend)
+    kind, variant = case.split(':', 1)
+    # Preserve legacy default data/oracles and identities byte for byte. Only
+    # requested configurations rebuild their reference from the actual inputs.
+    if dtype != 'float64' or weights != 'none':
+        import statsmodels.api as sm
+        X,y = (np.asarray(value, dtype=dtype) for value in args)
+        args = (X,y)
+        weight = np.linspace(.5, 1.5, len(y), dtype=dtype) if weights == 'analytic' else None
+        if weight is not None:
+            fitkw = {**fitkw, 'sample_weight': weight}
+        if kind in ('glm', 'glm_inference'):
+            family = variant.split(':')[0]
+            # Only point estimates are compared for weighted GLM. Positive
+            # frequency weights produce the same unpenalized optimum as
+            # mean-one analytic weights; no covariance equivalence is implied.
+            kwargs = {} if weight is None else {'freq_weights': weight.astype('float64')}
+            cov = variant.split(':')[1] if kind == 'glm_inference' else 'nonrobust'
+            ref = sm.GLM(y.astype('float64'), sm.add_constant(X.astype('float64')),
+                         family=_glm_reference_family(family), **kwargs).fit(
+                             maxiter=1000, tol=1e-10, cov_type='nonrobust' if cov == 'nonrobust' else cov.upper())
+            if kind == 'glm_inference':
+                infer = {'bse': np.asarray(ref.bse), 'pvalues': np.asarray(ref.pvalues),
+                         'conf_int': np.asarray(ref.conf_int()), 'zvalues': np.asarray(ref.tvalues),
+                         'covariance': np.asarray(ref.cov_params())}
+            contract['reference'] = 'statsmodels.GLM on identical quantized input values' + (' with positive frequency weights (coefficients only)' if weight is not None else '')
+        else:
+            cls = sm.OLS if weight is None else sm.WLS
+            kwargs = {} if weight is None else {'weights': weight.astype('float64')}
+            ref = cls(y.astype('float64'), sm.add_constant(X.astype('float64')), **kwargs).fit(
+                cov_type='nonrobust' if variant == 'nonrobust' else variant.upper())
+            infer = {'bse': np.asarray(ref.bse), 'pvalues': np.asarray(ref.pvalues), 'conf_int': np.asarray(ref.conf_int())}
+            contract['reference'] = 'statsmodels.' + ('OLS' if weight is None else 'WLS') + ' on identical quantized input values'
+        target = np.asarray(ref.params)
+        contract['data_id'] = hashlib.sha256(b''.join(np.asarray(a).tobytes() for a in args) +
+                                            (b'' if weight is None else weight.tobytes())).hexdigest()
+    if solver != 'default':
+        original_factory = factory
+        def factory():
+            model = original_factory()
+            model.set_params(solver=solver)
+            return model
+    contract['parameters'].update(dtype=dtype, input_dtype=dtype, weights=weights, solver=solver, sparse=sparse)
+    contract['precision_policy'] = 'input dtype is explicit; compute dtype is observed separately, never inferred from input or coefficients'
+    return factory,args,fitkw,target,contract,infer
+
+
 class Observe:
     """Record arrays at actual numerical dispatch calls, not constructor hints."""
     def __init__(self):self.rows=[];self.previous=None
     def trace(self,frame,event,arg):
-        if event!='call':return
+        if event not in ('call','return'):return
         module=str(frame.f_globals.get('__name__',''));name=frame.f_code.co_name
         if not module.startswith('statgpu.'):return
         numerical=(module.startswith(('statgpu.solvers.','statgpu.glm_core.')) or name in ('_fit_cpu','_fit_gpu','_fit_torch'))
         if not numerical:return
-        for k in ('X','X_arr','coef','w','beta'):
+        for k in (('X','X_arr','coef','w','beta') if event=='call' else ('coef','beta','params','grad','hess','XtX','XtWX','Xty')):
             a=frame.f_locals.get(k)
             if a is None:continue
             try:identity=array_identity(a)
             except RuntimeError:continue
-            r={'function':module+'.'+name,'argument':k,**identity}
+            r={'function':module+'.'+name,'argument':k,'evidence_kind':'dispatch-input' if event=='call' else 'numerical-return-local',**identity}
             if r not in self.rows:self.rows.append(r)
     def __enter__(self):self.previous=sys.getprofile();sys.setprofile(self.trace);return self
     def __exit__(self,*exc):sys.setprofile(self.previous)
@@ -355,13 +447,35 @@ def fitted_diagnostics(model, target, contract):
     return result
 
 
-def run_case(case,runtime,n,p,seed,warmup,repeats):
-    factory,args,fitkw,target,contract,inference=make_case(case,n,p,seed,runtime.name)
+def observed_compute_dtypes(trace_report, observed):
+    """Only validated arithmetic outputs or legacy numerical return locals."""
+    if trace_report is not None:
+        if trace_report.get('status') != 'observed':
+            return []
+        return sorted({value['dtype'].replace('torch.', '')
+                       for record in trace_report['stages']
+                       for event in record['operations'] if event.get('status') == 'completed'
+                       and event.get('backend') == trace_report['backend']
+                       for value in event['outputs']
+                       if value.get('kind') == 'array' and value.get('backend') == trace_report['backend']
+                       and value.get('device') == trace_report['device'] and
+                       value.get('dtype', '').replace('torch.', '') in ('float32', 'float64')})
+    return sorted({entry['dtype'] for entry in observed
+                   if entry.get('evidence_kind') == 'numerical-return-local'})
+
+
+def run_case(case,runtime,n,p,seed,warmup,repeats, **configuration):
+    factory,args,fitkw,target,contract,inference=make_case(case,n,p,seed,runtime.name, **configuration)
     row={'case':case,'backend':runtime.name,'device':runtime.device,'problem':contract['parameters'],'data_id':contract['data_id'],'contract':contract}
     with runtime.context():
         native=tuple(runtime.array(v) for v in args)
+        fitkw={key:runtime.array(value) if key=='sample_weight' and isinstance(value,np.ndarray) else value for key,value in fitkw.items()}
+        row['input_provenance']={'arguments':[array_identity(value) for value in native],
+                                 'fit_keywords':{key:array_identity(value) for key,value in fitkw.items() if hasattr(value,'dtype')}}
         samples=[];last_metrics=None;observed=[];trace_report=None
-        specs=model_stages(case,runtime.name)
+        specs=(model_stages(case,runtime.name,input_dtype=contract['parameters'].get('input_dtype','float64'),
+                            weights=contract['parameters'].get('weights','none'))
+               if case.startswith('inference:') else model_stages(case,runtime.name))
         for i in range(warmup+repeats+1):
             model=factory();runtime.sync(runtime.device)
             observer=(NumericalTrace(runtime,specs) if specs else Observe()) if i==0 else None
@@ -395,6 +509,8 @@ def run_case(case,runtime,n,p,seed,warmup,repeats):
                         try:verify_execution(observed,runtime.name,runtime.device)
                         except RuntimeError as exc:evidence_error=str(exc)
                     row['backend_provenance']={'untimed_preflight_numerical_dispatch_arrays':observed}
+            if i == 0 and case.startswith('inference:') and (not specs or not observed_compute_dtypes(trace_report, observed)):
+                evidence_error = evidence_error or 'Inference arithmetic compute dtype was not observed'
             # Reference checks must not disappear behind an evidence blocker or
             # convergence warning. No timing is emitted for either failure.
             try:
@@ -422,7 +538,7 @@ def run_case(case,runtime,n,p,seed,warmup,repeats):
             if i>warmup:samples.append(elapsed)
         row.update(status='passed',
                    solver={'requested':str(getattr(model,'solver','not exposed')),'resolved':str(getattr(model,'_selected_solver','not exposed')),'n_iter':str(getattr(model,'n_iter_','not exposed'))},
-                   backend_provenance={'untimed_preflight_numerical_dispatch_arrays':observed,'compute_dtype':'not inferred from input dtype'},
+                   backend_provenance={'untimed_preflight_numerical_dispatch_arrays':observed,'compute_dtypes':observed_compute_dtypes(trace_report,observed),'compute_dtype_policy':'validated selected arithmetic outputs or legacy numerical return locals; never inferred from input/report arrays'},
                    timing={'scope':contract['scope'],'raw_seconds':samples,'median_seconds':statistics.median(samples),'warmup':warmup,'repeats':repeats,
                            'correctness_preflight':1,'synchronized_device':None if runtime.name=='numpy' else runtime.device,
                            'transfer_policy':'native allocation excluded; public internal conversion/reporting included',
@@ -440,6 +556,10 @@ def parser():
     p.add_argument('--backends',nargs='+',choices=DEVICE,default=['numpy','cupy','torch'])
     p.add_argument('--n',type=int,default=500);p.add_argument('--p',type=int,default=8);p.add_argument('--seed',type=int,default=20261020)
     p.add_argument('--warmup',type=int,default=1);p.add_argument('--repeats',type=int,default=3);p.add_argument('--device',type=int,default=0)
+    p.add_argument('--dtype',choices=['float32','float64'],default='float64')
+    p.add_argument('--weights',choices=['none','analytic'],default='none')
+    p.add_argument('--solver',choices=['default','auto','irls','newton','lbfgs','fista','fista_bb','admm'],default='default')
+    p.add_argument('--sparse',choices=['dense','csr'],default='dense')
     p.add_argument('--smoke',action='store_true');p.add_argument('--require-backends',action='store_true');p.add_argument('--output',type=Path,required=True)
     return p
 
@@ -458,13 +578,14 @@ def main(argv=None):
             rows.extend({'case':c,'backend':backend,'status':'failed','reason':str(exc)} for c in a.cases);continue
         backends[backend]={'device':rt.device,**rt.hardware}
         for case in a.cases:
-            try:rows.append(run_case(case,rt,a.n,a.p,a.seed,a.warmup,a.repeats))
+            try:rows.append(run_case(case,rt,a.n,a.p,a.seed,a.warmup,a.repeats,dtype=a.dtype,weights=a.weights,solver=a.solver,sparse=a.sparse))
+            except UnsupportedCapability as exc:rows.append({'case':case,'backend':backend,'status':'blocked','blocked_kind':'unsupported-capability','reason':str(exc),'problem':{'n':a.n,'p':a.p,'seed':a.seed,'dtype':a.dtype,'weights':a.weights,'solver':a.solver,'sparse':a.sparse}})
             except ImportError as exc:rows.append({'case':case,'backend':backend,'status':'skipped','reason':f'reference dependency unavailable: {exc}'})
             except Exception as exc:rows.append({'case':case,'backend':backend,'status':'failed','reason':f'{type(exc).__name__}: {exc}','exception':exception_chain(exc)})
     after=source_identity();changed=source['worktree_fingerprint']!=after['worktree_fingerprint'] or source['git_commit']!=after['git_commit']
     failed=changed or any(r['status'] in ('failed','blocked') for r in rows) or (a.require_backends and any(r['status']=='skipped' for r in rows))
     status='failed' if failed else ('partial' if any(r['status']=='skipped' for r in rows) else 'complete')
-    result={'schema_version':'statgpu-benchmark-v2','benchmark':{'name':'supervised-family-coverage','script':str(Path(__file__).relative_to(ROOT)),'command':[sys.executable,*sys.argv]},
+    result={'schema_version':'statgpu-benchmark-v2','benchmark':{'name':'supervised-family-coverage','script':str(Path(__file__).relative_to(ROOT)),'command':[sys.executable,*sys.argv],'arguments':{key:str(value) if isinstance(value,Path) else value for key,value in vars(a).items()}},
             'source':source,'source_after':after,'environment':environment(),'backends':backends,'rows':rows,
             'validation':{'status':status,'tier':'local-minimal' if a.smoke else 'benchmark-candidate','canonical_ready':False,
                           'uncovered_reasons':['CV delegated to benchmark_cv_models.py; not an exhaustive loss/penalty/solver Cartesian matrix',

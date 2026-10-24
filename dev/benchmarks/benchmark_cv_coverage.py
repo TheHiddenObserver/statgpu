@@ -2,8 +2,10 @@
 """Scoped six-family CV candidate benchmark, reusing the maintained CV runner.
 
 Unlike the immutable canonical-source schema, this adapter permits a CPU-only
-run. It never registers the output as canonical. CUDA timings require runtime observations of native numerical arrays inside both
-selector and final-refit regions on concrete device 0. Missing proof fails the
+run. Diagnostic profiling and clean synchronized public-fit samples are separate.
+It never registers the output as canonical. CUDA timings require observations
+of native numerical arrays inside both diagnostic selector and final-refit
+regions on concrete device 0. Missing proof fails the
 case; absent GPU packages are unavailable, never silently replaced by CPU.
 """
 from __future__ import annotations
@@ -103,12 +105,15 @@ def direct_refit_check(spec, seed, n, p):
     X,y,Xt,yt=generator(seed,n,p)
     cls=getattr(importlib.import_module(spec.import_module),spec.import_name)
     model=legacy._construct(cls,legacy._model_kwargs(spec,'numpy',seed))
+    legacy._clear_cv_caches(strict=True)
     with warnings.catch_warnings():
         convergence_errors()
         model.fit(*legacy._fit_args(spec,X,y))
         final=model.estimator_
         fresh=legacy._construct(type(final), final.get_params(deep=False))
         fresh.fit(*legacy._fit_args(spec,X,y))
+        legacy._validate_convergence(model)
+        legacy._validate_convergence(fresh)
     left=legacy._to_numpy(model.coef_)
     right=legacy._to_numpy(fresh.coef_)
     score_a=legacy._score_model(model,spec,Xt,yt)
@@ -214,7 +219,7 @@ def _cpu_numerical_dispatch(frame):
 
 @contextmanager
 def observed_backend(backend):
-    """Observe source-specific native computations in both timed CV regions.
+    """Observe source-specific native computations in diagnostic CV regions only.
 
     This is diagnostic instrumentation, not a proof from device-resident input
     or a model label. Intermediate/C-call events are necessary: some optimized
@@ -303,6 +308,7 @@ def observed_backend(backend):
                 'status': 'success' if typ is None and complete and not error else 'failed',
                 'reason': error, 'invocation': getattr(self, 'invocation', None),
                 'input_dtypes': getattr(self, 'input_dtypes', None),
+                'workload_identity': getattr(self, 'workload_identity', None),
                 'observed_numerical_calls': {k: sorted(v) for k, v in self.observed.items()},
                 'numerical_observations': self.observed,
                 'rejected_numerical_observations': self.rejected_observations,
@@ -325,21 +331,122 @@ def observed_backend(backend):
         legacy.RegionProfiler = original_profiler
         legacy._synchronizer = original_sync
 
+
+def _source_key(source):
+    return {key: source[key] for key in ("git_commit", "content_sha256")}
+
+
+def _matched_execution_device(backend, diagnostics, proofs):
+    """Bind untimed native-array proof to the exact clean-repeat workload."""
+    if backend == "numpy":
+        return "cpu"
+    matching = [proof for proof in proofs
+                if (proof.get("invocation") or {}).get("kind") == "repeat"]
+    if len(matching) != len(diagnostics):
+        raise RuntimeError("Clean CV timing requires one native proof per diagnostic repeat")
+    devices = set()
+    for diagnostic, proof in zip(diagnostics, matching):
+        if (proof.get("status") != "success" or proof.get("backend") != backend
+                or proof.get("workload_identity") != diagnostic["workload_identity"]):
+            raise RuntimeError("Native proof does not match diagnostic CV workload")
+        device = proof.get("device")
+        if (not isinstance(device, str) or not device.startswith("cuda:")
+                or not device[5:].isdigit() or proof.get("synchronized_device") != device):
+            raise RuntimeError("Native proof lacks concrete synchronized executed device")
+        for stage in ("selector", "final_refit"):
+            observations = (proof.get("numerical_observations") or {}).get(stage, {})
+            if not observations or not (proof.get("stage_observed") or {}).get(stage):
+                raise RuntimeError("Native proof does not cover both CV stages")
+            for observation in observations.values():
+                dtypes = observation.get("computed_array_dtypes", {})
+                if (observation.get("device") != device or not dtypes
+                        or any(dtype != "float64" for dtype in dtypes.values())):
+                    raise RuntimeError("Native CV proof device/compute dtype mismatch")
+        devices.add(device)
+    if len(devices) != 1:
+        raise RuntimeError("Native diagnostic CV repeats changed executed device")
+    return devices.pop()
+
+
+def clean_public_timing(spec, backend, args, n, diagnostics, proofs, source):
+    """A separate synchronized E2E series, never selector time by subtraction."""
+    section = {
+        "status": "failed", "reason": None, "timing": None,
+        "scope": "public-fit-E2E; device-resident inputs; constructor/transfers/scoring excluded",
+        "instrumented": False, "repeats": args.repeats, "warmup": args.warmup,
+        "statistic": "median", "raw_seconds": [], "repeat_samples": [],
+        "performance_eligible": False, "performance_status": "UNVERIFIED_EXCLUSIVITY",
+        "comparisons": [],
+        "provenance_basis": "separate matched diagnostic execution, not instrumentation during clean fit",
+    }
+    try:
+        if len(diagnostics) != args.repeats:
+            raise RuntimeError("Missing complete diagnostic CV repeat series")
+        executed_device = _matched_execution_device(backend, diagnostics, proofs)
+        section["executed_device"] = executed_device
+        section["synchronized_device"] = None if backend == "numpy" else executed_device
+        expected_source = _source_key(source)
+        def check_source():
+            current = _source_key(source_identity())
+            if current != expected_source:
+                raise RuntimeError("Source changed between diagnostic and clean CV execution")
+            return current
+        with warnings.catch_warnings():
+            convergence_errors()
+            for _ in range(args.warmup):
+                legacy._run_clean_once(spec, backend, args.seed, n, args.features,
+                                       diagnostic=diagnostics[0], executed_device=executed_device,
+                                       check_source=check_source)
+            samples = [legacy._run_clean_once(
+                spec, backend, args.seed, n, args.features,
+                diagnostic=diagnostic, executed_device=executed_device, check_source=check_source,
+            ) for diagnostic in diagnostics]
+        seconds = [sample["total_fit_ms"] / 1000.0 for sample in samples]
+        section.update(status="pass", raw_seconds=seconds, repeat_samples=samples,
+                       timing={"median_seconds": float(np.median(seconds))},
+                       source=expected_source,
+                       workload_identity=diagnostics[0]["workload_identity"],
+                       correctness={"status": "pass", "reference": "matched diagnostic public fit",
+                                    "selection": "identical", "atol": 2e-6, "rtol": 2e-5,
+                                    "checks": ["validation_score", "final_score", "final_refit_coefficients", "coefficient_dtype"]})
+    except Exception as exc:
+        section["reason"] = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    return section
+
+
+def _invalidate_clean(section, reason):
+    """Never retain usable timing from a failed/partial correctness series."""
+    section.update(status="failed", reason=reason, timing=None, raw_seconds=[], repeat_samples=[],
+                   performance_eligible=False)
+
+
 def run(args):
     if Path(statgpu.__file__).resolve().parent != ROOT/'statgpu':
         raise RuntimeError('statgpu imported from outside benchmark checkout')
     before=source_identity()
+    specs_configured=legacy.configured_specs(folds=getattr(args,'folds',3),grid_size=getattr(args,'grid_size',3))
     results=[]
+    unsupported=[]
+    if getattr(args,'dtype','float64') != 'float64':unsupported.append('CV float32 input/compute oracle configuration is not supported by this accuracy-baseline adapter')
+    if getattr(args,'weights','none') != 'none':unsupported.append('Weighted CV fold scoring and final-refit reference are not aligned in this adapter')
+    if getattr(args,'sparse','dense') != 'dense':unsupported.append('Sparse CV input is not supported by the six-family adapter; no implicit densification')
     for n in args.sizes:
         for backend in args.backends:
+            if unsupported:
+                results.extend({'model_id':spec.model_id,'backend':backend,'n_samples':n,'n_features':args.features,
+                    'status':'blocked','blocked_kind':'unsupported-capability','reason':'; '.join(unsupported),'timing':None} for spec in specs_configured)
+                continue
             available,_,reason=legacy._backend_status(backend)
             if not available:
-                for spec in legacy.CASE_SPECS:
+                for spec in specs_configured:
                     results.append({'model_id':spec.model_id,'backend':backend,'n_samples':n,
                         'status':'unavailable','reason':reason,'timing':None})
                 continue
+            diagnostic_samples = []
             options=SimpleNamespace(backends=backend,seed=args.seed,repeats=args.repeats,warmup=args.warmup,
-                n_samples=n,n_features=args.features,include_sklearn=True,env_id='scoped-cv-candidate')
+                diagnostic_samples=diagnostic_samples,
+                n_samples=n,n_features=args.features,include_sklearn=True,env_id='scoped-cv-candidate',
+                folds=getattr(args,'folds',3),grid_size=getattr(args,'grid_size',3))
             proofs = []
             try:
                 with warnings.catch_warnings(), observed_backend(backend) as proofs:
@@ -347,19 +454,21 @@ def run(args):
                     source=legacy.build_source(options)
                 validate_scoped_source(source,[backend],args.repeats)
             except Exception as exc:
-                for spec in legacy.CASE_SPECS:
+                for spec in specs_configured:
                     results.append({'model_id':spec.model_id,'backend':backend,'n_samples':n,
                         'status':'failed','reason':'Source construction/validation: ' + ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__)), 'timing':None,
                         'execution_provenance':[proof for proof in proofs if proof['model']==spec.import_name]})
                 continue
-            source['protocol']['instrumentation']='RegionProfiler observes Python selector/refit boundaries and source-specific computed numerical intermediates, not input arrays or labels. Profiling overhead INCLUDED; diagnostic stage timings, not clean uninstrumented fits.'
+            source['protocol']['instrumentation']='DIAGNOSTIC ONLY: RegionProfiler/source-specific numerical-array proof runs separately from clean_public_fit. Profiling overhead INCLUDED in compatibility stage timings; never use these stage/total durations as clean performance samples.'
             source['protocol']['precision_policy']='Explicit float64 accuracy baseline: gpu_cv_mixed_precision=False where exposed. Input and actual computed intermediate dtypes recorded separately in CUDA execution provenance; NumPy compute dtype is not runtime-instrumented.'
-            specs={spec.model_id:spec for spec in legacy.CASE_SPECS}
+            specs={spec.model_id:spec for spec in specs_configured}
             for case in source['cases']:
                 spec=specs[case['model_id']]
-                row={'model_id':spec.model_id,'backend':backend,'n_samples':n,'n_features':args.features,
+                row={'model_id':spec.model_id,'backend':backend,'n_samples':n,'n_features':args.features,'dtype':'float64','weights':'none','sparse':'dense',
                      'case':case,'environment':source['environment'],'protocol':source['protocol'],
-                     'execution_provenance':[proof for proof in proofs if proof['model']==spec.import_name] if backend!='numpy' else {'device':'cpu','synchronized_device':None}}
+                     'execution_provenance':[proof for proof in proofs if proof['model']==spec.import_name] if backend!='numpy' else {'device':'cpu','synchronized_device':None},
+                     'performance_valid':False, 'performance_status':'UNVERIFIED_EXCLUSIVITY',
+                     'diagnostic_timing':{'instrumented':True,'eligible_for_comparison':False}}
                 try:
                     if any(r['status']!='success' for r in case['runs']):
                         raise ValueError('A required measured/reference run did not succeed: ' + '; '.join(
@@ -373,30 +482,56 @@ def run(args):
                         raise ValueError('Measured CV selection differs from independently rerun CPU reference')
                     np.testing.assert_allclose(native['scores']['final_score'],ref['reference_final_score'],rtol=3e-3,atol=3e-4)
                     np.testing.assert_allclose(native['scores']['validation_score'],ref['reference_validation_score'],rtol=3e-3,atol=3e-4)
+                    diagnostics = [record['sample'] for record in diagnostic_samples
+                                   if record['model_id'] == spec.model_id and record['backend'] == backend]
+                    row['clean_public_fit'] = clean_public_timing(
+                        spec, backend, args, n, diagnostics,
+                        [proof for proof in proofs if proof['model'] == spec.import_name], before)
+                    if row['clean_public_fit']['status'] != 'pass':
+                        raise RuntimeError('Clean public fit: ' + row['clean_public_fit']['reason'])
                     row['status']='pass'
                 except Exception as exc:
                     row.update(status='failed',reason=f'{type(exc).__name__}: {exc}')
                     for measured in case['runs']:
                         measured['timing']=None
                         measured['repeat_samples']=[]
+                    if 'clean_public_fit' not in row:
+                        row['clean_public_fit'] = {'status':'not_run', 'reason':'Required diagnostic/reference correctness failed',
+                            'timing':None, 'raw_seconds':[], 'repeat_samples':[], 'instrumented':False,
+                            'performance_eligible':False}
                     row['performance_valid']=False
                 results.append(row)
     after=source_identity()
     changed=before['git_commit']!=after['git_commit'] or before['content_sha256']!=after['content_sha256']
+    if changed:
+        for row in results:
+            if 'clean_public_fit' in row:
+                _invalidate_clean(row['clean_public_fit'], 'Source changed during benchmark execution')
+            if row['status'] == 'pass':
+                row.update(status='failed', reason='Source changed during benchmark execution')
+                for measured in row.get('case', {}).get('runs', []):
+                    measured['timing'] = None
+                    measured['repeat_samples'] = []
     failed=changed or any(r['status']=='failed' for r in results)
     partial=any(r['status'] in {'unavailable','blocked'} for r in results)
-    return {'schema_version':'statgpu-scoped-cv-candidate-v1','source':before,'source_after':after,
-            'benchmark':{'name':'six-family-scoped-cv','command':[sys.executable,*sys.argv]},
-            'coverage':{'active_models':sorted(EXPECTED_MODELS),'fold_count':3,'dtype':'float64',
-                        'grids':{s.model_id:s.grid_parameters for s in legacy.CASE_SPECS},
+    return {'schema_version':'statgpu-scoped-cv-candidate-v2','source':before,'source_after':after,
+            'benchmark':{'name':'six-family-scoped-cv','command':[sys.executable,*sys.argv],
+                         'arguments':{key:str(value) if isinstance(value,Path) else value for key,value in vars(args).items()}},
+            'coverage':{'active_models':sorted(EXPECTED_MODELS),'fold_count':getattr(args,'folds',3),'dtype':getattr(args,'dtype','float64'),
+                        'weights':getattr(args,'weights','none'),'sparse':getattr(args,'sparse','dense'),
+                        'grids':{s.model_id:s.grid_parameters for s in specs_configured},
                         'exhaustive_loss_penalty_cv':False},
             'results':results,'validation':{'status':'failed' if failed else 'partial' if partial else 'complete',
             'tier':'CPU-harness-smoke' if args.smoke else 'benchmark-candidate','canonical_ready':False,
             'limitations':['Not canonical cv_source schema; unrequested backend rows are not fabricated.',
-                'Three folds/fixed grids/explicit float64 accuracy baseline (not mixed-precision defaults); sizes configurable; no complete grid-fold-weight sweep.',
+                'Clean E2E repeats are separate from profiled diagnostic stage timings; no selector/refit clean decomposition is claimed.',
+                'All timing remains diagnostic unless hardware exclusivity is independently verified; no speedup comparisons emitted.',
+                'Configurable explicit grids/folds and float64 accuracy baseline (not mixed-precision defaults); weighted/sparse/float32 configurations are explicit capability exclusions.',
                 'Cox and PenalizedGLM use fresh direct-refit invariants, not independent external statistical certification.',
                 'CUDA candidates fail if native numerical arrays are not observed in both selector/refit regions; only concrete device 0 supported. No physical CUDA run claimed.'],
-            'source_changed':changed}}
+            'source_changed':changed,
+            'performance_eligible':False, 'performance_status':'UNVERIFIED_EXCLUSIVITY',
+            'comparisons':[]}}
 
 
 def main(argv=None):
@@ -407,6 +542,11 @@ def main(argv=None):
     p.add_argument('--seed',type=int,default=20260807)
     p.add_argument('--repeats',type=int,default=3)
     p.add_argument('--warmup',type=int,default=1)
+    p.add_argument('--folds',type=int,default=3)
+    p.add_argument('--grid-size',type=int,default=3)
+    p.add_argument('--dtype',choices=['float32','float64'],default='float64')
+    p.add_argument('--weights',choices=['none','analytic'],default='none')
+    p.add_argument('--sparse',choices=['dense','csr'],default='dense')
     p.add_argument('--smoke',action='store_true')
     p.add_argument('--require-backends',action='store_true')
     p.add_argument('--output',type=Path,required=True)
@@ -415,6 +555,8 @@ def main(argv=None):
         args.backends,args.sizes,args.features,args.repeats,args.warmup=['numpy'],[60],4,1,0
     if min(args.sizes)<30 or args.features<1 or args.repeats<1 or args.warmup<0 or args.features>=min(args.sizes):
         p.error('Require n>=30, 1<=features<n, repeats>=1, warmup>=0')
+    if args.folds<2 or args.folds>min(args.sizes)//2 or args.grid_size<2:
+        p.error('Require 2<=folds<=min(n)//2 and grid-size>=2')
     result=run(args)
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(result,indent=2,allow_nan=False)+'\n')

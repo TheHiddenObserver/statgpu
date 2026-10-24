@@ -1,13 +1,32 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-22<br>
+> Last updated: 2026-10-24<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
 This page records user-visible changes for current and recent statgpu releases.
 
 ## Unreleased — working-tree repairs
+
+### Benchmark qualification improvements (PR #258)
+
+- Correct the configuration-gate guide to 58 mandatory single-GPU parameters, including 20 additional inference combinations; commands and executable contracts are unchanged.
+- Observe actual OLS/WLS covariance-stage arithmetic for nonrobust, HC0 and HC3 inference before timing. Report observed compute precision (including existing weighted-CuPy/Torch promotion), block missing evidence, and keep nested distribution/reporting boundaries explicit; production algorithms and tolerances are unchanged.
+- Preserve clean CV timing on CPython 3.9 by reading its actual thread-default profile/trace hook slots when public getters are absent. Unknown or unreadable hook state still fails closed; no hook is disabled and numerical timing boundaries are unchanged.
+- Authenticate CuPy ufunc `add.at` through its exact native owner and method descriptor when the bound method has no module name; reject replaced owners/methods and retain in-place output, device and dtype checks. Production KMeans arithmetic is unchanged.
+- Correct the CuPy DBSCAN outer-stage trace contract to the existing float32 distance arithmetic observed transitively; retain integer label/count evidence, strict backend checks and the independent clustering oracle. Production precision and numerical tolerances are unchanged.
+- Keep the unsupported-capability CLI regression aligned with the explicit configuration keyword contract; assert the intended blocked reason rather than accidentally testing a mock-signature TypeError.
+- Separate clean synchronized CV public-fit samples from profiled selector/refit diagnostics; preserve objective, folds, grids and numerical thresholds.
+- Reject active native Torch profiling and explicit nonconverged CV/final-refit results before retaining clean samples, including Cox RuntimeWarnings.
+- Keep Gaussian ingress observation outside measured fits and add explicit workflow preflight and host/mixed timing labels.
+- Expand learning algorithm-stage evidence and separate helper tracing from timing; unresolved or hybrid computation is not labelled wholly native.
+- Add a seven-suite qualification/campaign interface with exact selected inventories, independent thread profiles, bounded scales and immutable raw evidence. Unknown GPU exclusivity remains diagnostic-only, never a speedup or dashboard claim.
+- Add `run_full_benchmark_matrix.py` for plan-first registered/independent coordination, explicit multi-seed/shape profiles, named supported configurations and deterministic batching. Per-case resource/oracle limits reject or explicitly exclude unsupported points rather than silently shrinking them.
+- Extend coverage accounting beyond the seven registered suites: distinguish the 275 registered identities and default 21-invocation/1692-row representative matrix from independent runner files and a finite configuration matrix. Preserve blocked, not-applicable and unexecuted work instead of interpreting a successful process exit as full coverage.
+- Inventory independent timing protocols separately, including public KDE bootstrap, hybrid phases, Cox/panel studies, external comparisons, compile and memory studies. Wrapper/child relationships and overlapping scale points are not additional unique evidence; legacy or unsafe entry points are not automatically executable.
+- Document remaining solver/family/weights/sparse/precision, scale/oracle, statistical-calibration and hardware gaps. Input dtype, CUDA output ownership and host/hybrid workflows do not establish native compute precision or whole-algorithm CUDA execution. See the [qualification guide](guides/benchmark-qualification.md) and `dev/benchmarks/BENCHMARK_QUALIFICATION_GAPS.md`.
+- This harness change does not modify production algorithms or Logistic defaults. Planning, source inventory and synthetic harness validation are not physical GPU results; historical runs cannot validate a changed source or expanded matrix. New-source physical GPU validation remains pending.
 
 ### PR #257 — Full-scan correctness and evidence repairs
 

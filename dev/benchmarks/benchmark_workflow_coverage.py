@@ -41,6 +41,8 @@ def close(actual, expected, label, atol=2e-7, rtol=2e-7):
 
 
 def measure(call, check, runtime, warmup, repeats, scope):
+    # Correctness precedes timing even with zero configured warmups.
+    check(call())
     for _ in range(warmup):
         check(call())
     samples = []
@@ -49,7 +51,12 @@ def measure(call, check, runtime, warmup, repeats, scope):
         last, duration = common.time_call(call, runtime, runtime.device)
         check(last)
         samples.append(duration)
-    return last, {'scope': scope, 'raw_seconds': samples, 'median_seconds': statistics.median(samples),
+    host = scope.startswith(('host-', 'fresh-host-', 'cached-host-'))
+    placement = 'host-cpu' if host else 'mixed-host-device' if scope.startswith(('formula-', 'complete-stepwise-')) else 'selected-backend-with-host-reporting'
+    return last, {'scope': scope, 'compute_placement': placement,
+                  'instrumented': ('fit' in scope or 'stepwise' in scope),
+                  'instrumentation': 'fit ingress observation included when fitting; not whole-computation proof',
+                  'correctness_preflight_calls': 1, 'raw_seconds': samples, 'median_seconds': statistics.median(samples),
                   'warmup': warmup, 'repeats': repeats, 'synchronized_device': runtime.device}
 
 
