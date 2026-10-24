@@ -44,7 +44,7 @@ def identities(value):
 def stage(fn, label, operations=(), minimum_calls=1, placement='requested-backend',
           reject_host_numerics=False, host_controls=None, expected_dtype=None,
           expected_backend=None, intermediates=(), operation_counts=None, operator_sites=(),
-          control_outputs=None, executed_assignments=None):
+          control_outputs=None, executed_assignments=None, direct_calls_only=False):
     # Estimator validation decorators share one wrapper code object. Resolve
     # their implementation, or unrelated decorated methods could satisfy a
     # method-specific stage. This never unwraps native primitive provenance.
@@ -61,6 +61,7 @@ def stage(fn, label, operations=(), minimum_calls=1, placement='requested-backen
             'operation_counts': operation_counts or {},
             'operator_sites': _operator_sites(source, operator_sites),
             'control_outputs': control_outputs or {},
+            'direct_calls_only': bool(direct_calls_only),
             'assignment_sites': _assignment_sites(source, executed_assignments or {})}
 
 
@@ -133,7 +134,7 @@ class NumericalTrace:
            'dot', 'matmul', 'correlate', 'bincount', 'cumsum', 'searchsorted', 'argsort', 'rand',
            'where', 'min', 'max', 'log', 'argmin', 'diff', 'einsum', 'tanh',
            'maximum', 'minimum', 'clip', 'argmax', 'nonzero', 'topk', 'randint',
-           'sin', 'cos', 'floor', 'argpartition', 'divide')
+           'sin', 'cos', 'floor', 'argpartition', 'divide', 'square', 'cholesky_inverse')
     LINALG = ('inv', 'solve', 'eigh', 'eigvalsh', 'qr', 'svd', 'det',
               'solve_ex', 'cholesky', 'solve_triangular', 'norm')
 
@@ -156,6 +157,7 @@ class NumericalTrace:
             record = {'stage': spec['label'], 'source': frame.f_code.co_filename,
                       'line': frame.f_code.co_firstlineno, 'operations': [],
                       'completed': False, 'placement': spec['placement'],
+                      'operation_scope': 'direct-source-calls' if spec['direct_calls_only'] else 'transitive-stage-calls',
                       'expected_floating_dtype': spec['expected_dtype'] or getattr(self.runtime, 'dtype', None),
                       'expected_backend': spec['expected_backend'] or self.runtime.name,
                       'intermediates': {}, 'operator_evidence': [],
@@ -237,7 +239,10 @@ class NumericalTrace:
     def _wrap(self, fn, backend, name, mutated_argument=None):
         @wraps(fn)
         def observed(*args, **kwargs):
-            records = tuple(self.active.items())
+            caller = sys._getframe(1)
+            records = tuple((frame_id, record) for frame_id, record in self.active.items()
+                            if not self.by_code[self.frames[frame_id].f_code]['direct_calls_only']
+                            or caller is self.frames[frame_id])
             if not records:
                 return fn(*args, **kwargs)
             inputs = identities((args, kwargs))
@@ -917,8 +922,43 @@ def helper_stages(case, backend):
     raise ValueError('No helper stage contract for ' + case)
 
 
-def model_stages(case, backend):
-    """Current Cox and panel numerical dispatch, excluding public report copies."""
+def model_stages(case, backend, *, input_dtype="float64", weights="none"):
+    """Selected inference/Cox/panel arithmetic, excluding public report copies."""
+    if case.startswith('inference:'):
+        from statgpu.linear_model.wrappers._linear import LinearRegression
+        covariance = case.split(':', 1)[1]
+        if covariance not in ('nonrobust', 'hc0', 'hc3'):
+            raise TraceIncomplete('No registered inference covariance stage: ' + covariance)
+        compute_dtype = 'float64' if backend != 'cupy' or weights == 'analytic' else input_dtype
+        if backend == 'numpy':
+            from statgpu.linear_model._gaussian_inference import _compute_single_native
+            return [stage(_compute_single_native, 'ols-inference-standard-errors', ('sqrt',),
+                          expected_dtype='float64', reject_host_numerics=True)]
+        if covariance == 'nonrobust':
+            if backend == 'cupy':
+                from statgpu.backends._gpu_inference_cupy import compute_inference_gpu as fn
+                bse = 'bse_gpu'
+            elif backend == 'torch':
+                from statgpu.backends._gpu_inference_torch import compute_inference_torch as fn
+                bse = 'bse_torch'
+            else:
+                raise TraceIncomplete('Unsupported inference backend: ' + backend)
+            # The distribution tails/critical-value helpers have separate
+            # precision policies. Certify direct covariance/SE arithmetic only,
+            # not nested distribution work or final reporting arrays.
+            return [stage(fn, 'ols-nonrobust-covariance-standard-errors',
+                          ('matmul', 'sqrt', 'linalg.cholesky',
+                           'linalg.solve' if backend == 'cupy' else 'cholesky_inverse'),
+                          expected_dtype=compute_dtype, reject_host_numerics=True,
+                          intermediates=('XtX', 'XtX_inv', bse), direct_calls_only=True,
+                          placement='native-covariance-standard-errors; distribution helpers unobserved')]
+        fn = getattr(LinearRegression, '_robust_covariance_' + backend)
+        operations = ('square', 'operator.matmul') + (('einsum',) if covariance == 'hc3' else ())
+        return [stage(fn, 'ols-' + covariance + '-sandwich-meat', operations,
+                      expected_dtype=compute_dtype, reject_host_numerics=True,
+                      intermediates=('e2', 'meat', 'cov_params'),
+                      operator_sites=(('X.T @ Xw', 'meat'),),
+                      placement='native-sandwich-meat; selected primitives not whole inference')]
     from statgpu.survival import _cox_counting
     from statgpu.losses._cox_ph import CoxPartialLikelihoodLoss
     from statgpu.panel import _linalg, _reductions

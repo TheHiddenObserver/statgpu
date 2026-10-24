@@ -254,3 +254,118 @@ def test_float32_gmm_cli_writes_strict_json(tmp_path):
     document = json.loads(output.read_text())
     assert document['validation']['status'] == 'complete'
     assert document['results'][0]['correctness']['metrics']['thresholds']['rtol'] == 2e-7
+
+
+@pytest.mark.parametrize('covariance', ['nonrobust', 'hc0', 'hc3'])
+@pytest.mark.parametrize('dtype', ['float32', 'float64'])
+@pytest.mark.parametrize('weights', ['none', 'analytic'])
+def test_inference_actual_cpu_arithmetic_not_input_dtype(covariance, dtype, weights):
+    row = models.run_case('inference:' + covariance, models.Runtime('numpy'), 48, 3, 19, 0, 1,
+                          dtype=dtype, weights=weights)
+    assert row['status'] == 'passed', row
+    assert row['correctness']['status'] == 'pass'
+    assert row['input_provenance']['arguments'][0]['dtype'] == dtype
+    assert row['backend_provenance']['compute_dtypes'] == ['float64']
+    assert row['execution_trace']['status'] == 'observed'
+    assert row['timing']['repeats'] == 1
+
+
+@pytest.mark.parametrize('covariance', ['nonrobust', 'hc0', 'hc3'])
+@pytest.mark.parametrize('dtype', ['float32', 'float64'])
+@pytest.mark.parametrize('weights', ['none', 'analytic'])
+def test_inference_actual_torch_cpu_covariance_primitive_contract(covariance, dtype, weights):
+    """Real production helper calls on CPU tensors, not CUDA evidence."""
+    torch = pytest.importorskip('torch')
+    import statsmodels.api as sm
+    from statgpu.linear_model.wrappers._linear import LinearRegression
+    from statgpu.backends._gpu_inference_torch import compute_inference_torch
+    from dev.benchmarks.learning_execution_trace import NumericalTrace, model_stages
+    _, args, fitkw, _, _, _ = models.make_case('inference:' + covariance, 48, 3, 19,
+                                             'numpy', dtype=dtype, weights=weights)
+    X, y = args
+    sw = fitkw.get('sample_weight', np.ones(len(y)))
+    reference = sm.WLS(y.astype('float64'), sm.add_constant(X.astype('float64')),
+                      weights=sw.astype('float64')).fit(
+                          cov_type='nonrobust' if covariance == 'nonrobust' else covariance.upper())
+    # Mirror the documented existing Torch compute promotion, not an assertion
+    # derived from input dtype. Observation below independently checks every op.
+    design = torch.as_tensor(sm.add_constant(X.astype('float64')), dtype=torch.float64)
+    root_weights = torch.sqrt(torch.as_tensor(sw, dtype=torch.float64))
+    design = design * root_weights[:, None]
+    response = torch.as_tensor(y, dtype=torch.float64) * root_weights
+    coef = torch.linalg.lstsq(design, response).solution
+    resid = response - design @ coef
+    scale = torch.sum(resid ** 2) / (len(y) - design.shape[1])
+    rt = SimpleNamespace(name='torch', module=torch, device='cpu', dtype=dtype)
+    trace = NumericalTrace(rt, model_stages('inference:' + covariance, 'torch', input_dtype=dtype, weights=weights))
+    with trace:
+        if covariance == 'nonrobust':
+            bse, _, _, _ = compute_inference_torch(design, resid, scale, len(y)-design.shape[1], coef, device='cpu')
+        else:
+            model = LinearRegression(cov_type=covariance)
+            covariance_result = model._robust_covariance_torch(
+                design, resid, torch.linalg.inv(design.T @ design), device='cpu')
+            bse = torch.sqrt(torch.diag(covariance_result))
+    report = trace.report()
+    assert models.observed_compute_dtypes(report, []) == ['float64']
+    np.testing.assert_allclose(bse.numpy(), reference.bse, atol=1e-8, rtol=1e-6)
+
+
+@pytest.mark.parametrize('mode', ['missing-stage', 'empty-stage-list'])
+def test_inference_missing_arithmetic_never_accepts_input_only(monkeypatch, mode):
+    from dev.benchmarks.learning_execution_trace import stage
+    def never_called(x):
+        return np.sqrt(x)
+    monkeypatch.setattr(models, 'model_stages', lambda *args, **kwargs:
+                        [] if mode == 'empty-stage-list' else [stage(never_called, 'missing', ('sqrt',))])
+    row = models.run_case('inference:hc3', models.Runtime('numpy'), 48, 3, 19, 0, 1,
+                          dtype='float32', weights='analytic')
+    assert row['correctness']['status'] == 'pass'
+    assert row['status'] == 'blocked'
+    assert 'timing' not in row
+
+
+@pytest.mark.parametrize('corruption', ['backend', 'device', 'dtype', 'missing'])
+def test_inference_arithmetic_evidence_corruption_rejected(corruption):
+    from dev.benchmarks.learning_execution_trace import NumericalTrace, TraceIncomplete, model_stages
+    from statgpu.linear_model._gaussian_inference import _compute_single_native
+    rt = SimpleNamespace(name='numpy', module=np, device='cpu', dtype='float64')
+    trace = NumericalTrace(rt, model_stages('inference:hc3', 'numpy'))
+    values = np.ones(3)
+    trace.records = [{'stage':'ols-inference-standard-errors','completed':True,
+                     'operations':[{'operation':'sqrt','backend':'numpy','status':'completed',
+                         'inputs':[{'kind':'array','backend':'numpy','device':'cpu','dtype':'float64','shape':[3]}],
+                         'outputs':[{'kind':'array','backend':'numpy','device':'cpu','dtype':'float64','shape':[3]}]}]}]
+    event = trace.records[0]['operations'][0]
+    if corruption == 'missing':
+        trace.records[0]['operations'].clear()
+    else:
+        event['outputs'][0][corruption] = {'backend':'torch','device':'cuda:1','dtype':'float32'}[corruption]
+    with pytest.raises(TraceIncomplete):
+        trace.report()
+
+
+def test_inference_native_primitive_monkeypatch_rejected(monkeypatch):
+    original = np.sqrt
+    monkeypatch.setattr(np, 'sqrt', lambda *args, **kwargs: original(*args, **kwargs))
+    row = models.run_case('inference:hc3', models.Runtime('numpy'), 48, 3, 19, 0, 1,
+                          dtype='float32', weights='analytic')
+    assert row['status'] == 'failed'
+    assert 'replacement' in row['reason']
+    assert 'timing' not in row
+
+
+def test_inference_clean_repeats_exclude_numerical_observer(monkeypatch):
+    import sys
+    from statgpu.linear_model.wrappers._linear import LinearRegression
+    original = LinearRegression.fit
+    instrumented = []
+    def recorded(self, *args, **kwargs):
+        instrumented.append(sys.getprofile() is not None)
+        return original(self, *args, **kwargs)
+    monkeypatch.setattr(LinearRegression, 'fit', recorded)
+    row = models.run_case('inference:hc3', models.Runtime('numpy'), 48, 3, 19, 1, 2,
+                          dtype='float32', weights='analytic')
+    assert row['status'] == 'passed', row
+    assert instrumented == [True, False, False, False]
+    assert len(row['timing']['raw_seconds']) == 2

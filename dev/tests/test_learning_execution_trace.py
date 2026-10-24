@@ -510,3 +510,31 @@ def test_mutating_primitive_observer_records_destination_not_none():
     assert event['outputs'][0]['dtype'] == 'float64'
     assert event['outputs'][0]['backend'] == 'numpy'
     assert event['outputs'][0]['shape'] == [2]
+
+
+@pytest.mark.parametrize('direct', [False, True])
+def test_direct_source_calls_cannot_borrow_child_arithmetic(direct):
+    def child(x):
+        return np.sqrt(x)
+    def parent(x):
+        return child(x)
+    trace = NumericalTrace(cpu_runtime(), [stage(parent, 'parent', ('sqrt',), direct_calls_only=direct)])
+    with trace:
+        parent(np.ones(3))
+    if direct:
+        with pytest.raises(TraceIncomplete, match='No matching native arithmetic'):
+            trace.report()
+    else:
+        assert trace.report()['status'] == 'observed'
+
+
+def test_direct_source_call_failure_keeps_failed_operation():
+    def target(x):
+        return np.linalg.cholesky(x)
+    trace = NumericalTrace(cpu_runtime(), [stage(target, 'direct-failure', ('linalg.cholesky',), direct_calls_only=True)])
+    with pytest.raises(np.linalg.LinAlgError):
+        with trace:
+            target(np.zeros((2, 2)))
+    assert trace.records[0]['operations'][0]['status'] == 'failed'
+    with pytest.raises(TraceIncomplete):
+        trace.report()

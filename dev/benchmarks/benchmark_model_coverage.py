@@ -447,6 +447,23 @@ def fitted_diagnostics(model, target, contract):
     return result
 
 
+def observed_compute_dtypes(trace_report, observed):
+    """Only validated arithmetic outputs or legacy numerical return locals."""
+    if trace_report is not None:
+        if trace_report.get('status') != 'observed':
+            return []
+        return sorted({value['dtype'].replace('torch.', '')
+                       for record in trace_report['stages']
+                       for event in record['operations'] if event.get('status') == 'completed'
+                       and event.get('backend') == trace_report['backend']
+                       for value in event['outputs']
+                       if value.get('kind') == 'array' and value.get('backend') == trace_report['backend']
+                       and value.get('device') == trace_report['device'] and
+                       value.get('dtype', '').replace('torch.', '') in ('float32', 'float64')})
+    return sorted({entry['dtype'] for entry in observed
+                   if entry.get('evidence_kind') == 'numerical-return-local'})
+
+
 def run_case(case,runtime,n,p,seed,warmup,repeats, **configuration):
     factory,args,fitkw,target,contract,inference=make_case(case,n,p,seed,runtime.name, **configuration)
     row={'case':case,'backend':runtime.name,'device':runtime.device,'problem':contract['parameters'],'data_id':contract['data_id'],'contract':contract}
@@ -456,7 +473,9 @@ def run_case(case,runtime,n,p,seed,warmup,repeats, **configuration):
         row['input_provenance']={'arguments':[array_identity(value) for value in native],
                                  'fit_keywords':{key:array_identity(value) for key,value in fitkw.items() if hasattr(value,'dtype')}}
         samples=[];last_metrics=None;observed=[];trace_report=None
-        specs=model_stages(case,runtime.name)
+        specs=(model_stages(case,runtime.name,input_dtype=contract['parameters'].get('input_dtype','float64'),
+                            weights=contract['parameters'].get('weights','none'))
+               if case.startswith('inference:') else model_stages(case,runtime.name))
         for i in range(warmup+repeats+1):
             model=factory();runtime.sync(runtime.device)
             observer=(NumericalTrace(runtime,specs) if specs else Observe()) if i==0 else None
@@ -490,6 +509,8 @@ def run_case(case,runtime,n,p,seed,warmup,repeats, **configuration):
                         try:verify_execution(observed,runtime.name,runtime.device)
                         except RuntimeError as exc:evidence_error=str(exc)
                     row['backend_provenance']={'untimed_preflight_numerical_dispatch_arrays':observed}
+            if i == 0 and case.startswith('inference:') and (not specs or not observed_compute_dtypes(trace_report, observed)):
+                evidence_error = evidence_error or 'Inference arithmetic compute dtype was not observed'
             # Reference checks must not disappear behind an evidence blocker or
             # convergence warning. No timing is emitted for either failure.
             try:
@@ -517,7 +538,7 @@ def run_case(case,runtime,n,p,seed,warmup,repeats, **configuration):
             if i>warmup:samples.append(elapsed)
         row.update(status='passed',
                    solver={'requested':str(getattr(model,'solver','not exposed')),'resolved':str(getattr(model,'_selected_solver','not exposed')),'n_iter':str(getattr(model,'n_iter_','not exposed'))},
-                   backend_provenance={'untimed_preflight_numerical_dispatch_arrays':observed,'compute_dtypes':sorted({entry['dtype'] for entry in observed if entry.get('evidence_kind')=='numerical-return-local'}),'compute_dtype_policy':'observed numerical return locals; empty means not observed, never inferred from inputs'},
+                   backend_provenance={'untimed_preflight_numerical_dispatch_arrays':observed,'compute_dtypes':observed_compute_dtypes(trace_report,observed),'compute_dtype_policy':'validated selected arithmetic outputs or legacy numerical return locals; never inferred from input/report arrays'},
                    timing={'scope':contract['scope'],'raw_seconds':samples,'median_seconds':statistics.median(samples),'warmup':warmup,'repeats':repeats,
                            'correctness_preflight':1,'synchronized_device':None if runtime.name=='numpy' else runtime.device,
                            'transfer_policy':'native allocation excluded; public internal conversion/reporting included',

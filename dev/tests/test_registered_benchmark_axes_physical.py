@@ -32,6 +32,9 @@ def test_physical_configured_weighted_model(backend, dtype, case, solver):
     assert weight['backend'] == backend and weight['dtype'] == dtype
     assert weight['device'] == rt.device
     assert row['backend_provenance']['compute_dtypes']
+    if case.startswith('inference:'):
+        assert row['backend_provenance']['compute_dtypes'] == ['float64']
+        assert row['execution_trace']['status'] == 'observed'
 
 
 @pytest.mark.parametrize('backend', ['cupy', 'torch'])
@@ -79,3 +82,23 @@ def test_physical_configured_cv_folds_and_grid(backend):
     assert all(row['backend'] == backend for row in result['results'])
     assert all(row['case']['cv']['fold_count'] == 2 for row in result['results'])
     assert all(row['case']['grid']['candidate_count'] == 4 for row in result['results'])
+
+
+@pytest.mark.parametrize('backend', ['cupy', 'torch'])
+@pytest.mark.parametrize('dtype', ['float32', 'float64'])
+@pytest.mark.parametrize('covariance,weights', [
+    ('nonrobust', 'none'), ('nonrobust', 'analytic'),
+    ('hc0', 'none'), ('hc0', 'analytic'), ('hc3', 'none'),
+])
+def test_physical_inference_arithmetic_precision(backend, dtype, covariance, weights):
+    # HC3 analytic weights are already mandatory in the existing weighted test.
+    rt = runtime(backend)
+    row = models.run_case('inference:' + covariance, rt, 48, 3, 19, 0, 1,
+                          dtype=dtype, weights=weights)
+    assert row['status'] == 'passed', row
+    assert row['correctness']['status'] == 'pass'
+    assert row['execution_trace']['status'] == 'observed'
+    expected = 'float64' if backend == 'torch' or weights == 'analytic' else dtype
+    assert row['backend_provenance']['compute_dtypes'] == [expected]
+    assert row['input_provenance']['arguments'][0]['dtype'] == dtype
+    assert row['execution_trace']['device'] == rt.device
