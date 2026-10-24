@@ -347,11 +347,36 @@ class NumericalTrace:
         return True
 
     @staticmethod
+    def _cupy_add_at_method(fn, module):
+        # CuPy 13.6 exposes ufunc.at as a built-in bound method with
+        # __module__ = None. Authenticate its exact native owner and static
+        # descriptor rather than accepting arbitrary module-less callables.
+        owner = getattr(module, 'add', None)
+        kind = type(owner)
+        if (type(fn) is not types.BuiltinMethodType
+                or getattr(fn, '__self__', None) is not owner
+                or kind is not getattr(module, 'ufunc', None)
+                or kind.__module__ != 'cupy._core._kernel'
+                or kind.__name__ != 'ufunc'
+                or getattr(owner, '__name__', None) != 'cupy_add'):
+            return False
+        descriptor = inspect.getattr_static(kind, 'at', None)
+        if (type(descriptor) is not types.MethodDescriptorType
+                or getattr(descriptor, '__objclass__', None) is not kind):
+            return False
+        return descriptor.__get__(owner, kind) == fn
+
+    @staticmethod
     def _verify_native_callable(fn, module, backend, name):
         # Do not label an arbitrary Python replacement as native merely because
         # it occupies torch.exp/cupy.sum. Python library implementations must
         # originate inside the installed library; C primitives identify their
         # library via callable/type module. No unwrap: wrappers are not native.
+        if backend == 'cupy' and name == 'add.at':
+            if not NumericalTrace._cupy_add_at_method(fn, module):
+                raise TraceIncomplete('Unverifiable native bound method: cupy.add.at')
+            NumericalTrace._verify_native_callable(module.add, module, 'cupy', 'add')
+            return
         if backend=='numpy' and NumericalTrace._numpy_generated_wrapper(fn,module):
             return
         code = getattr(fn, '__code__', None)
