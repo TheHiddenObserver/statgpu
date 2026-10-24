@@ -9,6 +9,7 @@
 
 ### Benchmark 资格完善（PR #258）
 
+- 同步不支持能力 CLI 回归测试的显式配置关键字契约，校验预期 blocked 原因，避免 mock 签名 TypeError 干扰测试。
 - CV 干净同步公开拟合计时与 selector/refit 插桩诊断分离，保留目标函数、折分、参数网格及数值阈值。
 - 干净计时拒绝活动中的 Torch 原生 profiler，并检查 CV/最终 refit 的显式收敛状态，包括 Cox RuntimeWarning 对应的不收敛。
 - Gaussian ingress 观察移到计时外；workflow 增加正确性预检并明确 host/mixed 计时口径。

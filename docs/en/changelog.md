@@ -11,6 +11,7 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ### Benchmark qualification improvements (PR #258)
 
+- Keep the unsupported-capability CLI regression aligned with the explicit configuration keyword contract; assert the intended blocked reason rather than accidentally testing a mock-signature TypeError.
 - Separate clean synchronized CV public-fit samples from profiled selector/refit diagnostics; preserve objective, folds, grids and numerical thresholds.
 - Reject active native Torch profiling and explicit nonconverged CV/final-refit results before retaining clean samples, including Cox RuntimeWarnings.
 - Keep Gaussian ingress observation outside measured fits and add explicit workflow preflight and host/mixed timing labels.

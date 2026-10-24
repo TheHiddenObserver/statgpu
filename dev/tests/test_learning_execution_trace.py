@@ -214,13 +214,18 @@ def test_unsupported_boundary_is_machine_readable(monkeypatch,tmp_path):
     import json
     rt=SimpleNamespace(name='torch',device='cuda:0',hardware={},context=nullcontext)
     monkeypatch.setattr(b,'Runtime',lambda *args:rt)
-    def unsupported(*args):
+    received=[]
+    def unsupported(*args, **kwargs):
+        received.append(kwargs)
         raise b.UnsupportedCapability('unsupported kernel/shape combination')
     monkeypatch.setattr(b,'run_case',unsupported)
     output=tmp_path/'unsupported.json'
     assert b.main(['--cases','kde_bootstrap','--backends','torch','--require-backends','--output',str(output)])==2
     row=json.loads(output.read_text())['results'][0]
+    assert received == [{'dtype':'float64','weights':'none','solver':'default',
+                         'sparse':'dense','covariance_type':'default'}]
     assert row['status']=='blocked' and row['blocked_kind']=='unsupported-capability'
+    assert row['reason']=='unsupported kernel/shape combination'
     assert 'timing' not in row
 
 
