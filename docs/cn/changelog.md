@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-10-22<br>
+> 最后更新：2026-10-24<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
@@ -14,7 +14,11 @@
 - Gaussian ingress 观察移到计时外；workflow 增加正确性预检并明确 host/mixed 计时口径。
 - 扩展 learning 算法阶段证据并分离 helper 追踪与计时；未闭合或混合计算不标记为全原生。
 - 增加七套统一资格与扫描入口，保留精确节点清单、独立线程 profile、有限规模及不可改写的原始证据。GPU 独占未验证时仅为诊断，不产生加速比或 dashboard 资格。
-- 不修改生产算法或 Logistic 默认值；新源码仍需物理 GPU 验收。
+- 新增 `run_full_benchmark_matrix.py`，统一先规划、后显式执行的注册/独立 lane；支持多 seed/shape profile、受支持的命名配置与确定性分批。逐 case 的资源/oracle 边界会拒绝或明确排除不支持的点，不静默缩小输入。
+- 覆盖核算不再只看七套注册 suite：区分 275 个注册身份、默认 21 次调用/1692 行代表性矩阵、独立 runner 文件以及有限配置矩阵。保留 blocked、不适用和未执行项，不能把进程成功退出解释为全覆盖。
+- 独立登记公开 KDE bootstrap、hybrid phase、Cox/panel 专项、外部对照、compile 与 memory 等计时协议。wrapper/子程序及重叠 scale 点不是额外独立证据；legacy 或不安全入口不会自动执行。
+- 明确 solver/family/weights/sparse/precision、规模/oracle、统计校准和硬件方面的剩余缺口。输入 dtype、CUDA 输出归属和 host/hybrid 工作流不等于原生计算精度或全算法 CUDA 执行。参见[资格指南](guides/benchmark-qualification.md)及 `dev/benchmarks/BENCHMARK_QUALIFICATION_GAPS.md`。
+- 不修改生产算法或 Logistic 默认值。计划、源码盘点及合成 harness 验证都不是物理 GPU 结果；历史运行不能证明改过的源码或扩大的矩阵。新源码仍需物理 GPU 验收。
 
 ### PR #257 — 完整扫描正确性与证据修复
 

@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-22<br>
+> Last updated: 2026-10-24<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
@@ -16,7 +16,11 @@ This page records user-visible changes for current and recent statgpu releases.
 - Keep Gaussian ingress observation outside measured fits and add explicit workflow preflight and host/mixed timing labels.
 - Expand learning algorithm-stage evidence and separate helper tracing from timing; unresolved or hybrid computation is not labelled wholly native.
 - Add a seven-suite qualification/campaign interface with exact selected inventories, independent thread profiles, bounded scales and immutable raw evidence. Unknown GPU exclusivity remains diagnostic-only, never a speedup or dashboard claim.
-- This harness change does not modify production algorithms or Logistic defaults. New-source physical GPU validation remains pending.
+- Add `run_full_benchmark_matrix.py` for plan-first registered/independent coordination, explicit multi-seed/shape profiles, named supported configurations and deterministic batching. Per-case resource/oracle limits reject or explicitly exclude unsupported points rather than silently shrinking them.
+- Extend coverage accounting beyond the seven registered suites: distinguish the 275 registered identities and default 21-invocation/1692-row representative matrix from independent runner files and a finite configuration matrix. Preserve blocked, not-applicable and unexecuted work instead of interpreting a successful process exit as full coverage.
+- Inventory independent timing protocols separately, including public KDE bootstrap, hybrid phases, Cox/panel studies, external comparisons, compile and memory studies. Wrapper/child relationships and overlapping scale points are not additional unique evidence; legacy or unsafe entry points are not automatically executable.
+- Document remaining solver/family/weights/sparse/precision, scale/oracle, statistical-calibration and hardware gaps. Input dtype, CUDA output ownership and host/hybrid workflows do not establish native compute precision or whole-algorithm CUDA execution. See the [qualification guide](guides/benchmark-qualification.md) and `dev/benchmarks/BENCHMARK_QUALIFICATION_GAPS.md`.
+- This harness change does not modify production algorithms or Logistic defaults. Planning, source inventory and synthetic harness validation are not physical GPU results; historical runs cannot validate a changed source or expanded matrix. New-source physical GPU validation remains pending.
 
 ### PR #257 — Full-scan correctness and evidence repairs
 

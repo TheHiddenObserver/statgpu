@@ -329,7 +329,7 @@
       ],
       "case_registry_validation": "imported runner registry, not inferred from title",
       "case_selection_flag": "--cases",
-      "script_sha256": "c39610ad3fe2bd5897ca85dfb20c86e51ad90b3ded251f7dedd6c5d8939f79e3",
+      "script_sha256": "2ef4041f971125b9adaa12fddc07f8983898ef0c7161b4be0e3fe45a76ef63fb",
       "historical_v2_failures": [
         {
           "case": "glm_inference:inverse_gaussian:hc0",
@@ -829,7 +829,7 @@
       ],
       "case_registry_validation": "imported runner registry, not inferred from title",
       "case_selection_flag": "--cases",
-      "script_sha256": "64fcb84451bc9a1ce8d5e8c40f4428099ab4b88d1456d4bd1b98185de65262c8",
+      "script_sha256": "87cf736befcf2c80be93eda7ae0ab6b2ff0b7a92fa8985e0a64bc11d887510ad",
       "historical_v2_execution_status": "CPU42pass2known_defect_blocked",
       "historical_v2_invocation_validation": "CLIverified; worker44CPUcases42pass2knownblockeddefects#191#216;61contracttests pass",
       "source_dependencies_sha256": {
@@ -979,9 +979,9 @@
         "CoxPHCV"
       ],
       "case_selection_flag": null,
-      "script_sha256": "4bf85f8aa8e8e9f3b3cac6ffcdd7a7c91a645349bdac0ca76179fe32e72d56c1",
+      "script_sha256": "a6ae3c17948a1cde54cbe8dab3df7fcfc0e4d9d502c0c85eb46d80200c79624a",
       "source_dependencies_sha256": {
-        "dev/benchmarks/benchmark_cv_models.py": "8b8a27907e553309201e651d4b28a236c528c39227a4b9d4f727a568cb0d6b8d",
+        "dev/benchmarks/benchmark_cv_models.py": "e3704b5bf47f50952e33e38fe9c06255d53c18319e92ca75ae79ad93be370f9f",
         "statgpu/linear_model/penalized/_penalized_cv.py": "cd4e73cb5d54175a420309bc0d7f8551dbb2a0ae8fa9b15554385875d606b152",
         "statgpu/solvers/_fista.py": "eed363c62a2a3a52eced13cb38d984ba74be388f4ab208048de4f580df87f9ad"
       }
@@ -3765,8 +3765,36 @@
     "performance_qualification": "diagnostic_only; exclusivity unverified; no speedup comparisons or canonical dashboard eligibility",
     "source_dependencies_sha256": {
       "dev/benchmarks/benchmark_qualification.py": "d966f8ae7fb35f95a2f794f14cf08e73a2b97900bd5ab5170f9deeab215015ee",
-      "dev/benchmarks/run_qualification_campaign.py": "bcaa1a8b3e85152072e0c1f4754254cdfac847a1a436bd66574cd1eac6d55426",
+      "dev/benchmarks/run_qualification_campaign.py": "5c6064e715f840dcbdd1563807592d21d9cd2d960971424846ba29d5ba50f364",
       "dev/benchmarks/run_coverage_benchmarks.py": "cb9d27d017eea33ae24f442c744d05b6af5209cd44c503e3c0c918e99752e14b"
+    }
+  },
+  "configuration_extension": {
+    "base_sha": "75426d42f4ac1c053584bc8e06a0608f4350de20",
+    "status": "local-validated-physical-validation-pending",
+    "registered_default": {
+      "case_identities": 275,
+      "suite_backend_invocations": 21,
+      "expanded_rows": 1692,
+      "allowed_host_only_not_applicable_rows": 16
+    },
+    "independent_catalog": "dev/benchmarks/independent_benchmark_catalog.json",
+    "independent_catalog_scope": "Historical 202-file source audit, including 41 additional parameterized runner files; dispositions and live source drift are separate from execution evidence. New support files are reported separately.",
+    "unified_entrypoint": "dev/benchmarks/run_full_benchmark_matrix.py",
+    "claims": [
+      "Configured matrices are finite explicit protocols, not every public API combination.",
+      "Unsupported configurations and missing independent oracles remain blocked or explicitly excluded; no allow-incomplete promotion.",
+      "Historical physical acceptance does not certify changed runners or new configuration axes.",
+      "Performance remains diagnostic with UNVERIFIED_EXCLUSIVITY; no dashboard promotion."
+    ],
+    "source_dependencies_sha256": {
+      "dev/benchmarks/run_full_benchmark_matrix.py": "8cc4e7e598cd84c6e77162c457430d937bffebf02cf5b306d65483410f6ce222",
+      "dev/benchmarks/independent_benchmark_registry.py": "1be29318edcbdfd19a46958bd46c367e10508bdee40a65b08ef65e85c7a2291a",
+      "dev/benchmarks/independent_benchmark_catalog.json": "dc2c823e04c4ceebc5239c218677545db3144b50cbf3c54d64f66d338f262b4c",
+      "dev/benchmarks/run_independent_benchmarks.py": "f3548d76d1b1ab6a550d6fb1b9c4af906302a10cfada21511885cdd18af1dbbd",
+      "dev/benchmarks/cv_external.py": "3fd072f052154cf84158d7017b9e59512421006518cb259a5a3098fa38d835de",
+      "dev/benchmarks/benchmark_torch_compile_maintenance.py": "a0f72cec0733aed5bec0de221db79c57ae3458c333be6806475e8effa715ca89",
+      "dev/benchmarks/benchmark_torch_compile_scale.py": "71e812b15aad964dedbdcbf10e138f523fcc3bb27dd4275b24ae77a14a08ced2"
     }
   }
 }

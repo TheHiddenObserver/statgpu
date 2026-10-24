@@ -31,7 +31,7 @@ import threading
 import time
 import traceback
 from contextlib import nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -54,6 +54,7 @@ class CaseSpec:
     scoring_name: str
     scoring_direction: str
     scoring_normalization: str
+    cv_folds: int = 3
 
 
 CASE_SPECS = (
@@ -89,6 +90,25 @@ CASE_SPECS = (
         "held_out_partial_likelihood", "maximize", "per-observed-event",
     ),
 )
+
+
+def configured_specs(*, folds=3, grid_size=3):
+    """Build real candidate grids without mutating canonical default specs."""
+    import numpy as np
+    if type(folds) is not int or folds < 2:
+        raise ValueError('folds must be an integer >=2')
+    if type(grid_size) is not int or grid_size < 2:
+        raise ValueError('grid_size must be an integer >=2')
+    configured = []
+    for spec in CASE_SPECS:
+        grid = dict(spec.grid_parameters)
+        if grid_size != 3:
+            for key in ('alphas', 'Cs', 'alpha_grid', 'penalties'):
+                if key in grid:
+                    values = grid[key]
+                    grid[key] = np.geomspace(values[0], values[-1], grid_size).tolist()
+        configured.append(replace(spec, grid_parameters=grid, cv_folds=folds))
+    return tuple(configured)
 
 
 class RegionProfiler:
@@ -319,7 +339,7 @@ def _construct(cls, kwargs: dict[str, Any]):
 def _model_kwargs(spec: CaseSpec, backend: str, seed: int) -> dict[str, Any]:
     device = {"numpy": "cpu", "cupy": "cuda", "torch": "torch"}[backend]
     common = {
-        "cv": 3,
+        "cv": spec.cv_folds,
         "random_state": seed,
         "device": device,
         "compute_inference": False,
@@ -478,7 +498,7 @@ def _workload_identity(spec, backend, seed, data, model):
         return [identify(item) for item in value] if isinstance(value, tuple) else _array_identity(value)
 
     X = data[0]
-    folds = kfold_indices(len(X), n_splits=3, random_state=seed, shuffle=True)
+    folds = kfold_indices(len(X), n_splits=spec.cv_folds, random_state=seed, shuffle=True)
     identity = {
         "model": spec.import_module + "." + spec.import_name,
         "backend": backend, "seed": seed,
@@ -757,7 +777,7 @@ def _aggregate_run(spec: CaseSpec, backend: str, samples: list[dict[str, Any]]) 
         },
         "convergence": {
             "candidate_count": _candidate_count(spec),
-            "fold_count": 3,
+            "fold_count": spec.cv_folds,
             "failed_candidates": 0,
             "failed_folds": 0,
             "final_refit_converged": True,
@@ -833,7 +853,7 @@ def _case(spec: CaseSpec, backends: list[str], seeds: list[int], n_samples: int,
             "parameters": {"seeds": seeds, "signal_features": min(5, n_features)},
         },
         "cv": {
-            "fold_count": 3,
+            "fold_count": spec.cv_folds,
             "split_strategy": "statgpu-deterministic-kfold",
             "shuffle": True,
             "subject_preserving": spec.task == "survival",
@@ -894,7 +914,7 @@ def build_source(args) -> dict[str, Any]:
         "cases": [
             _case(spec, backends, seeds, args.n_samples, args.n_features, args.warmup, args.include_sklearn,
                   getattr(args, "diagnostic_samples", None))
-            for spec in CASE_SPECS
+            for spec in configured_specs(folds=getattr(args, "folds", 3), grid_size=getattr(args, "grid_size", 3))
         ],
     }
     return source
@@ -910,11 +930,15 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=20260807)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--warmup", type=int, default=1)
+    parser.add_argument("--folds", type=int, default=3)
+    parser.add_argument("--grid-size", type=int, default=3)
     parser.add_argument("--include-sklearn", action="store_true", help="measure aligned sklearn references for the four equivalent estimator families")
     args = parser.parse_args()
 
     if args.repeats < 1 or args.warmup < 0:
         parser.error("repeats must be positive and warmup must be non-negative")
+    if args.folds<2 or args.folds>args.n_samples//2 or args.grid_size<2:
+        parser.error('Require 2<=folds<=n-samples//2 and grid-size>=2')
     source = build_source(args)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(source, indent=2, sort_keys=False, allow_nan=False) + "\n", encoding="utf-8")

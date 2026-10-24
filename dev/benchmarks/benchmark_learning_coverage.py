@@ -35,7 +35,7 @@ CASES = ('kde','kernel_regression_nw','kernel_regression_local_linear','kernel_r
 LEARNED = ('components_', 'cluster_centers_', 'embedding_', 'means_', 'dual_coef_',
            'labels_', 'coef_', 'covariances_', 'eigenvectors_')
 
-from dev.benchmarks.learning_execution_trace import NumericalTrace, TraceIncomplete, learning_stages, estimator_stages, exception_chain, identities
+from dev.benchmarks.learning_execution_trace import NumericalTrace, TraceIncomplete, learning_stages, estimator_stages, exception_chain, identities, stage
 
 # Every configured case has an explicit numerical-stage contract. Stored
 # label/embedding access is deliberately not treated as a compute operation.
@@ -51,6 +51,26 @@ class Blocked(RuntimeError):
 
 class UnsupportedCapability(Blocked):
     """A production support boundary, distinct from missing observation."""
+
+
+FLOAT32_CASES = frozenset(('pca','incremental_pca','truncated_svd','kmeans',
+                          'minibatch_kmeans','dbscan','agglomerative','gaussian_mixture'))
+
+
+def capability_exclusion(case, *, dtype='float64', weights='none', solver='default', sparse='dense', covariance_type='default'):
+    if dtype not in ('float32','float64') or weights not in ('none','analytic'):
+        return 'Unsupported input dtype or weight mode'
+    if sparse != 'dense':
+        return 'Learning adapters have no sparse public-fit/oracle contract; no implicit densification'
+    if dtype != 'float64' and case not in FLOAT32_CASES:
+        return 'float32 oracle alignment is configured only for decomposition, clustering and Gaussian mixture fixtures'
+    if weights != 'none':
+        return 'Weighted learning oracle is not configured here; use the public KDE benchmark for weighted KDE'
+    if solver != 'default' and (case != 'pca' or solver not in ('full','covariance','randomized')):
+        return f'{case} has no configured oracle for solver={solver}; explicit solver applies only to PCA'
+    if covariance_type != 'default' and (case != 'gaussian_mixture' or covariance_type not in ('diag','full','tied','spherical')):
+        return 'covariance-type applies only to the single-component Gaussian mixture analytic oracle'
+    return None
 
 
 def host(x):
@@ -90,7 +110,7 @@ def data(n,p,seed):
     return X,y,labels
 
 
-def estimator(case,device,seed,n):
+def estimator(case,device,seed,n, *, solver='default', covariance_type='default'):
     from statgpu import nonparametric as N, unsupervised as U
     from statgpu.semiparametric import GAM
     kw={'device':device}
@@ -104,14 +124,14 @@ def estimator(case,device,seed,n):
       'nystroem':lambda:N.Nystroem(n_components=min(12,n),kernel='rbf',gamma=.5,random_state=seed,**kw),
       'spline':lambda:N.SplineTransformer(n_knots=5,degree=3,**kw),
       'gam':lambda:GAM(n_splines=6,lam=.1,**kw),
-      'pca':lambda:U.PCA(n_components=2,svd_solver='full',**kw),
+      'pca':lambda:U.PCA(n_components=2,svd_solver='full' if solver=='default' else solver,random_state=None if solver=='default' else seed,**kw),
       'incremental_pca':lambda:U.IncrementalPCA(n_components=2,batch_size=n,**kw),
       'truncated_svd':lambda:U.TruncatedSVD(n_components=2,algorithm='randomized',n_iter=5,random_state=seed,**kw),
       'kmeans':lambda:U.KMeans(n_clusters=2,n_init=1,max_iter=100,random_state=seed,**kw),
       'minibatch_kmeans':lambda:U.MiniBatchKMeans(n_clusters=2,n_init=1,batch_size=n,max_iter=100,random_state=seed,**kw),
       'dbscan':lambda:U.DBSCAN(eps=1.,min_samples=3,**kw),
       'agglomerative':lambda:U.AgglomerativeClustering(n_clusters=2,linkage='ward',**kw),
-      'gaussian_mixture':lambda:U.GaussianMixture(n_components=1,covariance_type='diag',random_state=seed,max_iter=100,**kw),
+      'gaussian_mixture':lambda:U.GaussianMixture(n_components=1,covariance_type='diag' if covariance_type=='default' else covariance_type,random_state=seed,max_iter=100,**kw),
       'nmf':lambda:U.NMF(n_components=2,max_iter=300,random_state=seed,**kw),
       'minibatch_nmf':lambda:U.MiniBatchNMF(n_components=2,batch_size=n,max_iter=300,random_state=seed,**kw),
       'tsne':lambda:U.TSNE(n_components=2,perplexity=min(10,n//4),max_iter=250,random_state=seed,**kw),
@@ -215,9 +235,20 @@ def validate(case,m,X,y,z,labels):
         if ari<.99:raise AssertionError('separated-cluster label recovery failed')
         ref='known separated two-cluster fixture, permutation-invariant ARI >= .99'
     elif case=='gaussian_mixture':
-        assert_close(host(m.means_)[0],X.mean(axis=0),atol=2e-6)
-        assert_close(host(m.covariances_)[0],X.var(axis=0)+1e-6,atol=2e-6)
-        ref='analytic single-component Gaussian MLE mean and diagonal covariance'
+        # Compute the reference in float64 on the exact quantized input values.
+        A=X.astype(np.float64);centered=A-A.mean(axis=0)
+        full=centered.T@centered/len(A)+np.eye(A.shape[1])*1e-6
+        covariance_type=m.covariance_type
+        diagonal=np.maximum(np.mean(centered*centered,axis=0),1e-6)
+        expected={'diag':diagonal[None,:], 'spherical':np.array([max(diagonal.mean(),1e-6)]),
+                  'full':full[None,:,:], 'tied':full}[covariance_type]
+        # Preserve the existing acceptance tolerances. Input quantization does
+        # not justify relaxing a float64 computation/reference comparison.
+        assert_close(host(m.means_)[0],A.mean(axis=0),atol=2e-6,rtol=2e-7)
+        assert_close(host(m.covariances_),expected,atol=2e-6,rtol=2e-7)
+        metrics={'covariance_type':covariance_type,'covariance_max_abs_error':float(np.max(np.abs(host(m.covariances_)-expected))),
+                 'thresholds':{'atol':2e-6,'rtol':2e-7,'basis':'unchanged legacy tolerance; exact quantized inputs, float64 reference'}}
+        ref='analytic single-component Gaussian MLE mean and '+covariance_type+' covariance'
     elif case in ('nmf','minibatch_nmf'):
         H=host(m.components_);err=np.linalg.norm(X-z@H)
         if (z<0).any() or (H<0).any() or err>np.linalg.norm(X):raise AssertionError('nonnegative reconstruction invariant failed')
@@ -353,11 +384,45 @@ def retain_partial_trace(traces):
         raise
 
 
-def traced_call(case, call, rt, traces, *, phase=None, allow_incomplete=False):
+def configured_estimator_stages(case, backend, phase, *, solver='default', covariance_type='default'):
+    """Observe the selected numerical algorithm, not a default-path proxy."""
+    specs=estimator_stages(case,backend,phase)
+    def native(fn,label,ops,**kwargs):
+        return stage(fn,label,ops,reject_host_numerics=True,expected_dtype='float64',**kwargs)
+    if case=='pca' and phase=='fit' and solver in ('covariance','randomized'):
+        from statgpu.unsupervised import _pca, _utils
+        sign_controls=specs[0]
+        if solver=='covariance':
+            return [sign_controls,native(_pca.PCA.fit,'pca-covariance-eigendecomposition',
+                ('mean','matmul','linalg.eigh','sum'),intermediates=('mean','gram','cov','eigenvalues','eigenvectors'))]
+        return [sign_controls,native(_pca.PCA.fit,'pca-randomized-centering-and-variance',
+                    ('mean','sum'),intermediates=('X_centered','singular_values','components')),
+                native(_pca.PCA._randomized_svd,'pca-randomized-qr-svd',
+                    ('matmul','linalg.qr','linalg.svd'),intermediates=('omega','Q','B','singular_values_all','vh')),
+                native(_utils.backend_random_normal,'pca-randomized-projection-rng',
+                    ('sin','floor','log','sqrt','cos'),intermediates=('u1','u2','z'))]
+    if case=='gaussian_mixture' and covariance_type in ('spherical','full','tied'):
+        from statgpu.unsupervised import _gmm
+        cls=_gmm.GaussianMixture
+        spherical=covariance_type=='spherical'
+        specs=[native(cls._estimate_log_gaussian_prob,'gmm-'+covariance_type+'-log-density',
+                      ('log','sum') if spherical else ('log','sum','matmul'),
+                      intermediates=('precisions','diff','quad') if spherical else ('diff','solved','quad')),
+               native(cls._e_step,'gmm-responsibilities',('exp','mean'),intermediates=('weighted_log_prob','log_resp'))]
+        if phase=='fit':
+            fields=('nk','means','second_moment','diag_covariances') if spherical else (
+                ('nk','means','covariance') if covariance_type=='tied' else ('nk','means','covariances'))
+            specs.append(native(cls._m_step,'gmm-'+covariance_type+'-weighted-moments',
+                                ('sum','matmul'),intermediates=fields))
+        return specs
+    return specs
+
+
+def traced_call(case, call, rt, traces, *, phase=None, allow_incomplete=False, solver='default', covariance_type='default'):
     if phase is None and case not in TRACE_CASES:
         return call()
     try:
-        specs = (estimator_stages(case, rt.name, phase) if phase is not None
+        specs = (configured_estimator_stages(case, rt.name, phase, solver=solver, covariance_type=covariance_type) if phase is not None
                  else learning_stages(case, rt.name))
     except TraceIncomplete as exc:
         # An unsupported interpreter/source mapping must not silently turn an
@@ -592,8 +657,9 @@ def classify_placement(row,rt):
     return row
 
 
-def run_case(case,rt,n,p,seed,warmup,repeats):
+def _run_case(case,rt,n,p,seed,warmup,repeats, *, dtype='float64', solver='default', covariance_type='default'):
     X,y,labels=data(n,p,seed)
+    X,y=X.astype(dtype,copy=False),y.astype(dtype,copy=False)
     if case in ('kde','kernel_regression_nw','kernel_regression_local_linear','spline','gam'):X=X[:,:1]
     if case in ('kernel_regression_nw','kernel_regression_local_linear','gam'):y=np.sin(X[:,0])+.2*X[:,0]
     if case in ('nmf','minibatch_nmf'):X=np.abs(X)
@@ -621,20 +687,24 @@ def run_case(case,rt,n,p,seed,warmup,repeats):
     traces=[]
     with rt.context(), retain_partial_trace(traces):
         dx,dy=rt.array(X),rt.array(y)
+        row['input_provenance']={'X':array_identity(dx),'y':array_identity(dy)}
+        row['precision_policy']='input dtype is explicit; actual numerical compute dtype comes from execution_trace, not input dtype'
         def fitted():
-            m=estimator(case,device,seed,n)
+            m=estimator(case,device,seed,n,solver=solver,covariance_type=covariance_type)
             if case in ('kernel_regression_nw','kernel_regression_local_linear','kernel_ridge','kernel_ridge_cv','gam'):m.fit(dx,dy)
             else:m.fit(dx)
             return m
         if case in ESTIMATOR_TRACE_CASES:
-            m=traced_call(case,fitted,rt,traces,phase='fit',allow_incomplete=True)
+            m=traced_call(case,fitted,rt,traces,phase='fit',allow_incomplete=True,solver=solver,covariance_type=covariance_type)
             out=traced_call(case,lambda:operation(case,m,dx),rt,traces,
-                            phase='operation',allow_incomplete=True)
+                            phase='operation',allow_incomplete=True,solver=solver,covariance_type=covariance_type)
         else:
             m=fitted();out=operation(case,m,dx)
         # Correctness remains independently visible when observation is incomplete.
         check=validate(case,m,X,y,out,labels)
         row['correctness']=check
+        row['estimator_configuration']={'svd_solver':getattr(m,'svd_solver',None),
+            'covariance_type':getattr(m,'covariance_type',None)}
         try:
             proof=verify_device(m,out,rt,case)
         except Blocked as exc:
@@ -655,6 +725,15 @@ def run_case(case,rt,n,p,seed,warmup,repeats):
         return classify_placement(add_trace(row,traces,instrumented=False),rt)
 
 
+def run_case(case,rt,n,p,seed,warmup,repeats, *, dtype='float64', weights='none', solver='default', sparse='dense', covariance_type='default'):
+    reason=capability_exclusion(case,dtype=dtype,weights=weights,solver=solver,sparse=sparse,covariance_type=covariance_type)
+    if reason:
+        raise UnsupportedCapability(reason)
+    row=_run_case(case,rt,n,p,seed,warmup,repeats,dtype=dtype,solver=solver,covariance_type=covariance_type)
+    row.setdefault('problem',{}).update(dtype=dtype,input_dtype=dtype,weights=weights,solver=solver,sparse=sparse,covariance_type=covariance_type)
+    return row
+
+
 def main(argv=None):
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--cases',nargs='+',choices=CASES,default=list(CASES));ap.add_argument('--backends',nargs='+',choices=['numpy','cupy','torch'],default=['numpy','cupy','torch'])
@@ -663,6 +742,11 @@ def main(argv=None):
     ap.add_argument('--max-pairwise-elements',type=int,default=25000000,help='Resource safety cap for n*n reference allocations; oversized cases are blocked, not silently shrunk')
     ap.add_argument('--selection-seeds',nargs='+',type=int,default=None,help='Independent Knockoff trials only; default uses --seed; repeats within a trial are timing repetitions, not independent FDR trials')
     ap.add_argument('--warmup',type=int,default=1);ap.add_argument('--repeats',type=int,default=3);ap.add_argument('--device',type=int,default=0)
+    ap.add_argument('--dtype',choices=['float32','float64'],default='float64')
+    ap.add_argument('--weights',choices=['none','analytic'],default='none')
+    ap.add_argument('--solver',choices=['default','full','covariance','randomized'],default='default')
+    ap.add_argument('--covariance-type',choices=['default','diag','full','tied','spherical'],default='default')
+    ap.add_argument('--sparse',choices=['dense','csr'],default='dense')
     ap.add_argument('--smoke',action='store_true');ap.add_argument('--require-backends',action='store_true');ap.add_argument('--output',type=Path,required=True)
     a=ap.parse_args(argv)
     if a.smoke:a.n=48;a.p=4;a.warmup=0;a.repeats=1;a.backends=['numpy']
@@ -686,14 +770,15 @@ def main(argv=None):
                 p=a.knockoff_p if case.startswith('knockoff') else a.p
                 if a.n<2*p:raise Blocked('n must be >=2*p for this selection fixture')
                 with warnings.catch_warnings(record=True) as caught:
-                    warnings.simplefilter('always');row=run_case(case,rt,a.n,p,trial_seed,a.warmup,a.repeats)
+                    warnings.simplefilter('always');row=run_case(case,rt,a.n,p,trial_seed,a.warmup,a.repeats,dtype=a.dtype,weights=a.weights,solver=a.solver,sparse=a.sparse,covariance_type=a.covariance_type)
                 row['warnings']=[str(w.message) for w in caught]
                 convergence=[w for w in caught if 'converg' in str(w.message).lower() or 'converg' in w.category.__name__.lower()]
                 if convergence:
                     row['performance_eligible']=False
                     row.pop('timing',None)
                     row['status']='blocked';row['reason']='Convergence warning: '+str(convergence[0].message)
-            except UnsupportedCapability as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'blocked','blocked_kind':'unsupported-capability','reason':str(e)}
+            except UnsupportedCapability as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'blocked','blocked_kind':'unsupported-capability','reason':str(e),
+                'problem':{'n':a.n,'p':p,'seed':trial_seed,'dtype':a.dtype,'input_dtype':a.dtype,'weights':a.weights,'solver':a.solver,'sparse':a.sparse,'covariance_type':a.covariance_type}}
             except Blocked as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'blocked','reason':str(e),'exception':exception_chain(e),'execution_trace':getattr(e,'execution_trace',[])}
             except ImportError as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'skipped','reason':str(e)}
             except Exception as e:row={'case':case,'backend':backend,'seed':trial_seed,'status':'failed','reason':f'{type(e).__name__}: {e}','exception':exception_chain(e),'execution_trace':getattr(e,'execution_trace',[])}

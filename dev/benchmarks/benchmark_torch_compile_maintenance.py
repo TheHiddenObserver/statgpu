@@ -77,7 +77,19 @@ def _json_value(value):
 def _run_child(mode: str, repeats: int) -> dict:
     os.environ["STATGPU_TORCH_COMPILE_MODE"] = mode
 
+    # Re-executed child owns these pools; parent interpreter settings do not
+    # propagate across exec. Limit compiler workers before importing Torch.
+    os.environ["TORCHINDUCTOR_COMPILE_THREADS"] = "1"
+    os.environ["MAX_JOBS"] = "1"
+    os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = "1"
     import torch
+    root = str(Path(__file__).resolve().parents[2])
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from dev.benchmarks.independent_benchmark_registry import (
+        configure_torch_child_threads, torch_child_thread_state,
+    )
+    thread_limits_before = configure_torch_child_threads(torch)
 
     if not torch.cuda.is_available():
         raise RuntimeError("A physical Torch CUDA GPU is required")
@@ -219,6 +231,7 @@ def _run_child(mode: str, repeats: int) -> dict:
         }
 
     return {
+        "thread_limits": {"before": thread_limits_before, "after": torch_child_thread_state(torch)},
         "mode": mode,
         "cases": case_results,
         "environment": {

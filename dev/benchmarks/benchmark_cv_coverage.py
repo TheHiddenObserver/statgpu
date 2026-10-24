@@ -424,19 +424,29 @@ def run(args):
     if Path(statgpu.__file__).resolve().parent != ROOT/'statgpu':
         raise RuntimeError('statgpu imported from outside benchmark checkout')
     before=source_identity()
+    specs_configured=legacy.configured_specs(folds=getattr(args,'folds',3),grid_size=getattr(args,'grid_size',3))
     results=[]
+    unsupported=[]
+    if getattr(args,'dtype','float64') != 'float64':unsupported.append('CV float32 input/compute oracle configuration is not supported by this accuracy-baseline adapter')
+    if getattr(args,'weights','none') != 'none':unsupported.append('Weighted CV fold scoring and final-refit reference are not aligned in this adapter')
+    if getattr(args,'sparse','dense') != 'dense':unsupported.append('Sparse CV input is not supported by the six-family adapter; no implicit densification')
     for n in args.sizes:
         for backend in args.backends:
+            if unsupported:
+                results.extend({'model_id':spec.model_id,'backend':backend,'n_samples':n,'n_features':args.features,
+                    'status':'blocked','blocked_kind':'unsupported-capability','reason':'; '.join(unsupported),'timing':None} for spec in specs_configured)
+                continue
             available,_,reason=legacy._backend_status(backend)
             if not available:
-                for spec in legacy.CASE_SPECS:
+                for spec in specs_configured:
                     results.append({'model_id':spec.model_id,'backend':backend,'n_samples':n,
                         'status':'unavailable','reason':reason,'timing':None})
                 continue
             diagnostic_samples = []
             options=SimpleNamespace(backends=backend,seed=args.seed,repeats=args.repeats,warmup=args.warmup,
                 diagnostic_samples=diagnostic_samples,
-                n_samples=n,n_features=args.features,include_sklearn=True,env_id='scoped-cv-candidate')
+                n_samples=n,n_features=args.features,include_sklearn=True,env_id='scoped-cv-candidate',
+                folds=getattr(args,'folds',3),grid_size=getattr(args,'grid_size',3))
             proofs = []
             try:
                 with warnings.catch_warnings(), observed_backend(backend) as proofs:
@@ -444,17 +454,17 @@ def run(args):
                     source=legacy.build_source(options)
                 validate_scoped_source(source,[backend],args.repeats)
             except Exception as exc:
-                for spec in legacy.CASE_SPECS:
+                for spec in specs_configured:
                     results.append({'model_id':spec.model_id,'backend':backend,'n_samples':n,
                         'status':'failed','reason':'Source construction/validation: ' + ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__)), 'timing':None,
                         'execution_provenance':[proof for proof in proofs if proof['model']==spec.import_name]})
                 continue
             source['protocol']['instrumentation']='DIAGNOSTIC ONLY: RegionProfiler/source-specific numerical-array proof runs separately from clean_public_fit. Profiling overhead INCLUDED in compatibility stage timings; never use these stage/total durations as clean performance samples.'
             source['protocol']['precision_policy']='Explicit float64 accuracy baseline: gpu_cv_mixed_precision=False where exposed. Input and actual computed intermediate dtypes recorded separately in CUDA execution provenance; NumPy compute dtype is not runtime-instrumented.'
-            specs={spec.model_id:spec for spec in legacy.CASE_SPECS}
+            specs={spec.model_id:spec for spec in specs_configured}
             for case in source['cases']:
                 spec=specs[case['model_id']]
-                row={'model_id':spec.model_id,'backend':backend,'n_samples':n,'n_features':args.features,
+                row={'model_id':spec.model_id,'backend':backend,'n_samples':n,'n_features':args.features,'dtype':'float64','weights':'none','sparse':'dense',
                      'case':case,'environment':source['environment'],'protocol':source['protocol'],
                      'execution_provenance':[proof for proof in proofs if proof['model']==spec.import_name] if backend!='numpy' else {'device':'cpu','synchronized_device':None},
                      'performance_valid':False, 'performance_status':'UNVERIFIED_EXCLUSIVITY',
@@ -505,16 +515,18 @@ def run(args):
     failed=changed or any(r['status']=='failed' for r in results)
     partial=any(r['status'] in {'unavailable','blocked'} for r in results)
     return {'schema_version':'statgpu-scoped-cv-candidate-v2','source':before,'source_after':after,
-            'benchmark':{'name':'six-family-scoped-cv','command':[sys.executable,*sys.argv]},
-            'coverage':{'active_models':sorted(EXPECTED_MODELS),'fold_count':3,'dtype':'float64',
-                        'grids':{s.model_id:s.grid_parameters for s in legacy.CASE_SPECS},
+            'benchmark':{'name':'six-family-scoped-cv','command':[sys.executable,*sys.argv],
+                         'arguments':{key:str(value) if isinstance(value,Path) else value for key,value in vars(args).items()}},
+            'coverage':{'active_models':sorted(EXPECTED_MODELS),'fold_count':getattr(args,'folds',3),'dtype':getattr(args,'dtype','float64'),
+                        'weights':getattr(args,'weights','none'),'sparse':getattr(args,'sparse','dense'),
+                        'grids':{s.model_id:s.grid_parameters for s in specs_configured},
                         'exhaustive_loss_penalty_cv':False},
             'results':results,'validation':{'status':'failed' if failed else 'partial' if partial else 'complete',
             'tier':'CPU-harness-smoke' if args.smoke else 'benchmark-candidate','canonical_ready':False,
             'limitations':['Not canonical cv_source schema; unrequested backend rows are not fabricated.',
                 'Clean E2E repeats are separate from profiled diagnostic stage timings; no selector/refit clean decomposition is claimed.',
                 'All timing remains diagnostic unless hardware exclusivity is independently verified; no speedup comparisons emitted.',
-                'Three folds/fixed grids/explicit float64 accuracy baseline (not mixed-precision defaults); sizes configurable; no complete grid-fold-weight sweep.',
+                'Configurable explicit grids/folds and float64 accuracy baseline (not mixed-precision defaults); weighted/sparse/float32 configurations are explicit capability exclusions.',
                 'Cox and PenalizedGLM use fresh direct-refit invariants, not independent external statistical certification.',
                 'CUDA candidates fail if native numerical arrays are not observed in both selector/refit regions; only concrete device 0 supported. No physical CUDA run claimed.'],
             'source_changed':changed,
@@ -530,6 +542,11 @@ def main(argv=None):
     p.add_argument('--seed',type=int,default=20260807)
     p.add_argument('--repeats',type=int,default=3)
     p.add_argument('--warmup',type=int,default=1)
+    p.add_argument('--folds',type=int,default=3)
+    p.add_argument('--grid-size',type=int,default=3)
+    p.add_argument('--dtype',choices=['float32','float64'],default='float64')
+    p.add_argument('--weights',choices=['none','analytic'],default='none')
+    p.add_argument('--sparse',choices=['dense','csr'],default='dense')
     p.add_argument('--smoke',action='store_true')
     p.add_argument('--require-backends',action='store_true')
     p.add_argument('--output',type=Path,required=True)
@@ -538,6 +555,8 @@ def main(argv=None):
         args.backends,args.sizes,args.features,args.repeats,args.warmup=['numpy'],[60],4,1,0
     if min(args.sizes)<30 or args.features<1 or args.repeats<1 or args.warmup<0 or args.features>=min(args.sizes):
         p.error('Require n>=30, 1<=features<n, repeats>=1, warmup>=0')
+    if args.folds<2 or args.folds>min(args.sizes)//2 or args.grid_size<2:
+        p.error('Require 2<=folds<=min(n)//2 and grid-size>=2')
     result=run(args)
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(result,indent=2,allow_nan=False)+'\n')
