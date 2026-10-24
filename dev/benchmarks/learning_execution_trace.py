@@ -773,8 +773,12 @@ def broad_estimator_stages(case, backend, phase):
         return [stage(_dbscan.DBSCAN._neighbor_graph_sparse, 'dbscan-cupy-distance-graph',
                       ('sum', 'matmul'), expected_dtype='float32', reject_host_numerics=True,
                       intermediates=('X_f32', 'distances'), placement='native-distances-host-edge-assembly'),
+                # Primitive observations are transitive: this outer invocation
+                # also contains the child's declared float32 distance arithmetic.
+                # Counts and propagated labels are integer arrays, not float64
+                # computations. Keep the same strict float32 geometry contract.
                 stage(_dbscan.DBSCAN._fit_gpu_cupy, 'dbscan-cupy-counts-host-controlled-propagation',
-                      ('bincount',), expected_dtype='float64',
+                      ('bincount',), expected_dtype='float32',
                       intermediates=('counts', 'labels_core'), placement='host-scalar-edge-label-propagation')]
     if case == 'gaussian_mixture':
         specs = [native(_gmm.GaussianMixture._estimate_log_gaussian_prob,

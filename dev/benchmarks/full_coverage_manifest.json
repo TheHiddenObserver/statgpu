@@ -835,7 +835,7 @@
       "source_dependencies_sha256": {
         "statgpu/nonparametric/kernel_smoothing/_native_bandwidth.py": "7d7772b7fbcbe9316f5c523513c8aada4436b21207eabbfb699e81e073c19c6d",
         "statgpu/nonparametric/kernel_smoothing/_native_bootstrap.py": "9235b22cb062eebaec8b286ff8da9bc25cf5816711a78657fd6c6313f34dd7a9",
-        "dev/benchmarks/learning_execution_trace.py": "f43551062260f356060c2e90a9eb3299606b95b4f8124ac7d3ada6b1adf5ba54",
+        "dev/benchmarks/learning_execution_trace.py": "c076202ade4451ab7e9fa90d47d1317ef4806263d1d36970c2e3c84c1d599faa",
         "dev/benchmarks/benchmark_release_refresh.py": "b768b1c7b9d8e6e3a5b9ced3aad4ef072b5602fd73e2cff26a778d6a17154865",
         "statgpu/nonparametric/kernel_methods/_kpca.py": "2b38043117fab404dfdda16b8dec38aed31685dbc18b0f176ad2d96ee931b407",
         "statgpu/nonparametric/kernel_methods/_nystroem.py": "54f97b07e55240d869de8cf0e9ce8a18787395d3af01c83f4e99be07961d5f23",

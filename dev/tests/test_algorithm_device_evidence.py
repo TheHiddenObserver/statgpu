@@ -2,6 +2,7 @@
 from contextlib import nullcontext
 from types import SimpleNamespace
 import warnings
+import json
 
 import numpy as np
 import pytest
@@ -176,7 +177,9 @@ def test_learning_algorithm_stages_physical_gpu_when_available(backend, case):
     except learning.BackendUnavailable as exc:
         pytest.skip(str(exc))
     row = learning.run_case(case, rt, 48, 4, 42, 0, 1)
-    assert row['status'] == 'pass', row
+    if row['status'] != 'pass':
+        # Keep full operation identities/partial traces in JUnit, not a truncated dict repr.
+        pytest.fail(json.dumps(row, indent=2, sort_keys=True), pytrace=False)
     assert row['correctness']['status'] == 'pass'
     assert all(t['status'] == 'observed' for t in row['execution_trace'])
     assert row['performance_eligible'] is False
@@ -496,3 +499,82 @@ def test_source_stage_wrapper_cycle_fails_closed():
     cyclic.__wrapped__ = cyclic
     with pytest.raises(TraceIncomplete, match='Cannot resolve source stage'):
         stage(cyclic, 'invalid-wrapper', ('exp',))
+
+
+def _cupy_dbscan_source_trace_on_numpy(monkeypatch, geometry_dtype=np.float32):
+    """Exercise the actual nested CuPy source with CPU primitives, not CUDA proof."""
+    import sys
+    from statgpu.unsupervised import DBSCAN
+    # Only the module boundary is substituted. Both DBSCAN method code objects
+    # and the exact registered stage contracts remain unchanged.
+    monkeypatch.setitem(sys.modules, 'cupy', np)
+    monkeypatch.setattr(np, 'asnumpy', np.asarray, raising=False)
+    class Backend:
+        float32 = geometry_dtype
+        def __getattr__(self, name):
+            return getattr(np, name)
+    X = np.array([[0., 0.], [.05, 0.], [0., .05],
+                  [2., 2.], [2.05, 2.], [2., 2.05]], dtype=np.float64)
+    model = DBSCAN(eps=.2, min_samples=2, device='cpu')
+    trace = NumericalTrace(SimpleNamespace(name='numpy', module=np, device='cpu'),
+                           estimator_stages('dbscan', 'cupy', 'fit'))
+    with trace:
+        labels, core = model._fit_gpu_cupy(Backend(), X, len(X), X.shape[1])
+    assert labels.dtype == core.dtype == np.int64
+    np.testing.assert_array_equal(labels, [0, 0, 0, 1, 1, 1])
+    return trace
+
+
+def test_cupy_dbscan_nested_float32_geometry_integer_counts_contract(monkeypatch):
+    trace = _cupy_dbscan_source_trace_on_numpy(monkeypatch)
+    report = trace.report()
+    assert report['status'] == 'observed'
+    assert len(trace.records) == 2
+    for record in trace.records:
+        sums = [event for event in record['operations'] if event['operation'] == 'sum']
+        assert sums and all(item['dtype'] == 'float32'
+                            for event in sums for item in event['inputs'] + event['outputs'])
+    outer = next(record for record in trace.records if 'counts-host' in record['stage'])
+    assert {item['dtype'] for item in outer['intermediates']['counts']} == {'int64'}
+    assert {item['dtype'] for item in outer['intermediates']['labels_core']} == {'int64'}
+
+
+@pytest.mark.parametrize('dtype', [np.float16, np.float64])
+def test_cupy_dbscan_geometry_contract_rejects_unexpected_precision(monkeypatch, dtype):
+    trace = _cupy_dbscan_source_trace_on_numpy(monkeypatch, dtype)
+    with pytest.raises(TraceIncomplete, match='Wrong floating dtype'):
+        trace.report()
+
+
+@pytest.mark.parametrize('field,value', [('backend', 'cupy'), ('device', 'cuda:0')])
+def test_cupy_dbscan_nested_geometry_still_rejects_wrong_placement(monkeypatch, field, value):
+    trace = _cupy_dbscan_source_trace_on_numpy(monkeypatch)
+    outer = next(record for record in trace.records if 'counts-host' in record['stage'])
+    event = next(event for event in outer['operations'] if event['operation'] == 'sum')
+    event['outputs'] = [dict(item, **{field: value}) for item in event['outputs']]
+    with pytest.raises(TraceIncomplete, match='wrong backend/device'):
+        trace.report()
+
+
+def test_unrelated_float64_stage_still_rejects_float32_numpy_arithmetic():
+    def target(x):
+        return np.sum(x.astype(np.float32))
+    trace = NumericalTrace(SimpleNamespace(name='numpy', module=np, device='cpu'),
+                           [stage(target, 'strict-float64', ('sum',), expected_dtype='float64')])
+    with trace:
+        target(np.ones(4, dtype=np.float64))
+    with pytest.raises(TraceIncomplete, match='Wrong floating dtype'):
+        trace.report()
+
+
+def test_physical_learning_failure_keeps_full_trace_diagnostics(monkeypatch):
+    row = {'status': 'blocked', 'reason': 'wrong dtype',
+           'execution_trace': [{'operations': [{'operation': 'sum',
+                'inputs': [{'backend': 'cupy', 'device': 'cuda:0', 'dtype': 'float32'}],
+                'outputs': [{'backend': 'cupy', 'device': 'cuda:0', 'dtype': 'float32'}]}],
+                'padding': list(range(200)), 'last_field': 'must-not-be-truncated'}]}
+    monkeypatch.setattr(learning, 'Runtime', lambda *args: object())
+    monkeypatch.setattr(learning, 'run_case', lambda *args: row)
+    with pytest.raises(pytest.fail.Exception) as error:
+        test_learning_algorithm_stages_physical_gpu_when_available('cupy', 'dbscan')
+    assert json.loads(str(error.value)) == row

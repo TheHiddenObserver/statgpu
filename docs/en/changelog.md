@@ -11,6 +11,7 @@ This page records user-visible changes for current and recent statgpu releases.
 
 ### Benchmark qualification improvements (PR #258)
 
+- Correct the CuPy DBSCAN outer-stage trace contract to the existing float32 distance arithmetic observed transitively; retain integer label/count evidence, strict backend checks and the independent clustering oracle. Production precision and numerical tolerances are unchanged.
 - Keep the unsupported-capability CLI regression aligned with the explicit configuration keyword contract; assert the intended blocked reason rather than accidentally testing a mock-signature TypeError.
 - Separate clean synchronized CV public-fit samples from profiled selector/refit diagnostics; preserve objective, folds, grids and numerical thresholds.
 - Reject active native Torch profiling and explicit nonconverged CV/final-refit results before retaining clean samples, including Cox RuntimeWarnings.
