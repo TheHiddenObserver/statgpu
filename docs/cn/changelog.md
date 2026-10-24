@@ -7,7 +7,7 @@
 
 ## 未发布 — 工作区修复
 
-### Benchmark 资格完善（PR 待创建）
+### Benchmark 资格完善（PR #258）
 
 - CV 干净同步公开拟合计时与 selector/refit 插桩诊断分离，保留目标函数、折分、参数网格及数值阈值。
 - 干净计时拒绝活动中的 Torch 原生 profiler，并检查 CV/最终 refit 的显式收敛状态，包括 Cox RuntimeWarning 对应的不收敛。
