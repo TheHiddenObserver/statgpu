@@ -623,3 +623,62 @@ def test_sklearn_invalid_dimensions_withhold_only_malformed_record(tmp_path, dim
     assert len(malformed_issues) == 1
     assert malformed_issues[0]["code"] == "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
     assert sum(issue["code"] == "ALIAS_OF_RETAINED_OBSERVATIONS" for issue in issues) == 3
+
+
+@pytest.mark.parametrize("metadata,expected_version,invalid", [
+    pytest.param({}, None, False, id="missing-packages"),
+    pytest.param({"runtime_packages": None}, None, False, id="null-packages"),
+    pytest.param({"runtime_packages": []}, None, True, id="list-packages"),
+    pytest.param({"runtime_packages": "unknown"}, None, True, id="string-packages"),
+    pytest.param({"runtime_packages": {}}, None, False, id="missing-version"),
+    pytest.param({"runtime_packages": {"scikit-learn": None}}, None, False, id="null-version"),
+    pytest.param({"runtime_packages": {"scikit-learn": []}}, None, True, id="list-version"),
+    pytest.param({"runtime_packages": {"scikit-learn": {}}}, None, True, id="object-version"),
+    pytest.param({"runtime_packages": {"scikit-learn": 123}}, None, True, id="numeric-version"),
+    pytest.param({"runtime_packages": {"scikit-learn": " "}}, None, True, id="blank-version"),
+    pytest.param({"runtime_packages": {"scikit-learn": "1.7.2"}}, "1.7.2", False, id="valid-version"),
+    pytest.param(None, None, False, id="null-environment"),
+    pytest.param([], None, True, id="list-environment"),
+    pytest.param("unknown", None, True, id="string-environment"),
+])
+def test_sklearn_optional_version_metadata_preserves_healthy_neighbors(
+        tmp_path, metadata, expected_version, invalid):
+    from dev.benchmarks.generate_benchmark_data import generate
+    from dev.benchmarks.frontend_data.cli import validate_semantic
+    doc = sklearn_cv_preview()
+    for record in doc["records"]:
+        record["environment"] = copy.deepcopy(metadata)
+    doc["jobs"][0]["environment"] = copy.deepcopy(metadata)
+    healthy = preview()["records"][0]
+    healthy.update(record_id="healthy-statgpu", job_id="healthy-job")
+    doc["records"].append(healthy)
+    original = copy.deepcopy(doc)
+    path = save(tmp_path / "preview.json", doc)
+    bundle = build_bundle(path)
+    rows = bundle["benchmark_data"]["runs"]
+    statgpu = [row for row in rows if row["framework"] == "statgpu"]
+    assert len(statgpu) == 1
+    assert statgpu[0]["metrics"]["operation_timing"]["duration_ms"] == 250
+    external = [row for row in rows if row["framework"] == "sklearn"]
+    if invalid:
+        assert external == []
+        assert len(bundle["parse_report"]["issues"]) == 4
+        assert {issue["code"] for issue in bundle["parse_report"]["issues"]} == {
+            "EXTERNAL_ADAPTER_VERSION_METADATA_INVALID"}
+    else:
+        assert len(external) == 1
+        assert external[0]["parameters"]["external_adapter_provenance"]["framework_version"] == expected_version
+        assert external[0]["metrics"]["operation_timing"]["duration_ms"] == 200
+        assert external[0]["parameters"]["original_context"] == doc["records"][0]["context"]
+        assert {issue["code"] for issue in bundle["parse_report"]["issues"]} == {
+            "ALIAS_OF_RETAINED_OBSERVATIONS"}
+    for row in rows:
+        assert row["evidence"]["qualification"] == "diagnostic_only"
+        assert row["evidence"]["performance_eligible"] is False
+        assert row["evidence"]["canonical_dashboard_ready"] is False
+        assert row["evidence"]["source_commit"] == "a" * 40
+    manifest = build_external_manifest(path, bundle, "2026-10-25")
+    data, report, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+    assert len(data["runs"]) == len(rows)
+    assert validate_semantic(data, manifest, True) == []
+    assert doc == original

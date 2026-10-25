@@ -333,6 +333,28 @@ def _external_lineage_reason(document, record):
     return None
 
 
+def _external_framework_version(record):
+    """Optional version metadata is unknown when absent, never inferred locally.
+
+    Null optional containers/versions also mean unrecorded. Other non-object
+    containers or non-string/blank versions are malformed, not provenance.
+    """
+    environment = record.get("environment")
+    if environment is None:
+        return None, None
+    if not isinstance(environment, dict):
+        return None, "EXTERNAL_ADAPTER_VERSION_METADATA_INVALID"
+    packages = environment.get("runtime_packages")
+    if packages is None:
+        return None, None
+    if not isinstance(packages, dict):
+        return None, "EXTERNAL_ADAPTER_VERSION_METADATA_INVALID"
+    version = packages.get("scikit-learn")
+    if version is not None and (not isinstance(version, str) or not version.strip()):
+        return None, "EXTERNAL_ADAPTER_VERSION_METADATA_INVALID"
+    return version, None
+
+
 def normalize_preview(document, filepath, env_id):
     runs, models, withheld = [], {}, []
     records = document["records"]
@@ -369,7 +391,10 @@ def normalize_preview(document, filepath, env_id):
         identity, identity_reason = _identity(record)
         lineage_reason = (_external_lineage_reason(document, record)
                           if identity and identity.get("framework", "statgpu") == "sklearn" else None)
-        reason = reason or identity_reason or lineage_reason or alias_reasons.get(rid)
+        framework_version, version_reason = (_external_framework_version(record)
+                                             if identity and identity.get("framework") == "sklearn"
+                                             else (None, None))
+        reason = reason or identity_reason or lineage_reason or version_reason or alias_reasons.get(rid)
         if reason:
             withheld.append({"record_id": rid, "reason": reason, "raw_pointer": record.get("raw_pointer")})
             continue
@@ -413,7 +438,7 @@ def normalize_preview(document, filepath, env_id):
                 "source_schema": record["source_schema"], "device": "cpu",
                 "summary_semantics": "recorded median validated against embedded repeat samples",
                 "repeat_sample_count": context["repeats"],
-                "framework_version": record.get("environment", {}).get("runtime_packages", {}).get("scikit-learn"),
+                "framework_version": framework_version,
             }
         runs.append(run)
     return runs, sorted(models.values(), key=lambda row: row["model_id"]), withheld
