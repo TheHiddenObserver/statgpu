@@ -497,3 +497,9 @@ input[type='radio'] {
     display: none;
   }
 }
+
+.source-provenance { min-width: 260px; max-width: 520px; overflow-wrap: anywhere; }
+.source-provenance details { margin-top: 4px; white-space: normal; }
+.source-provenance summary { cursor: pointer; }
+.source-provenance details div { margin-top: 4px; }
+.cpu-thread-control select { max-width: 290px; }

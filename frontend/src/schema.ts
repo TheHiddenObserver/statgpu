@@ -363,6 +363,7 @@ export interface FilterContext {
 }
 
 export interface FilterOptions {
+  ignoreCpuThreads?: boolean;
   ignoreScale?: boolean;
   ignoreExternal?: boolean;
   ignoreMetricScope?: boolean;

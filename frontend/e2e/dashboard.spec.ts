@@ -94,12 +94,11 @@ test.describe('Benchmark Dashboard', () => {
   });
 
   test('progressive filter — model selection reveals penalty dropdown', async ({ page }) => {
-    await page.locator('.filter-bar select').first().selectOption({ index: 1 });
+    await page.getByRole('combobox', { name: 'Model', exact: true }).selectOption({ index: 1 });
     await expect(page.getByText('Penalty:')).toBeVisible();
-    const penaltySelect = page.locator('.filter-bar select').nth(1);
-    if ((await penaltySelect.count()) > 0) {
-      await penaltySelect.selectOption({ index: 1 });
-    }
+    const penaltySelect = page.getByRole('combobox', { name: 'Penalty', exact: true });
+    await expect(penaltySelect).toBeVisible();
+    await penaltySelect.selectOption({ index: 1 });
   });
 
   test('scale chips are multi-selectable with .active class', async ({ page }) => {
@@ -184,7 +183,7 @@ test.describe('Benchmark Dashboard', () => {
   });
 
   test('changing model clears incompatible scale filters', async ({ page }) => {
-    const modelSelect = page.locator('.filter-bar select').first();
+    const modelSelect = page.getByRole('combobox', { name: 'Model', exact: true });
 
     await modelSelect.selectOption('PenalizedLinearRegression');
     const chip = page.locator('.scale-chip').first();

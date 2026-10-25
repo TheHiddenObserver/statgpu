@@ -50,10 +50,90 @@ def _read(filepath):
     return document
 
 
+SKLEARN_ADAPTER = "sklearn-scoped-cv-v2"
+
+
+def _sklearn_identity(record, context):
+    """Bind an external timing to its versioned CPU run, never to host backend."""
+    if record.get("source_schema") != "statgpu-scoped-cv-candidate-v2":
+        return "EXTERNAL_FRAMEWORK_REQUIRES_EXPLICIT_ADAPTER"
+    match = re.fullmatch(r"/results/\d+/case/runs/(\d+)/(timing|repeat_samples/(\d+))/(cv_evaluation_ms|final_refit_ms|total_fit_ms)",
+                         str(record.get("raw_pointer", "")))
+    if not match:
+        return "EXTERNAL_FRAMEWORK_REQUIRES_EXPLICIT_ADAPTER"
+    case = context.get("case")
+    if not isinstance(case, dict) or not isinstance(case.get("runs"), list):
+        return "EXTERNAL_FRAMEWORK_REQUIRES_EXPLICIT_ADAPTER"
+    case_root = str(record["raw_pointer"]).split("/runs/", 1)[0]
+    if (record.get("row_pointer") != case_root or context.get("scope") != record.get("timing_scope")
+            or not isinstance(context.get("scope"), str) or not context["scope"].strip()
+            or context.get("device", "cpu") != "cpu" or context.get("instrumented", True) is not True
+            or context.get("mode") is not None
+            or ("scope_source_pointer" in context and context["scope_source_pointer"] !=
+                case_root.removesuffix("/case") + "/protocol/timing_scope")):
+        return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
+    index = int(match.group(1))
+    if index >= len(case["runs"]):
+        return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
+    run = case["runs"][index]
+    if (not isinstance(run, dict) or run.get("framework") != "sklearn"
+            or run.get("backend") is not None or run.get("device") != "cpu"
+            or context.get("backend") is not None or context.get("requested_backend") is not None
+            or run.get("status") != "success" or context.get("status") != "success"):
+        return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
+    key = match.group(4)
+    if (record.get("unit") != "milliseconds" or record.get("timing_key") != key
+            or context.get("timing_kind") != "cv_diagnostic_stage"
+            or context.get("timing_phase") != key.removesuffix("_ms")
+            or any(not isinstance(record.get(name), str) or not re.fullmatch(pattern, record[name])
+                   for name, pattern in (("source_commit", r"[0-9a-f]{40}"),
+                                         ("raw_sha256", r"[0-9a-f]{64}"),
+                                         ("source_fingerprint", r"[0-9a-f]{64}")))):
+        return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
+    dataset = case.get("dataset", {})
+    if not isinstance(dataset, dict):
+        return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
+    # Missing values must not compare equal and reach the indexed alias checks.
+    # This scoped-CV adapter requires positive exact dimensions, not coercions.
+    for dimension in ("n_samples", "n_features"):
+        expected, observed = dataset.get(dimension), context.get(dimension)
+        if (type(expected) is not int or expected < 1
+                or type(observed) is not int or observed != expected):
+            return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
+    # Reject conflicting aliases even when another field has higher precedence.
+    dimension_sources = [context, context.get("problem"), context.get("shape")]
+    if isinstance(context.get("problem"), dict): dimension_sources.append(context["problem"].get("shape"))
+    for dimensions in dimension_sources:
+        if dimensions is None: continue
+        if not isinstance(dimensions, dict): return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
+        for keys, expected in ((("n", "n_samples"), dataset["n_samples"]),
+                               (("p", "n_features", "dimension"), dataset["n_features"])):
+            if any(key in dimensions and (type(dimensions[key]) is not int or dimensions[key] != expected) for key in keys):
+                return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
+    samples, timing = run.get("repeat_samples"), run.get("timing")
+    if (not isinstance(samples, list) or not samples or not isinstance(timing, dict)
+            or type(context.get("repeats")) is not int or len(samples) != context["repeats"]
+            or not all(isinstance(item, dict) and _positive(item.get(key)) for item in samples)
+            or not _same_timing(timing.get(key), statistics.median(item[key] for item in samples))):
+        return "EXTERNAL_ADAPTER_TIMING_MISMATCH"
+    sample_index = int(match.group(3)) if match.group(3) is not None else None
+    if sample_index is not None and sample_index >= len(samples):
+        return "EXTERNAL_ADAPTER_TIMING_MISMATCH"
+    value = timing[key] if sample_index is None else samples[sample_index][key]
+    if (not _same_timing(record.get("raw_value"), value)
+            or not _same_timing(record.get("summary_seconds"), value / 1000)):
+        return "EXTERNAL_ADAPTER_TIMING_MISMATCH"
+    return None
+
+
 def _identity(record):
     context = record.get("context", {})
     if not isinstance(context, dict): return None, "MALFORMED_CONTEXT"
-    if context.get("framework") not in (None, "statgpu"):
+    external = context.get("framework") == "sklearn"
+    if external:
+        reason = _sklearn_identity(record, context)
+        if reason: return None, reason
+    elif context.get("framework") not in (None, "statgpu"):
         return None, "EXTERNAL_FRAMEWORK_REQUIRES_EXPLICIT_ADAPTER"
     problem = context.get("problem", {})
     if not isinstance(problem, dict): problem = {}
@@ -61,6 +141,8 @@ def _identity(record):
     if not isinstance(shape, dict): shape = {}
     n = shape.get("n", shape.get("n_samples", context.get("n_samples", context.get("n"))))
     p = shape.get("p", shape.get("n_features", shape.get("dimension", context.get("n_features", context.get("p")))))
+    if external and (n != context.get("n_samples") or p != context.get("n_features")):
+        return None, "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
     classification = record.get("suite_or_lane") == "classification-metrics"
     if classification and p is None: p = 0
     if type(n) is not int or n < 1: return None, "MISSING_EXACT_SAMPLE_DIMENSION"
@@ -71,7 +153,7 @@ def _identity(record):
         if backend.get("requested") is not None and backend.get("executed") is not None and backend["requested"] != backend["executed"]:
             return None, "CONTRADICTORY_MEASURED_BACKEND"
         backend = backend.get("requested", backend.get("executed"))
-    if backend not in ("numpy", "cupy", "torch"): return None, "UNRESOLVED_MEASURED_BACKEND"
+    if not external and backend not in ("numpy", "cupy", "torch"): return None, "UNRESOLVED_MEASURED_BACKEND"
     nested = context.get("case")
     nested = nested if isinstance(nested, dict) else {}
     if context.get("identity_conflicts"):
@@ -91,7 +173,8 @@ def _identity(record):
     if not isinstance(case, str) and isinstance(context.get("benchmark"), dict):
         case = context["benchmark"].get("public_api")
     if not isinstance(case, str) or not case: return None, "UNRESOLVED_CASE_IDENTITY"
-    return {"n": n, "p": p, "backend": backend, "case": case, "classification": classification}, None
+    return {"n": n, "p": p, "backend": backend, "case": case, "classification": classification,
+            **({"framework": "sklearn"} if external else {})}, None
 
 
 def _cv_observation(record):
@@ -228,6 +311,94 @@ def _alias_dispositions(records):
     return reasons
 
 
+def _external_required_metadata_reason(item, *, record=False):
+    """Check external ingress shapes before aliases or display serialization.
+
+    Equality with a job is not type validation. Unknown optional thread fields
+    remain unknown; this gate does not infer thread counts or qualification.
+    """
+    for key in ("job_id", "campaign_id", "suite_or_lane", "raw_path"):
+        if not isinstance(item.get(key), str) or not item[key].strip():
+            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    if not isinstance(item.get("configuration"), dict):
+        return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    cpu = item.get("cpu_thread_profile")
+    if not isinstance(cpu, dict):
+        return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    requested = cpu.get("requested_cap")
+    if requested is not None and (type(requested) is not int or requested < 1):
+        return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    for key in ("observed_pool_threads", "observed_torch_threads"):
+        values = cpu.get(key)
+        if values is not None and not (
+                type(values) is int and values > 0
+                or isinstance(values, list) and all(type(value) is int and value > 0 for value in values)):
+            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    for key in ("cap_verified", "all_observed_equal_requested"):
+        if key in cpu and type(cpu[key]) is not bool:
+            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    if "claim" in cpu and not isinstance(cpu["claim"], str):
+        return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    if record:
+        if item.get("raw_performance_eligible") is not None and type(item["raw_performance_eligible"]) is not bool:
+            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+        for key in ("raw_pointer", "row_pointer", "timing_key"):
+            if not isinstance(item.get(key), str) or not item[key].strip():
+                return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+        if "statistic" in item and (not isinstance(item["statistic"], str) or not item["statistic"].strip()):
+            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+        if "sample_count" in item and (type(item["sample_count"]) is not int or item["sample_count"] < 1):
+            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    return None
+
+
+def _external_lineage_reason(document, record):
+    """External adapters require one consistent job and campaign provenance."""
+    jobs = document.get("jobs", [])
+    campaigns = document.get("campaigns", [])
+    if not isinstance(jobs, list) or not isinstance(campaigns, list):
+        return "EXTERNAL_ADAPTER_LINEAGE_MISMATCH"
+    jobs = [item for item in jobs if isinstance(item, dict) and item.get("job_id") == record.get("job_id")]
+    campaigns = [item for item in campaigns if isinstance(item, dict) and item.get("campaign_id") == record.get("campaign_id")]
+    if len(jobs) != 1 or len(campaigns) != 1:
+        return "EXTERNAL_ADAPTER_LINEAGE_MISMATCH"
+    job, campaign = jobs[0], campaigns[0]
+    reason = _external_required_metadata_reason(job)
+    if reason:
+        return reason
+    fields = ("campaign_id", "source_commit", "source_fingerprint", "raw_path", "raw_sha256",
+              "suite_or_lane", "configuration", "cpu_thread_profile", "environment",
+              "validation_status", "correctness_status")
+    if (any(key not in job or job[key] != record.get(key) for key in fields)
+            or any(campaign.get(key) != record.get(key) for key in ("source_commit", "source_fingerprint"))
+            or campaign.get("integrity_errors") or job.get("evidence_errors")
+            or job.get("performance_eligible") is not False or job.get("canonical_dashboard_ready") is not False):
+        return "EXTERNAL_ADAPTER_LINEAGE_MISMATCH"
+    return None
+
+
+def _external_framework_version(record):
+    """Optional version metadata is unknown when absent, never inferred locally.
+
+    Null optional containers/versions also mean unrecorded. Other non-object
+    containers or non-string/blank versions are malformed, not provenance.
+    """
+    environment = record.get("environment")
+    if environment is None:
+        return None, None
+    if not isinstance(environment, dict):
+        return None, "EXTERNAL_ADAPTER_VERSION_METADATA_INVALID"
+    packages = environment.get("runtime_packages")
+    if packages is None:
+        return None, None
+    if not isinstance(packages, dict):
+        return None, "EXTERNAL_ADAPTER_VERSION_METADATA_INVALID"
+    version = packages.get("scikit-learn")
+    if version is not None and (not isinstance(version, str) or not version.strip()):
+        return None, "EXTERNAL_ADAPTER_VERSION_METADATA_INVALID"
+    return version, None
+
+
 def normalize_preview(document, filepath, env_id):
     runs, models, withheld = [], {}, []
     records = document["records"]
@@ -237,7 +408,14 @@ def normalize_preview(document, filepath, env_id):
         rid = record.get("record_id")
         if not isinstance(rid, str) or not rid or rid in seen: raise ValueError("Missing/duplicate diagnostic record ID")
         seen.add(rid)
-    alias_reasons = _alias_dispositions(records)
+    ingress_reasons = {
+        row["record_id"]: _external_required_metadata_reason(row, record=True)
+        for row in records if isinstance(row.get("context"), dict)
+        and row["context"].get("framework") == "sklearn"
+    }
+    alias_reasons = _alias_dispositions([
+        row for row in records if not ingress_reasons.get(row["record_id"])
+    ])
     source_hash = hashlib.sha256(filepath.read_bytes()).hexdigest()
     seen = set()
     for record in records:
@@ -245,11 +423,15 @@ def normalize_preview(document, filepath, env_id):
         rid = record.get("record_id")
         if not isinstance(rid, str) or not rid or rid in seen: raise ValueError("Missing/duplicate diagnostic record ID")
         seen.add(rid)
-        reason = None
-        if record.get("validation_status") != "validated_diagnostic" or record.get("correctness_status") not in ("complete", "pass", "passed", "success") or record.get("evidence_errors"):
-            reason = "CORRECTNESS_OR_EVIDENCE_NOT_QUALIFIED"
         if record.get("performance_eligible") is not False or record.get("canonical_dashboard_ready") is not False:
             raise ValueError("Diagnostic record attempted performance promotion")
+        reason = ingress_reasons.get(rid)
+        if reason:
+            reason = _identity(record)[1] or reason
+            withheld.append({"record_id": rid, "reason": reason, "raw_pointer": record.get("raw_pointer")})
+            continue
+        if record.get("validation_status") != "validated_diagnostic" or record.get("correctness_status") not in ("complete", "pass", "passed", "success") or record.get("evidence_errors"):
+            reason = "CORRECTNESS_OR_EVIDENCE_NOT_QUALIFIED"
         path = record.get("raw_pointer", "")
         if (record.get("suite_or_lane") == "six-family-cv"
                 and record.get("source_schema") != "statgpu-scoped-cv-candidate-v2"
@@ -262,7 +444,12 @@ def normalize_preview(document, filepath, env_id):
         if type(duration) not in (int, float) or not math.isfinite(duration) or duration <= 0:
             reason = reason or "NO_POSITIVE_REPRESENTABLE_TIMING"
         identity, identity_reason = _identity(record)
-        reason = reason or identity_reason or alias_reasons.get(rid)
+        lineage_reason = (_external_lineage_reason(document, record)
+                          if identity and identity.get("framework", "statgpu") == "sklearn" else None)
+        framework_version, version_reason = (_external_framework_version(record)
+                                             if identity and identity.get("framework") == "sklearn"
+                                             else (None, None))
+        reason = reason or identity_reason or lineage_reason or version_reason or alias_reasons.get(rid)
         if reason:
             withheld.append({"record_id": rid, "reason": reason, "raw_pointer": record.get("raw_pointer")})
             continue
@@ -290,7 +477,7 @@ def normalize_preview(document, filepath, env_id):
         if "sample_count" in record: timing["sample_count"] = record["sample_count"]
         local_env = env_id + "-" + hashlib.sha256(_canonical([record.get("environment"), record.get("source_commit"), cpu]).encode()).hexdigest()[:12]
         run = {"run_id": _identifier("diagnostic", rid), "env_id": local_env, "category_ids": [CATEGORY["category_id"]],
-               "model_id": model_id, "framework": "statgpu", "backend": identity["backend"], "scale": scale,
+               "model_id": model_id, "framework": identity.get("framework", "statgpu"), "backend": identity["backend"], "scale": scale,
                "benchmark_session_id": record["campaign_id"], "comparison_id": "diagnostic:" + record["job_id"],
                "case_id": _identifier("case", [record["job_id"], identity, record["row_pointer"], context.get("problem")]),
                "method_config_id": _identifier("method", [record["configuration"], cpu, scope, record["raw_pointer"]]),
@@ -300,6 +487,14 @@ def normalize_preview(document, filepath, env_id):
                           "original_path": str(filepath), "sha256": source_hash, "date": "unknown",
                           "parser": "qualification_preview", "parser_version": "1.0"},
                "metrics": {"operation_timing": timing}, "evidence": evidence}
+        if identity.get("framework", "statgpu") == "sklearn":
+            run["parameters"]["external_adapter"] = SKLEARN_ADAPTER
+            run["parameters"]["external_adapter_provenance"] = {
+                "source_schema": record["source_schema"], "device": "cpu",
+                "summary_semantics": "recorded median validated against embedded repeat samples",
+                "repeat_sample_count": context["repeats"],
+                "framework_version": framework_version,
+            }
         runs.append(run)
     return runs, sorted(models.values(), key=lambda row: row["model_id"]), withheld
 
