@@ -2,7 +2,7 @@
 
 ## Status
 
-Schema version `1.1.0` is the current benchmark dashboard contract.
+Schema version `1.1.0` remains the canonical historical dashboard contract. The consumer also supports the explicit operation/evidence extension in [Schema v1.2](schema-v1.2.md).
 
 Sources of truth:
 
@@ -11,7 +11,7 @@ Sources of truth:
 - Runtime consumer check: `frontend/src/data.ts`
 - Python structural and semantic validation: `dev/benchmarks/frontend_data/cli.py`
 
-The JSON Schema pins `schema_version` to the constant `1.1.0`. The frontend rejects any other version rather than attempting a best-effort interpretation.
+The JSON Schema and frontend accept `1.1.0` and `1.2.0`, rejecting other versions. Version 1.1 retains its existing fit-time and positive feature-dimension requirements; operation timing, evidence, and not-applicable feature dimensions require version 1.2.
 
 ## Bundle
 

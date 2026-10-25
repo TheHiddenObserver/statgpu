@@ -1,4 +1,4 @@
-/** TypeScript types matching benchmark_frontend_schema.json v1.1.0 */
+/** TypeScript types matching benchmark_frontend_schema.json v1.1.0 / v1.2.0 */
 
 export type MetricQuality = 'measured' | 'reported' | 'computed' | 'partial';
 export type MetricScope =
@@ -7,7 +7,8 @@ export type MetricScope =
   | 'cross_validation'
   | 'inference'
   | 'prediction'
-  | 'selection';
+  | 'selection'
+  | 'operation';
 
 export interface BenchmarkData {
   schema_version: string;
@@ -87,12 +88,14 @@ export interface Run {
   source: Source;
   metrics: Metrics;
   quality?: Quality;
+  evidence?: Evidence;
 }
 
 export interface Scale {
   scale_key: string;
   n_samples: number;
   n_features: number;
+  feature_dimension_kind?: 'measured' | 'not_applicable';
   label: string;
 }
 
@@ -108,6 +111,7 @@ export interface Source {
 
 export interface Metrics {
   timing?: TimingMetric;
+  operation_timing?: OperationTimingMetric;
   speedup?: SpeedupMetric;
   accuracy?: AccuracyMetric;
   inference?: InferenceMetric;
@@ -128,6 +132,35 @@ export interface TimingMetric {
   std_scope?: 'raw_measurements' | 'replicates';
   quality: MetricQuality;
   source_file: string;
+}
+
+/** Explicit non-fit timing; never re-labelled as legacy fit_time_ms. */
+export interface OperationTimingMetric {
+  duration_ms: number;
+  scope: string;
+  statistic: string;
+  unit: 'ms';
+  sample_count?: number;
+  quality: MetricQuality;
+  source_file: string;
+}
+
+/** Qualification is separate from the source's unchanged eligibility claim. */
+export interface Evidence {
+  qualification: 'diagnostic_only' | 'operator_attested' | 'machine_verified';
+  correctness_status: string;
+  validation_status: string;
+  performance_eligible: boolean;
+  canonical_dashboard_ready: boolean;
+  machine_verified_exclusivity: boolean;
+  raw_performance_eligible?: boolean | null;
+  operator_attestation?: unknown;
+  raw_pointer: string;
+  source_commit: string | null;
+  source_fingerprint?: string | null;
+  cpu_threads_requested?: unknown;
+  cpu_threads_observed?: unknown;
+  evidence_errors?: string[];
 }
 
 export interface SpeedupMetric {

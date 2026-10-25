@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://statgpu.org/benchmark-frontend-schema.json",
-  "title": "statgpu Benchmark Frontend Data Schema v1.1.0",
-  "description": "Normalized benchmark data for the statgpu frontend dashboard.",
+  "title": "statgpu Benchmark Frontend Data v1.1 / v1.2",
+  "description": "Normalized dashboard data. Version 1.2 adds explicit operation timings and evidence, without changing v1.1 fit timing semantics.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -18,7 +18,10 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "1.1.0"
+      "enum": [
+        "1.1.0",
+        "1.2.0"
+      ]
     },
     "generated": {
       "type": "string",
@@ -370,12 +373,49 @@
               },
               "n_features": {
                 "type": "integer",
-                "minimum": 1
+                "minimum": 0
               },
               "label": {
                 "type": "string"
+              },
+              "feature_dimension_kind": {
+                "enum": [
+                  "measured",
+                  "not_applicable"
+                ]
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "n_features": {
+                      "const": 0
+                    }
+                  },
+                  "required": [
+                    "n_features"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "feature_dimension_kind": {
+                      "const": "not_applicable"
+                    }
+                  },
+                  "required": [
+                    "feature_dimension_kind"
+                  ]
+                },
+                "else": {
+                  "properties": {
+                    "feature_dimension_kind": {
+                      "const": "measured"
+                    }
+                  }
+                }
+              }
+            ]
           },
           "source": {
             "type": "object",
@@ -1071,7 +1111,58 @@
                     "type": "string"
                   }
                 }
+              },
+              "operation_timing": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "duration_ms",
+                  "scope",
+                  "statistic",
+                  "unit",
+                  "quality",
+                  "source_file"
+                ],
+                "properties": {
+                  "duration_ms": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "scope": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "statistic": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "unit": {
+                    "const": "ms"
+                  },
+                  "sample_count": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "quality": {
+                    "type": "string",
+                    "enum": [
+                      "measured",
+                      "reported",
+                      "computed",
+                      "partial"
+                    ]
+                  },
+                  "source_file": {
+                    "type": "string"
+                  }
+                }
               }
+            },
+            "not": {
+              "required": [
+                "timing",
+                "operation_timing"
+              ]
             }
           },
           "quality": {
@@ -1093,9 +1184,245 @@
                 }
               }
             }
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "qualification",
+              "correctness_status",
+              "validation_status",
+              "performance_eligible",
+              "canonical_dashboard_ready",
+              "machine_verified_exclusivity",
+              "raw_pointer",
+              "source_commit"
+            ],
+            "properties": {
+              "qualification": {
+                "enum": [
+                  "diagnostic_only",
+                  "operator_attested",
+                  "machine_verified"
+                ]
+              },
+              "correctness_status": {
+                "type": "string",
+                "minLength": 1
+              },
+              "validation_status": {
+                "type": "string",
+                "minLength": 1
+              },
+              "performance_eligible": {
+                "type": "boolean"
+              },
+              "canonical_dashboard_ready": {
+                "type": "boolean"
+              },
+              "machine_verified_exclusivity": {
+                "type": "boolean"
+              },
+              "raw_performance_eligible": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "operator_attestation": {},
+              "raw_pointer": {
+                "type": "string"
+              },
+              "source_commit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source_fingerprint": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cpu_threads_requested": {},
+              "cpu_threads_observed": {},
+              "evidence_errors": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "performance_eligible": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "performance_eligible"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "raw_performance_eligible",
+                    "source_fingerprint"
+                  ],
+                  "properties": {
+                    "qualification": {
+                      "const": "machine_verified"
+                    },
+                    "correctness_status": {
+                      "const": "pass"
+                    },
+                    "validation_status": {
+                      "const": "pass"
+                    },
+                    "canonical_dashboard_ready": {
+                      "const": true
+                    },
+                    "machine_verified_exclusivity": {
+                      "const": true
+                    },
+                    "raw_performance_eligible": {
+                      "const": true
+                    },
+                    "source_commit": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{40}$"
+                    },
+                    "source_fingerprint": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "evidence_errors": {
+                      "maxItems": 0
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "canonical_dashboard_ready": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "canonical_dashboard_ready"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "performance_eligible": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "metrics": {
+                  "required": [
+                    "operation_timing"
+                  ]
+                }
+              },
+              "required": [
+                "metrics"
+              ]
+            },
+            "then": {
+              "required": [
+                "evidence"
+              ]
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "evidence"
+              ],
+              "properties": {
+                "evidence": {
+                  "properties": {
+                    "performance_eligible": {
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "performance_eligible"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "metrics": {
+                  "not": {
+                    "required": [
+                      "speedup"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "1.1.0"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "runs": {
+            "items": {
+              "not": {
+                "required": [
+                  "evidence"
+                ]
+              },
+              "properties": {
+                "metrics": {
+                  "not": {
+                    "required": [
+                      "operation_timing"
+                    ]
+                  }
+                },
+                "scale": {
+                  "properties": {
+                    "n_features": {
+                      "minimum": 1
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "feature_dimension_kind"
+                    ]
+                  }
+                }
+              }
+            }
           }
         }
       }
     }
-  }
+  ]
 }

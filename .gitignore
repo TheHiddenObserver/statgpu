@@ -143,6 +143,7 @@ frontend/playwright-report/
 !dev/benchmarks/
 !dev/benchmarks/frontend_data/
 !dev/benchmarks/frontend_data/**
+!dev/benchmarks/export_qualification_preview.py
 !dev/benchmarks/generate_benchmark_data.py
 !dev/benchmarks/benchmark_frontend_schema.json
 !dev/benchmarks/frontend_sources.json
@@ -155,3 +156,11 @@ frontend/playwright-report/
 results/*
 !results/benchmark_frontend_sources/
 !results/benchmark_frontend_sources/**
+
+# Maintained diagnostic data-update tools; keep generated evidence ignored.
+!dev/benchmarks/data_update/
+dev/benchmarks/data_update/*
+!dev/benchmarks/data_update/*.py
+!dev/benchmarks/data_update/README.md
+!dev/benchmarks/data_update/operator-attestation.example.json
+!dev/benchmarks/data_update/VALIDATION.md

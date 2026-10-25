@@ -303,8 +303,13 @@ def generate(results_dir: Path, deterministic: bool = False,
         git_sha = get_git_sha()
 
     # Build output
+    diagnostic_preview = bool(manifest and manifest.get("diagnostic_only")) or any("evidence" in run or "operation_timing" in run.get("metrics", {}) for run in all_runs)
+    output_categories = list(CATEGORIES)
+    if any("diagnostic_evidence" in run.get("category_ids", []) for run in all_runs):
+        from .parsers.qualification_preview import CATEGORY
+        output_categories.append(CATEGORY)
     output = {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0" if diagnostic_preview else "1.1.0",
         "generated": generated_ts,
         "meta": {
             "generator": "dev/benchmarks/generate_benchmark_data.py",
@@ -312,7 +317,7 @@ def generate(results_dir: Path, deterministic: bool = False,
             "generation_id": "",
         },
         "environments": environments,
-        "categories": CATEGORIES,
+        "categories": output_categories,
         "models": sorted(all_models.values(), key=lambda x: x["model_id"]),
         "frameworks": t_frameworks,
         "comparisons": t_comparisons,
@@ -831,6 +836,7 @@ def main():
     parser.add_argument("--report", help="Output path for parse_report.json")
     parser.add_argument("--check", action="store_true", help="Validate only, don't write output")
     parser.add_argument("--results-dir", default="results", help="Directory containing benchmark result files")
+    parser.add_argument("--manifest", type=Path, help="Explicit external source manifest; defaults to repository canonical manifest")
     parser.add_argument("--deterministic", action="store_true",
                         help="Freeze generated/git_sha for CI staleness checks")
     parser.add_argument("--update-preflight-baseline", action="store_true",
@@ -861,9 +867,16 @@ def main():
     # Load manifest if available (A2+)
     from .registry import load_manifest
     repo_root = Path(__file__).resolve().parents[3]
-    manifest = load_manifest(repo_root)
+    if args.manifest:
+        from .registry import validate_manifest_source_dates
+        with args.manifest.open("r", encoding="utf-8") as stream:
+            manifest = json.load(stream)
+        validate_manifest_source_dates(manifest)
+    else:
+        manifest = load_manifest(repo_root)
     if manifest:
-        print("Using manifest-driven canonical mode")
+        print("Using external diagnostic manifest mode; no canonical performance promotion" if manifest.get("diagnostic_only") is True
+              else "Using manifest-driven canonical mode")
 
     print(f"Scanning results from: {results_dir}")
     output, parse_report, source_inventory = generate(results_dir, deterministic=args.deterministic,

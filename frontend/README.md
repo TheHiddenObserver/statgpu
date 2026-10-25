@@ -47,6 +47,14 @@ Validation-only runs such as PR #122 do not participate in either speedup class 
 
 The speedup chart uses a dashed gray 1× parity line with a compact in-chart `1×` badge and `×` axis labels. Runner-reported bars use a subtle border instead of a patterned fill. The global headline card displays only the fastest runner-reported GPU speedup; computed ratios remain available in the chart and raw data for auditing.
 
+## Local benchmark update evidence
+
+The **Local benchmark update preview** section opens an exported `preview_data.json` directly from your computer. It does not upload the file or replace the canonical dataset. It displays every exported timing field, including registered and expanded suites and independent lanes, plus planned jobs that were blocked or not run. Filter timings by job or search scope/backend/operation; open each row for source pointers, original values, CPU-thread observations, and environment details.
+
+This local viewer displays stored validation claims; it does not authenticate the export digest or rerun validators. A separate Python normalization step verifies the export digest before producing a Schema v1.2 bundle. Neither route proves exclusive GPU use. Operator attestation is displayed separately from machine verification, and raw eligibility remains distinct from effective diagnostic-only eligibility. Diagnostic records never generate speedup bars or headline ratios. Canonical operation-speedup generation and performance promotion are not supported by this update; the canonical computed-ratio validator continues to require legacy fit timing.
+
+Schema v1.2 uses `metrics.operation_timing` with an explicit scope and statistic instead of calling arbitrary work `fit_time_ms`. Classification scales retain `p=0` as a not-applicable feature dimension. Missing, zero, invalid, and unknown-scope timing fields remain inspectable in the raw preview without becoming fit timings. Existing Schema v1.1 data remains supported and unchanged. See the [extension contract](../docs/benchmark-dashboard/schema-v1.2.md).
+
 ## Requirements
 
 - Node.js 20 or later.
@@ -122,7 +130,7 @@ frontend/
 │   └── state.spec.ts
 └── src/
     ├── main.ts                  # Application orchestration
-    ├── schema.ts                # Schema v1.1.0 TypeScript types
+    ├── schema.ts                # Schema v1.1/v1.2 TypeScript types
     ├── data.ts                  # Loading and filtering
     ├── state.ts                 # Defaults and cascade resets
     ├── identity.ts              # Chart/group identities

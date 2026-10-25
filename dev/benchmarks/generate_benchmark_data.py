@@ -142,6 +142,22 @@ def generate(
         manifest=manifest,
         strict_sources=strict_sources,
     )
+    if manifest is not None and manifest.get("diagnostic_only") is True:
+        if any(source.get("parser") != "qualification_preview" for source in manifest.get("sources", [])):
+            raise ValueError("Diagnostic-only manifest accepts only qualification_preview sources")
+        count = len(manifest.get("sources", []))
+        inventory = _InventoryV2({
+            "inventory_version": "2.0", "catalog_version": "diagnostic-preview-1", "generation_id": "",
+            "discovered_json_artifacts": count, "classified_candidate_sources": count,
+            "eligible_sources": 0, "registered_sources": count,
+            "available_registered_sources": legacy_inventory["available_sources"],
+            "parsed_registered_sources": parse_report["files_parsed"],
+            "eligible_unregistered_sources": 0, "not_canonical_ready_sources": count,
+            "historical_or_excluded_sources": 0, "unclassified_artifacts": 0,
+            "catalog_entries": [], "coverage_status_counts": {"diagnostic_only": len(output["runs"])},
+        })
+        _assign_bundle_generation_id(output, parse_report, inventory)
+        return output, parse_report, inventory
     if not _is_repository_manifest(manifest):
         return output, parse_report, legacy_inventory
 

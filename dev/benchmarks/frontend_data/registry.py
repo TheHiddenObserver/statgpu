@@ -6,6 +6,8 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
+from .parsers.qualification_preview import parse_qualification_preview
+
 from .parsers import (
     parse_penalized_glm_bench_perf,
     parse_glm_solver_benchmark,
@@ -56,6 +58,7 @@ PARSER_REGISTRY: dict[str, dict] = {
 # Parser function lookup by name. Parsers may remain available for historical
 # files even when those files are not registered in the dashboard manifest.
 PARSER_FUNCTIONS = {
+    "qualification_preview": parse_qualification_preview,
     "penalized_glm_bench_perf": parse_penalized_glm_bench_perf,
     "glm_solver_benchmark": parse_glm_solver_benchmark,
     "elasticnet_benchmark_full": parse_elasticnet_benchmark_full,

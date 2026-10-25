@@ -1,3 +1,4 @@
+import { canDisplaySpeedup } from '../timing';
 import type { BenchmarkData, ParseReport, Run } from '../schema';
 import { h } from '../utils/dom';
 
@@ -8,12 +9,14 @@ export function renderSummaryCards(
   runs: Run[],
 ): HTMLElement {
   const row = h('div', { class: 'summary-cards' });
+  const diagnostic = data.runs.some(run => run.evidence && !run.evidence.canonical_dashboard_ready);
 
   row.appendChild(
     summaryCard(
       String(data.runs.length),
-      'Benchmark runs',
-      'Number of normalized run records in the canonical dashboard bundle.',
+      diagnostic ? 'Diagnostic runs' : 'Benchmark runs',
+      diagnostic ? 'Normalized diagnostic records, not canonical performance evidence.'
+        : 'Number of normalized run records in the canonical dashboard bundle.',
     ),
   );
 
@@ -32,7 +35,7 @@ export function renderSummaryCards(
     summaryCard(
       String(data.categories.length),
       'Benchmark categories',
-      'Number of statistical benchmark categories defined by Schema v1.1.',
+      `Number of benchmark categories in this Schema ${data.schema_version} bundle.`,
     ),
   );
 
@@ -45,6 +48,7 @@ export function renderSummaryCards(
       run.framework !== 'statgpu' ||
       run.backend === 'numpy' ||
       !speedup ||
+      !canDisplaySpeedup(run, runs) ||
       speedup.reported_semantics !== 'reported_by_runner'
     ) {
       continue;

@@ -1,4 +1,5 @@
 import { echarts, type ECharts } from '../echarts';
+import { timingValue, timingScopeLabel } from '../timing';
 import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { CHART_STYLE, COLORS } from '../utils/theme';
@@ -13,7 +14,8 @@ interface TimingSelection {
 }
 
 function groupKey(run: Run): string {
-  return JSON.stringify(chartGroupIdentity(run, false));
+  return JSON.stringify([...chartGroupIdentity(run, Boolean(run.metrics.operation_timing)),
+    run.metrics.operation_timing?.scope ?? null, run.metrics.operation_timing?.statistic ?? null]);
 }
 
 function solverFamilyKey(run: Run): string {
@@ -36,7 +38,7 @@ function shouldFocusDefaultSurvivalImplementation(state: AppState): boolean {
 }
 
 export function selectTimingRuns(runs: Run[], state: AppState): TimingSelection {
-  const timingRuns = runs.filter((run) => run.metrics.timing);
+  const timingRuns = runs.filter((run) => timingValue(run) !== null);
   if (state.chartViewMode === 'full' || timingRuns.length === 0) {
     return {
       runs: timingRuns,
@@ -132,7 +134,9 @@ export function selectTimingRuns(runs: Run[], state: AppState): TimingSelection 
 
 export function formatGroupLabel(run: Run, focused: boolean, includeScale = false): string {
   const variant = run.variant ? ` (${run.variant})` : '';
-  const model = `${formatModelName(run.model_id)}${variant}`;
+  const operation = run.metrics.operation_timing;
+  const detail = operation ? ` · ${timingScopeLabel(run)} · ${operation.statistic}` : '';
+  const model = `${formatModelName(run.model_id)}${variant}${detail}`;
   const penalty = run.penalty && run.penalty !== 'none' ? run.penalty : null;
   const solver = run.solver_display ?? run.solver ?? 'unknown';
 
@@ -163,12 +167,13 @@ export function renderTimingChart(
 
   const selection = selectTimingRuns(runs, state);
   const timingRuns = selection.runs;
+  const timingTitle = timingRuns.some(run => run.metrics.operation_timing) ? 'Operation Time' : 'Fit Time';
   el.dataset.chartView = state.chartViewMode;
   el.dataset.penaltyScope = selection.penaltyScope;
   el.dataset.implementationScope = selection.implementationScope;
   el.setAttribute(
     'aria-label',
-    `Fit Time chart — ${state.chartViewMode === 'focused' ? 'focused representative view' : 'full matrix view'}${selection.penaltyScope === 'penalized-only' ? '; penalized rows only' : ''}${selection.implementationScope === 'default-only' ? '; default NumPy implementation only' : ''}`,
+    `${timingTitle} chart — ${state.chartViewMode === 'focused' ? 'focused representative view' : 'full matrix view'}${selection.penaltyScope === 'penalized-only' ? '; penalized rows only' : ''}${selection.implementationScope === 'default-only' ? '; default NumPy implementation only' : ''}`,
   );
 
   if (timingRuns.length === 0) {
@@ -224,7 +229,7 @@ export function renderTimingChart(
     }
     const series = makeSeries(run);
     seriesMeta.set(series.key, series);
-    groups.get(key)!.bySeries.set(series.key, run.metrics.timing!.fit_time_ms);
+    groups.get(key)!.bySeries.set(series.key, timingValue(run)!);
   }
 
   const allGroups = [...groups.entries()].sort(([, a], [, b]) =>
@@ -237,6 +242,9 @@ export function renderTimingChart(
   el.dataset.timingDisplayed = String(sortedGroups.length);
 
   const subtitleParts = [...selection.notes];
+  if (timingRuns.some(run => run.evidence && !run.evidence.performance_eligible)) {
+    subtitleParts.push('diagnostic timings, not performance-qualified');
+  }
   if (isFocused && allGroups.length > sortedGroups.length) {
     subtitleParts.push(`showing ${sortedGroups.length}/${allGroups.length} groups`);
   } else if (hasScroll) {
@@ -295,7 +303,7 @@ export function renderTimingChart(
   chart.setOption(
     {
       title: {
-        text: 'Fit Time (ms)',
+        text: `${timingTitle} (ms)`,
         subtext: subtitleParts.join(' · '),
         left: 'center',
         textStyle: { fontSize: 13, color: CHART_STYLE.text },

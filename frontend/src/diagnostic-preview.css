@@ -1,0 +1,13 @@
+.diagnostic-preview { margin: 12px 20px; padding: 14px 18px; background: #fff; border: 1px solid #ccd3de; border-radius: 8px; }
+.diagnostic-preview > summary { cursor: pointer; font-weight: 600; }
+.diagnostic-preview p { max-width: 100ch; }
+.diagnostic-preview label, .diagnostic-preview button, .diagnostic-preview input { margin-right: 10px; }
+.preview-warning { padding: 10px 14px; background: #fff7e8; border-left: 4px solid #bf8d36; }
+.preview-table-wrap { overflow-x: auto; max-width: 100%; margin: 12px 0; }
+.preview-table-wrap table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.preview-table-wrap th, .preview-table-wrap td { padding: 8px; border: 1px solid #dde2ea; vertical-align: top; text-align: left; }
+.preview-detail summary { cursor: pointer; overflow-wrap: anywhere; }
+.preview-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; max-width: 80ch; }
+.preview-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 18px; }
+.preview-controls select { max-width: min(100%, 40ch); }
+@media (max-width: 700px) { .diagnostic-preview { margin: 10px; padding: 12px; } }

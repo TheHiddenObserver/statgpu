@@ -1,3 +1,4 @@
+import { timingValue, timingQuality, evidenceLabel, canDisplaySpeedup } from '../timing';
 import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { h } from '../utils/dom';
@@ -36,13 +37,13 @@ interface Column {
 function formatScope(run: Run): string {
   const scope = getPrimaryMetricScope(run);
   const label = getMetricScopeLabel(scope);
-  const timingScope = run.parameters?.timing_scope;
+  const timingScope = run.metrics.operation_timing?.scope ?? run.parameters?.timing_scope;
   if (timingScope == null) return label;
   const detail = String(timingScope).replace(/_/g, ' ');
   return detail.toLowerCase() === label.toLowerCase() ? label : `${label} · ${detail}`;
 }
 
-function buildColumns(): Column[] {
+function buildColumns(runs: Run[]): Column[] {
   return [
     { key: 'model_id', label: 'Model',
       sortValue: r => r.model_id,
@@ -65,23 +66,29 @@ function buildColumns(): Column[] {
       sortValue: r => r.scale.label,
       render: r => r.scale.label },
     { key: 'time_ms', label: 'Time (ms)',
-      sortValue: r => r.metrics.timing?.fit_time_ms ?? null,
+      sortValue: r => timingValue(r),
       render: r => {
-        const t = r.metrics.timing;
-        return t ? formatTime(t.fit_time_ms, t.std_ms) : '-';
+        const value = timingValue(r);
+        return value == null ? '-' : formatTime(value, r.metrics.operation_timing ? undefined : r.metrics.timing?.std_ms);
       }},
     { key: 'speedup', label: 'Speedup',
-      sortValue: r => r.metrics.speedup?.value ?? null,
+      sortValue: r => canDisplaySpeedup(r, runs) ? r.metrics.speedup!.value : null,
       render: r => {
         const s = r.metrics.speedup;
-        return s ? formatSpeedup(s.value) : '-';
+        return s && canDisplaySpeedup(r, runs) ? formatSpeedup(s.value) : '-';
       },
-      style: r => (r.metrics.speedup?.value ?? 0) >= 2
+      style: r => canDisplaySpeedup(r, runs) && (r.metrics.speedup?.value ?? 0) >= 2
         ? 'font-weight:bold; color:#52c41a;' : null },
     { key: 'quality', label: 'Quality',
-      sortValue: r => r.metrics.timing?.quality ?? r.metrics.speedup?.quality ?? '',
+      sortValue: r => timingQuality(r) ?? r.metrics.speedup?.quality ?? '',
       render: r => formatQuality(
-        r.metrics.timing?.quality, r.metrics.speedup?.quality) },
+        timingQuality(r), canDisplaySpeedup(r, runs) ? r.metrics.speedup?.quality : undefined) },
+    { key: 'evidence', label: 'Evidence',
+      sortValue: r => r.evidence?.qualification ?? '',
+      render: r => evidenceLabel(r) },
+    { key: 'timing_statistic', label: 'Timing statistic',
+      sortValue: r => r.metrics.operation_timing?.statistic ?? '',
+      render: r => r.metrics.operation_timing?.statistic ?? '-' },
     { key: 'source', label: 'Source',
       sortValue: r => r.source.file,
       render: r => r.source.file },
@@ -131,7 +138,7 @@ export function renderOverviewTable(
     `Showing ${displayCount} of ${filtered.length} runs`);
   container.appendChild(title);
 
-  const columns = buildColumns();
+  const columns = buildColumns(runs);
   const table = h('table');
   const thead = h('thead');
   const headerRow = h('tr');
