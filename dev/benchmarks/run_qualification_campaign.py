@@ -45,7 +45,7 @@ ONE_FEATURE_LEARNING = {'kde', 'kernel_regression_nw', 'kernel_regression_local_
 
 # Executed only in an explicit campaign child. The parent supplies thread limits
 # in its environment BEFORE this interpreter imports numerical libraries.
-CHILD_BOOTSTRAP = r'''import importlib, importlib.metadata, json, os, platform, resource, sys, traceback
+CHILD_BOOTSTRAP = r'''import importlib, importlib.metadata, importlib.util, json, os, platform, resource, sys, traceback
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 module_name, backend, threads, runtime_path = sys.argv[2:6]
@@ -53,6 +53,8 @@ threads = int(threads)
 argv = sys.argv[6:]
 report = {'python': platform.python_version(), 'executable': sys.executable,
           'requested_threads': threads, 'backend': backend,
+          'thread_policy': 'all-backends-optional-torch-v1',
+          'torch_control': {'status': 'not_checked'},
           'thread_environment': {k: os.environ.get(k) for k in (
               'OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS',
               'BLIS_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'NUMEXPR_NUM_THREADS')},
@@ -63,32 +65,67 @@ class ThreadLimitViolation(RuntimeError):
 rc = 1
 try:
     import threadpoolctl
-    if backend == 'torch':
-        import torch
-        torch.set_num_threads(threads)
-        torch.set_num_interop_threads(threads)
+    # Optional Torch can be imported transitively by any benchmark backend.
+    # Establish both pools BEFORE importing the benchmark, never after it has
+    # initialized interop work. Absence is allowed only for non-Torch workloads;
+    # a broken installation or failed/repeated initialization is not absence.
+    controlled_torch = None
+    try:
+        if importlib.util.find_spec('torch') is None:
+            report['torch_control'] = {'status': 'not_installed',
+                'controlled_before_benchmark_import': False}
+            if backend == 'torch':
+                raise ThreadLimitViolation('Requested Torch backend is not installed')
+        else:
+            report['torch_control'] = {'status': 'initializing',
+                'controlled_before_benchmark_import': False}
+            controlled_torch = importlib.import_module('torch')
+            controlled_torch.set_num_threads(threads)
+            controlled_torch.set_num_interop_threads(threads)
+            initial_threads = {'intraop': controlled_torch.get_num_threads(),
+                               'interop': controlled_torch.get_num_interop_threads()}
+            report['torch_control']['observed_after_control'] = initial_threads
+            if any(type(v) is not int or not 1 <= v <= threads for v in initial_threads.values()):
+                raise ThreadLimitViolation('Torch did not honor both requested thread bounds')
+            report['torch_control'].update(status='controlled',
+                controlled_before_benchmark_import=True)
+    except BaseException as exc:
+        report['torch_control']['error'] = type(exc).__name__ + ': ' + str(exc)
+        if report['torch_control']['status'] != 'not_installed':
+            report['torch_control']['status'] = 'initialization_failed'
+        raise ThreadLimitViolation('Torch thread control failed: ' + str(exc)) from exc
     module = importlib.import_module(module_name)
-    def snapshot():
+    def snapshot(phase):
         pools = threadpoolctl.threadpool_info()
         torch_threads = None
-        if 'torch' in sys.modules:
-            torch = sys.modules['torch']
-            torch_threads = {'intraop': torch.get_num_threads(), 'interop': torch.get_num_interop_threads()}
+        observed_torch = sys.modules.get('torch')
+        if observed_torch is not None:
+            torch_threads = {'intraop': observed_torch.get_num_threads(),
+                             'interop': observed_torch.get_num_interop_threads()}
+        observed = {'pools': pools, 'torch_threads': torch_threads,
+            'torch_status': report['torch_control']['status'], 'cap_verified': False,
+            'all_pools_equal_requested': all(p.get('num_threads') == threads for p in pools)}
+        # Retain failing observations too, rather than only an exception string.
+        report[phase] = observed
+        if observed_torch is not controlled_torch:
+            raise ThreadLimitViolation('Torch appeared, disappeared or was replaced after preimport control')
         invalid = [p for p in pools if type(p.get('num_threads')) is not int
                    or not 1 <= p['num_threads'] <= threads]
+        invalid_torch = (torch_threads is not None and any(
+            type(v) is not int or not 1 <= v <= threads for v in torch_threads.values()))
         if not pools:
             raise ThreadLimitViolation('No actual numerical thread pools observed')
-        if invalid or (backend == 'torch' and any(v > threads or v < 1 for v in torch_threads.values())):
+        if invalid or invalid_torch:
             raise ThreadLimitViolation('Actual thread pool exceeds requested resource bound')
-        return {'pools': pools, 'torch_threads': torch_threads, 'cap_verified': True,
-                'all_pools_equal_requested': all(p['num_threads'] == threads for p in pools)}
-    report['before'] = snapshot()
+        observed['cap_verified'] = True
+        return observed
+    report['before'] = snapshot('before')
     # Persist preflight even if a timeout later prevents finalization.
     with open(runtime_path + '.before.json', 'x') as f:
         json.dump(report, f, indent=2, allow_nan=False)
     rc = module.main(argv)
     rc = 0 if rc is None else int(rc)
-    report['after'] = snapshot()
+    report['after'] = snapshot('after')
 except BaseException as exc:
     report['error'] = type(exc).__name__ + ': ' + str(exc)
     report['resource_guard'] = isinstance(exc, ThreadLimitViolation)

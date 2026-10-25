@@ -3765,8 +3765,14 @@
     "performance_qualification": "diagnostic_only; exclusivity unverified; no speedup comparisons or canonical dashboard eligibility",
     "source_dependencies_sha256": {
       "dev/benchmarks/benchmark_qualification.py": "d966f8ae7fb35f95a2f794f14cf08e73a2b97900bd5ab5170f9deeab215015ee",
-      "dev/benchmarks/run_qualification_campaign.py": "5c6064e715f840dcbdd1563807592d21d9cd2d960971424846ba29d5ba50f364",
+      "dev/benchmarks/run_qualification_campaign.py": "284712d91bdc51622035bc784343321c2ec51df33006c79c19567f276ebb81f1",
       "dev/benchmarks/run_coverage_benchmarks.py": "cb9d27d017eea33ae24f442c744d05b6af5209cd44c503e3c0c918e99752e14b"
+    },
+    "thread_policy_repair": {
+      "base_sha": "91df0d9ebc35a49bde917383ba0680806016f3ae",
+      "policy": "all-backends-optional-torch-v1",
+      "status": "local-synthetic-validation-only; physical-rerun-pending",
+      "scope": "Control optional installed Torch intraop and interop before benchmark import for every backend, then verify all pools before and after workload. Historical results are not changed or recertified."
     }
   },
   "configuration_extension": {
