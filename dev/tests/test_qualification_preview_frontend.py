@@ -484,3 +484,103 @@ def test_cv_alias_binding_includes_resolved_case_and_dimensions(tmp_path, change
     assert len(rows) == 2
     assert rows[0]["case_id"] != rows[1]["case_id"]
     assert not any(issue["message"].startswith("median:") for issue in result["parse_report"]["issues"])
+
+
+def sklearn_cv_preview():
+    doc = cv_preview(phase=True)
+    samples = [{"cv_evaluation_ms": value} for value in (100., 300., 200.)]
+    external = {"framework": "sklearn", "backend": None, "device": "cpu", "status": "success",
+                "timing": {"cv_evaluation_ms": 200.}, "repeat_samples": samples}
+    for row in doc["records"]:
+        row["suite_or_lane"] = "six-family-cv"
+        row["timing_key"] = "cv_evaluation_ms"
+        row["row_pointer"] = "/results/0/case"
+        row["context"]["scope"] = row["timing_scope"]
+        row["context"].update(framework="sklearn", backend=None, status="success", n_samples=20, n_features=2)
+        row["context"]["case"].update(runs=[copy.deepcopy(external)], dataset={"n_samples": 20, "n_features": 2})
+    record = doc["records"][0]
+    doc["jobs"] = [{key: copy.deepcopy(record[key]) for key in
+                    ("job_id", "campaign_id", "source_commit", "source_fingerprint", "raw_path", "raw_sha256",
+                     "suite_or_lane", "configuration", "cpu_thread_profile", "environment", "validation_status",
+                     "correctness_status", "evidence_errors", "performance_eligible", "canonical_dashboard_ready")}]
+    doc["campaigns"] = [{key: record[key] for key in ("campaign_id", "source_commit", "source_fingerprint")}]
+    return doc
+
+
+def test_explicit_sklearn_adapter_preserves_external_identity_and_real_aggregate(tmp_path):
+    from dev.benchmarks.generate_benchmark_data import generate
+    from dev.benchmarks.frontend_data.cli import validate_semantic
+    doc = sklearn_cv_preview(); path = save(tmp_path / "preview.json", doc)
+    bundle = build_bundle(path)
+    assert len(bundle["benchmark_data"]["runs"]) == 1
+    row = bundle["benchmark_data"]["runs"][0]
+    assert row["framework"] == "sklearn" and row["backend"] is None
+    assert row["parameters"]["external_adapter"] == "sklearn-scoped-cv-v2"
+    assert row["parameters"]["original_context"] == doc["records"][0]["context"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    assert row["evidence"]["raw_pointer"] == doc["records"][0]["raw_pointer"]
+    assert row["evidence"]["performance_eligible"] is False
+    assert {i["code"] for i in bundle["parse_report"]["issues"]} == {"ALIAS_OF_RETAINED_OBSERVATIONS"}
+    manifest = build_external_manifest(path, bundle, "2026-10-25")
+    assert manifest["frameworks"]["sklearn"]["backend_policy"] == "forbidden"
+    data, report, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+    assert len(data["runs"]) == 1 and data["runs"][0]["framework"] == "sklearn"
+    assert validate_semantic(data, manifest, True) == []
+
+
+@pytest.mark.parametrize("change,reason", [
+    (lambda r: r.update(source_schema="unknown"), "CV_ALIAS_BINDING_REQUIRES_REEXPORT"),
+    (lambda r: r["context"].update(requested_backend="torch"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(backend="numpy"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"]["case"]["runs"][0].update(framework="statgpu"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"]["case"]["runs"][0].update(device="cuda"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"]["case"]["runs"][0].update(status="failed"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(problem={"shape": {"n": 999, "p": 999}}), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(n=999), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(mode="clean"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(scope_source_pointer="/results/999/protocol/timing_scope"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r.update(raw_pointer=r["raw_pointer"].replace("/results/0/", "/results/999/")), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(scope="different scope"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(instrumented=False), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r.update(row_pointer="/results/7/case"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r.update(source_commit=None), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r.update(raw_sha256="unknown"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"]["case"]["dataset"].update(n_samples=40), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(timing_phase="final_refit"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"]["case"]["runs"][0]["timing"].update(cv_evaluation_ms=900), "EXTERNAL_ADAPTER_TIMING_MISMATCH"),
+    (lambda r: r["context"]["case"]["runs"][0]["repeat_samples"][1].update(cv_evaluation_ms=-1), "EXTERNAL_ADAPTER_TIMING_MISMATCH"),
+    (lambda r: r["context"].update(repeats=2), "EXTERNAL_ADAPTER_TIMING_MISMATCH"),
+])
+def test_sklearn_adapter_requires_bound_versioned_cpu_evidence(tmp_path, change, reason):
+    doc = sklearn_cv_preview()
+    for record in doc["records"]: change(record)
+    result = build_bundle(save(tmp_path / "preview.json", doc))
+    assert result["benchmark_data"]["runs"] == []
+    assert {issue["code"] for issue in result["parse_report"]["issues"]} == {reason}
+
+
+def test_sklearn_pointer_cannot_bind_to_another_framework_run(tmp_path):
+    doc = sklearn_cv_preview()
+    for row in doc["records"]:
+        row["context"]["case"]["runs"].append(dict(row["context"]["case"]["runs"][0], framework="statgpu"))
+        row["raw_pointer"] = row["raw_pointer"].replace("/runs/0/", "/runs/1/")
+    result = build_bundle(save(tmp_path / "preview.json", doc))
+    assert not result["benchmark_data"]["runs"]
+    assert {issue["code"] for issue in result["parse_report"]["issues"]} == {"EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"}
+
+
+@pytest.mark.parametrize("change", [
+    lambda d: d.update(jobs=[]),
+    lambda d: d["jobs"].append(copy.deepcopy(d["jobs"][0])),
+    lambda d: d["campaigns"].append(copy.deepcopy(d["campaigns"][0])),
+    lambda d: d["campaigns"][0].update(source_commit="c" * 40),
+    lambda d: d["jobs"][0].update(raw_sha256="c" * 64),
+    lambda d: d["jobs"][0].update(raw_path="another/raw.json"),
+    lambda d: d["jobs"][0].update(campaign_id="other"),
+    lambda d: d["jobs"][0].update(cpu_thread_profile={"requested_cap": 8}),
+])
+def test_external_adapter_rejects_missing_duplicate_or_cross_batch_lineage(tmp_path, change):
+    doc = sklearn_cv_preview(); change(doc)
+    result = build_bundle(save(tmp_path / "preview.json", doc))
+    assert not result["benchmark_data"]["runs"]
+    assert {issue["code"] for issue in result["parse_report"]["issues"]} == {"EXTERNAL_ADAPTER_LINEAGE_MISMATCH"}

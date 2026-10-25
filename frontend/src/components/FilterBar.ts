@@ -1,3 +1,5 @@
+import { CPU_THREAD_LABELS, cpuThreadClass } from '../provenance';
+import type { CpuThreadFilter } from '../provenance';
 import type { BenchmarkData, MetricScope, Run } from '../schema';
 import type { AppState, ChartViewMode } from '../state';
 import {
@@ -65,6 +67,7 @@ export function renderFilterBar(
   const scopeOptionState: AppState = {
     ...state,
     selectedMetricScope: 'all',
+    selectedCpuThreads: 'all',
     selectedModelId: null,
     selectedVariant: null,
     selectedPenalty: null,
@@ -125,6 +128,7 @@ export function renderFilterBar(
   // doesn't shrink the dropdown to only that value (avoids stale-filter deadlock).
   const modelOptionState: AppState = {
     ...state,
+    selectedCpuThreads: 'all',
     selectedModelId: null,
     selectedVariant: null,
     selectedPenalty: null,
@@ -141,14 +145,32 @@ export function renderFilterBar(
     selectedSolver: null,
     selectedScaleKeys: new Set(),
   };
-  const penaltyOptionRuns = filterRuns(allRuns, penaltyOptionState);
+  const penaltyOptionRuns = filterRuns(allRuns, penaltyOptionState, { ignoreCpuThreads: true });
 
   const solverOptionState: AppState = {
     ...state,
     selectedSolver: null,
     selectedScaleKeys: new Set(),
   };
-  const solverOptionRuns = filterRuns(allRuns, solverOptionState);
+  const solverOptionRuns = filterRuns(allRuns, solverOptionState, { ignoreCpuThreads: true });
+
+  // Include GPU host CPU limits; ignore this filter for its own option counts.
+  const threadRuns = filterRuns(allRuns, state, { ignoreCpuThreads: true });
+  const threadLabel = h('label', { class: 'cpu-thread-control', title: 'Reported host CPU thread limits, not measured utilization. GPU rows retain host CPU limits. Requested-only records are not observed.' }, 'Host CPU limits: ');
+  const threadSelect = h('select', { 'aria-label': 'Host CPU thread limits' }) as HTMLSelectElement;
+  for (const value of Object.keys(CPU_THREAD_LABELS) as CpuThreadFilter[]) {
+    const count = value === 'all' ? threadRuns.length : threadRuns.filter(run => cpuThreadClass(run) === value).length;
+    const option = h('option', { value }, `${CPU_THREAD_LABELS[value]} (${count})`) as HTMLOptionElement;
+    option.selected = state.selectedCpuThreads === value;
+    option.disabled = value !== 'all' && count === 0 && !option.selected;
+    threadSelect.appendChild(option);
+  }
+  threadSelect.addEventListener('change', () => {
+    state.selectedCpuThreads = threadSelect.value as CpuThreadFilter;
+    onUpdate();
+  });
+  threadLabel.appendChild(threadSelect);
+  bar.appendChild(threadLabel);
 
   // Model selector
   const modelIds = getUniqueValues(modelOptionRuns, 'model_id');
@@ -176,7 +198,7 @@ export function renderFilterBar(
       selectedPenalty: null,
       selectedSolver: null,
       selectedScaleKeys: new Set(),
-    } as AppState);
+    } as AppState, { ignoreCpuThreads: true });
     const variants = getUniqueValues(
       variantRuns.filter((r) => r.model_id === state.selectedModelId && r.variant),
       'variant',
