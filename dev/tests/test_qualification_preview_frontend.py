@@ -584,3 +584,42 @@ def test_external_adapter_rejects_missing_duplicate_or_cross_batch_lineage(tmp_p
     result = build_bundle(save(tmp_path / "preview.json", doc))
     assert not result["benchmark_data"]["runs"]
     assert {issue["code"] for issue in result["parse_report"]["issues"]} == {"EXTERNAL_ADAPTER_LINEAGE_MISMATCH"}
+
+
+@pytest.mark.parametrize("dimension", ["n_samples", "n_features"])
+@pytest.mark.parametrize("location", ["both", "dataset", "context"])
+@pytest.mark.parametrize("invalid", [
+    pytest.param("__missing__", id="missing"),
+    pytest.param(None, id="null"),
+    pytest.param(True, id="bool"),
+    pytest.param("numeric_string", id="string"),
+    pytest.param("numeric_float", id="float"),
+    pytest.param(0, id="zero"),
+    pytest.param(-1, id="negative"),
+])
+def test_sklearn_invalid_dimensions_withhold_only_malformed_record(tmp_path, dimension, location, invalid):
+    doc = sklearn_cv_preview()
+    malformed = copy.deepcopy(doc["records"][0])
+    malformed["record_id"] = "malformed-dimensions"
+    context = malformed["context"]
+    targets = [context["case"]["dataset"], context] if location == "both" else [
+        context["case"]["dataset"] if location == "dataset" else context]
+    original = context[dimension]
+    for target in targets:
+        if invalid == "__missing__":
+            target.pop(dimension)
+        else:
+            target[dimension] = (str(original) if invalid == "numeric_string" else
+                                 float(original) if invalid == "numeric_float" else invalid)
+    doc["records"].append(malformed)
+    result = build_bundle(save(tmp_path / "preview.json", doc))
+    assert len(result["benchmark_data"]["runs"]) == 1
+    row = result["benchmark_data"]["runs"][0]
+    assert row["framework"] == "sklearn" and row["backend"] is None
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    assert row["evidence"]["performance_eligible"] is False
+    issues = result["parse_report"]["issues"]
+    malformed_issues = [issue for issue in issues if issue["message"].startswith("malformed-dimensions:")]
+    assert len(malformed_issues) == 1
+    assert malformed_issues[0]["code"] == "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
+    assert sum(issue["code"] == "ALIAS_OF_RETAINED_OBSERVATIONS" for issue in issues) == 3

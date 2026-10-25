@@ -91,9 +91,15 @@ def _sklearn_identity(record, context):
                                          ("source_fingerprint", r"[0-9a-f]{64}")))):
         return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
     dataset = case.get("dataset", {})
-    if (not isinstance(dataset, dict) or dataset.get("n_samples") != context.get("n_samples")
-            or dataset.get("n_features") != context.get("n_features")):
+    if not isinstance(dataset, dict):
         return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
+    # Missing values must not compare equal and reach the indexed alias checks.
+    # This scoped-CV adapter requires positive exact dimensions, not coercions.
+    for dimension in ("n_samples", "n_features"):
+        expected, observed = dataset.get(dimension), context.get(dimension)
+        if (type(expected) is not int or expected < 1
+                or type(observed) is not int or observed != expected):
+            return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
     # Reject conflicting aliases even when another field has higher precedence.
     dimension_sources = [context, context.get("problem"), context.get("shape")]
     if isinstance(context.get("problem"), dict): dimension_sources.append(context["problem"].get("shape"))
