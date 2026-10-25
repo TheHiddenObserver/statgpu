@@ -1,4 +1,5 @@
 import { echarts, type ECharts } from '../echarts';
+import { timingValue, timingScopeLabel } from '../timing';
 import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { CHART_STYLE, COLORS } from '../utils/theme';
@@ -13,7 +14,8 @@ interface TimingSelection {
 }
 
 function groupKey(run: Run): string {
-  return JSON.stringify(chartGroupIdentity(run, false));
+  return JSON.stringify([...chartGroupIdentity(run, Boolean(run.metrics.operation_timing)),
+    run.metrics.operation_timing?.scope ?? null, run.metrics.operation_timing?.statistic ?? null]);
 }
 
 function solverFamilyKey(run: Run): string {
@@ -36,7 +38,7 @@ function shouldFocusDefaultSurvivalImplementation(state: AppState): boolean {
 }
 
 export function selectTimingRuns(runs: Run[], state: AppState): TimingSelection {
-  const timingRuns = runs.filter((run) => run.metrics.timing);
+  const timingRuns = runs.filter((run) => timingValue(run) !== null);
   if (state.chartViewMode === 'full' || timingRuns.length === 0) {
     return {
       runs: timingRuns,
@@ -132,7 +134,9 @@ export function selectTimingRuns(runs: Run[], state: AppState): TimingSelection 
 
 export function formatGroupLabel(run: Run, focused: boolean, includeScale = false): string {
   const variant = run.variant ? ` (${run.variant})` : '';
-  const model = `${formatModelName(run.model_id)}${variant}`;
+  const operation = run.metrics.operation_timing;
+  const detail = operation ? ` · ${timingScopeLabel(run)} · ${operation.statistic}` : '';
+  const model = `${formatModelName(run.model_id)}${variant}${detail}`;
   const penalty = run.penalty && run.penalty !== 'none' ? run.penalty : null;
   const solver = run.solver_display ?? run.solver ?? 'unknown';
 
@@ -149,6 +153,37 @@ export function formatGroupLabel(run: Run, focused: boolean, includeScale = fals
   return `${firstLine}\n${solver} · ${run.scale.label}`;
 }
 
+/** Escape every data-derived text fragment at the HTML tooltip boundary. */
+function escapeTooltipText(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character]!);
+}
+
+type TimingTooltipItem = {
+  seriesName: string;
+  value: number | null;
+  color: string;
+  axisValueLabel?: string;
+};
+
+export function formatTimingTooltip(params: TimingTooltipItem[]): string {
+  const label = params[0]?.axisValueLabel;
+  const heading = label
+    ? `<b>${escapeTooltipText(label.replace(/\n/g, ' · '))}</b><br/>`
+    : '';
+  const values = params
+    .filter((param) => typeof param.value === 'number' && Number.isFinite(param.value))
+    .map((param) => {
+      // ECharts supplies palette hex colors. Unknown color forms get a fixed
+      // marker instead of entering an HTML attribute or CSS declaration.
+      const color = /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(param.color)
+        ? param.color : '#fff';
+      return `<span style="color:${color}">●</span> ${escapeTooltipText(param.seriesName)}: <b>${param.value!.toFixed(2)} ms</b>`;
+    }).join('<br/>');
+  return `${heading}${values || 'No data'}`;
+}
+
 export function renderTimingChart(
   el: HTMLElement,
   runs: Run[],
@@ -163,12 +198,13 @@ export function renderTimingChart(
 
   const selection = selectTimingRuns(runs, state);
   const timingRuns = selection.runs;
+  const timingTitle = timingRuns.some(run => run.metrics.operation_timing) ? 'Operation Time' : 'Fit Time';
   el.dataset.chartView = state.chartViewMode;
   el.dataset.penaltyScope = selection.penaltyScope;
   el.dataset.implementationScope = selection.implementationScope;
   el.setAttribute(
     'aria-label',
-    `Fit Time chart — ${state.chartViewMode === 'focused' ? 'focused representative view' : 'full matrix view'}${selection.penaltyScope === 'penalized-only' ? '; penalized rows only' : ''}${selection.implementationScope === 'default-only' ? '; default NumPy implementation only' : ''}`,
+    `${timingTitle} chart — ${state.chartViewMode === 'focused' ? 'focused representative view' : 'full matrix view'}${selection.penaltyScope === 'penalized-only' ? '; penalized rows only' : ''}${selection.implementationScope === 'default-only' ? '; default NumPy implementation only' : ''}`,
   );
 
   if (timingRuns.length === 0) {
@@ -224,7 +260,7 @@ export function renderTimingChart(
     }
     const series = makeSeries(run);
     seriesMeta.set(series.key, series);
-    groups.get(key)!.bySeries.set(series.key, run.metrics.timing!.fit_time_ms);
+    groups.get(key)!.bySeries.set(series.key, timingValue(run)!);
   }
 
   const allGroups = [...groups.entries()].sort(([, a], [, b]) =>
@@ -237,6 +273,9 @@ export function renderTimingChart(
   el.dataset.timingDisplayed = String(sortedGroups.length);
 
   const subtitleParts = [...selection.notes];
+  if (timingRuns.some(run => run.evidence && !run.evidence.performance_eligible)) {
+    subtitleParts.push('diagnostic timings, not performance-qualified');
+  }
   if (isFocused && allGroups.length > sortedGroups.length) {
     subtitleParts.push(`showing ${sortedGroups.length}/${allGroups.length} groups`);
   } else if (hasScroll) {
@@ -295,7 +334,7 @@ export function renderTimingChart(
   chart.setOption(
     {
       title: {
-        text: 'Fit Time (ms)',
+        text: `${timingTitle} (ms)`,
         subtext: subtitleParts.join(' · '),
         left: 'center',
         textStyle: { fontSize: 13, color: CHART_STYLE.text },
@@ -306,26 +345,7 @@ export function renderTimingChart(
         backgroundColor: CHART_STYLE.tooltipBackground,
         borderWidth: 0,
         textStyle: { color: '#fff' },
-        formatter: (
-          params: {
-            seriesName: string;
-            value: number | null;
-            color: string;
-            axisValueLabel?: string;
-          }[],
-        ) => {
-          const heading = params[0]?.axisValueLabel
-            ? `<b>${params[0].axisValueLabel.replace('\n', ' · ')}</b><br/>`
-            : '';
-          const values = params
-            .filter((param) => param.value != null)
-            .map(
-              (param) =>
-                `<span style="color:${param.color}">●</span> ${param.seriesName}: <b>${param.value!.toFixed(2)} ms</b>`,
-            )
-            .join('<br/>');
-          return `${heading}${values || 'No data'}`;
-        },
+        formatter: formatTimingTooltip,
       },
       legend: {
         bottom: 2,

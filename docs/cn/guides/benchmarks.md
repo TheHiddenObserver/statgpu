@@ -31,3 +31,16 @@
 例如，[选择后 OLS 推断基准](../../../dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py)测量 NumPy CPU 与 CuPy CUDA 上的完整拟合加推断过程，并比较系数及推断结果。它不是仅推断阶段的加速测量；`device` 选择硬件，`inference_method="post_selection_ols"` 选择统计方法。
 
 面向贡献者的数据接入、构建和测试流程见[面板维护指南](../../../frontend/docs/benchmark-dashboard-maintenance.md)。
+
+## 查看本地诊断性 benchmark 数据
+
+Dashboard 的 **Local benchmark update preview** 可以直接打开导出的
+`preview_data.json`，不会上传文件，也不会替换原有数据。它保留每个任务的状态，
+包括被阻塞或尚未运行的任务，并展示计时范围、统计量、原始值和来源位置。
+分类指标中的 `p=0` 表示特征维度不适用，不会被改写为单特征工作量。
+
+浏览器展示的是文件中记录的验证状态，不会重新核验文件摘要或执行数值验证。
+操作者对 GPU 独占使用的声明与机器验证分开显示，不能互相替代。这类诊断计时
+不会生成加速比，也不会更新最快 GPU 加速比摘要。缺失计时不等于零，未知范围
+的计时也不会被标记为单纯的 fit 耗时。旧版 v1.1 数据仍可正常读取；v1.2 通过
+明确的 operation timing 字段表达非 fit 操作的耗时。

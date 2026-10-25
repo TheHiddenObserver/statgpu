@@ -299,3 +299,11 @@ pytest dev/tests/test_benchmark_frontend_data.py \
 
 python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
 ```
+
+## Operation timings in v1.2
+
+The [v1.2 extension](schema-v1.2.md) does not introduce cross-source or cross-scope
+pooling. Each `operation_timing` retains its exact scope and statistic. Chart groups
+include the session, scope and statistic; unrelated operations cannot overwrite a
+fit-time cell. Diagnostic timing fields without a valid positive summary stay in
+the separate raw preview, not in timing or speedup aggregation.

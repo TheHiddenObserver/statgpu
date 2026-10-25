@@ -9,11 +9,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 
-def test_schema_pins_supported_version() -> None:
+def test_schema_declares_supported_versions() -> None:
     schema_path = REPO_ROOT / "dev" / "benchmarks" / "benchmark_frontend_schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
-    assert schema["properties"]["schema_version"] == {"const": "1.1.0"}
+    assert schema["properties"]["schema_version"] == {"enum": ["1.1.0", "1.2.0"]}
 
 
 def test_schema_rejects_unsupported_version() -> None:

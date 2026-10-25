@@ -19,7 +19,7 @@ Do not merge distinct comparisons just because their model names match. For exam
 
 Choose an environment and one or more categories, then narrow the model, variant, penalty, solver, scale, and backend. Changing an upstream selection clears incompatible downstream selections. Scale chips allow multiple scales. Backend filters apply to statgpu rows; external frameworks are offered separately when relevant to the selected comparison and are hidden by default.
 
-Use **Metric scope** to distinguish Fit, CV, Inference, Prediction, and Selection. A row's scope describes the work measured, not simply the model's capabilities. Read the overview table's Scope column before comparing timings.
+Use **Metric scope** to distinguish Fit, CV, Inference, Prediction, Selection, and explicitly labelled Operation timings. A row's scope describes the work measured, not simply the model's capabilities. Read the overview table's Scope column before comparing timings.
 
 External reference implementations available in the recorded bundle include scikit-learn, SciPy, statsmodels, linearmodels, and pyGAM. A missing reference in a filter context means no matching comparison is available there.
 
@@ -44,6 +44,12 @@ A speedup is a ratio against a specified reference. Above one means faster, belo
 The global summary card uses the fastest runner-reported GPU speedup, rather than mixing reported and computed ratios. That maximum is a selected historical observation, not an expected speedup for every model or your own workload. Correctness-only sources do not participate in speedup summaries.
 
 Match objectives, precision, convergence settings, hardware, and transfer/timing boundaries before comparing ratios. See [benchmark interpretation and reproduction](../benchmarks.md) for a measurement checklist.
+
+## Local diagnostic preview
+
+Open **Local benchmark update preview** and choose an exported `preview_data.json` to inspect newer benchmark artifacts without replacing the recorded dashboard dataset. The file stays in the browser; it is not uploaded. Planned jobs remain visible when blocked or not run, while timing rows show their original scope, statistic, dimensions, raw values, and source pointers. A classification row with `p=0` means that a feature dimension does not apply; it is not rewritten as a one-feature workload.
+
+The browser displays recorded validation statuses, not a new verification of the artifact or its checksum. An operator's statement about GPU exclusivity is not machine verification. These diagnostic timings do not produce speedups or update the fastest-speedup summary. Missing or unknown-scope timings do not become zero or fit-only measurements.
 
 ## Overview and metric panels
 

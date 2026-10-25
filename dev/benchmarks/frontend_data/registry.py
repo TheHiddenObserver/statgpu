@@ -6,6 +6,8 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
+from .parsers.qualification_preview import parse_qualification_preview
+
 from .parsers import (
     parse_penalized_glm_bench_perf,
     parse_glm_solver_benchmark,
@@ -56,6 +58,7 @@ PARSER_REGISTRY: dict[str, dict] = {
 # Parser function lookup by name. Parsers may remain available for historical
 # files even when those files are not registered in the dashboard manifest.
 PARSER_FUNCTIONS = {
+    "qualification_preview": parse_qualification_preview,
     "penalized_glm_bench_perf": parse_penalized_glm_bench_perf,
     "glm_solver_benchmark": parse_glm_solver_benchmark,
     "elasticnet_benchmark_full": parse_elasticnet_benchmark_full,
@@ -157,7 +160,17 @@ def build_registry_from_manifest(manifest: dict) -> dict[str, dict]:
     validate_manifest_source_dates(manifest)
 
     registry = {}
+    source_ids = set()
+    source_paths = set()
+    repo_root = Path(__file__).resolve().parents[3]
     for src in manifest["sources"]:
+        resolved_path = (repo_root / src["path"]).resolve()
+        if src["source_id"] in source_ids:
+            raise ValueError(f"Duplicate manifest source_id: {src['source_id']}")
+        if resolved_path in source_paths:
+            raise ValueError(f"Duplicate manifest source path: {src['path']}")
+        source_ids.add(src["source_id"])
+        source_paths.add(resolved_path)
         parser_name = src["parser"]
         if parser_name not in PARSER_FUNCTIONS:
             raise ValueError(f"Unknown parser: {parser_name}")
@@ -168,6 +181,7 @@ def build_registry_from_manifest(manifest: dict) -> dict[str, dict]:
             "comparison_id": src.get("comparison_id", src["source_id"]),
             "required": src.get("required", True),
             "allowed_issue_codes": set(src.get("allowed_issue_codes", [])),
+            "manifest_source": src,
         }
         if src.get("sha256"):
             config["sha256"] = src["sha256"]

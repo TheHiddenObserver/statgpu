@@ -89,6 +89,7 @@ export function renderFilterBar(
     'inference',
     'prediction',
     'selection',
+    'operation',
   ];
   for (const scope of scopes) {
     const count = scope === 'all'

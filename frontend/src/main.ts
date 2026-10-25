@@ -1,5 +1,6 @@
 import './style.css';
 import './metric-scope.css';
+import './diagnostic-preview.css';
 
 import { echarts, type ECharts } from './echarts';
 import type { BenchmarkData, ParseReport, Run, SourceInventory } from './schema';
@@ -8,6 +9,7 @@ import { createDefaultState } from './state';
 import type { AppState } from './state';
 import { h, clear } from './utils/dom';
 import { enhanceDashboardAccessibility } from './accessibility';
+import { renderDiagnosticPreview } from './components/DiagnosticPreview';
 import { renderHeader } from './components/Header';
 import { renderSidebar } from './components/Sidebar';
 import { renderFilterBar } from './components/FilterBar';
@@ -37,6 +39,7 @@ const chartInstances: ECharts[] = [];
 function renderApp(): HTMLElement {
   const app = h('div', { id: 'app-root' });
   app.appendChild(renderHeader(data!, parseReport, sourceInventory, state!, update));
+  app.appendChild(renderDiagnosticPreview());
   app.appendChild(renderBody());
   return app;
 }
@@ -257,6 +260,7 @@ async function init(): Promise<void> {
     msg.appendChild(h('br'));
     msg.appendChild(hint);
     root.appendChild(msg);
+    root.appendChild(renderDiagnosticPreview());
   }
 }
 

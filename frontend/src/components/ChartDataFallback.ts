@@ -1,5 +1,6 @@
 /** Accessible tabular alternative for ECharts content. */
 
+import { timingValue, timingScopeLabel, timingQuality, evidenceLabel } from '../timing';
 import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { selectTimingRuns } from '../charts/TimingChart';
@@ -17,6 +18,8 @@ function identityCells(run: Run): string[] {
       ? [run.backend, run.implementation].filter(Boolean).join('/') || 'statgpu'
       : run.framework,
     run.scale.label,
+    timingScopeLabel(run),
+    evidenceLabel(run),
   ];
 }
 
@@ -58,6 +61,8 @@ function renderTable(
       'Solver',
       'Backend / reference',
       'Scale',
+      'Timing scope',
+      'Evidence',
       valueLabel,
       'Reference',
     ]) {
@@ -111,12 +116,12 @@ export function renderChartDataFallback(
   section.appendChild(
     renderTable(
       'timing-chart-data',
-      'Fit Time chart data',
+      timingRuns.some(run => run.metrics.operation_timing) ? 'Operation Time chart data' : 'Fit Time chart data',
       'Time',
       timingRuns,
       run => ({
-        value: `${run.metrics.timing!.fit_time_ms.toFixed(3)} ms`,
-        reference: run.metrics.timing!.quality,
+        value: `${timingValue(run)!.toFixed(3)} ms`,
+        reference: [timingQuality(run), run.metrics.operation_timing?.statistic].filter(Boolean).join(' · '),
       }),
     ),
   );

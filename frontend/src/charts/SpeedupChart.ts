@@ -1,4 +1,5 @@
 import { echarts, type ECharts } from '../echarts';
+import { canDisplaySpeedup } from '../timing';
 import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { formatModelName } from '../utils/format';
@@ -98,7 +99,7 @@ function shouldFocusPenalizedRows(state: AppState): boolean {
 }
 
 export function selectSpeedupRuns(runs: Run[], state: AppState): SpeedupSelection {
-  const speedupRuns = runs.filter((run) => run.metrics.speedup);
+  const speedupRuns = runs.filter((run) => canDisplaySpeedup(run, runs));
   if (state.chartViewMode === 'full' || speedupRuns.length === 0) {
     return { runs: speedupRuns, notes: ['Full matrix'], penaltyScope: 'all' };
   }
