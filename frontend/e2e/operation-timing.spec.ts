@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import type { Run } from '../src/schema';
 import { canDisplaySpeedup, isPerformanceQualified, timingValue, timingScopeLabel } from '../src/timing';
-import { selectTimingRuns, formatGroupLabel } from '../src/charts/TimingChart';
+import { selectTimingRuns, formatGroupLabel, formatTimingTooltip } from '../src/charts/TimingChart';
 import { selectSpeedupRuns } from '../src/charts/SpeedupChart';
 import { getRunMetricScopes, getPrimaryMetricScope } from '../src/metricScopes';
 import { createDefaultState } from '../src/state';
@@ -87,4 +87,41 @@ test('legacy v1.1 fit timing and reported speedup remain supported', () => {
 test('operation records cannot gain legacy speedups by dropping evidence', () => {
   const value = run(); delete value.evidence;
   expect(canDisplaySpeedup(value, [value])).toBe(false);
+});
+
+
+// Inert punctuation only: these fixtures never construct executable content.
+for (const field of ['model', 'variant', 'scope', 'statistic', 'solver', 'scale'] as const) {
+  test(`tooltip treats ${field} punctuation as text`, () => {
+    const value = run();
+    const punctuation = `A&B<C>D"E'F`;
+    if (field === 'model') value.model_id = punctuation;
+    if (field === 'variant') value.variant = punctuation;
+    if (field === 'scope') value.metrics.operation_timing!.scope = punctuation;
+    if (field === 'statistic') value.metrics.operation_timing!.statistic = punctuation;
+    if (field === 'solver') value.solver_display = punctuation;
+    if (field === 'scale') value.scale.label = punctuation;
+    const html = formatTimingTooltip([{
+      axisValueLabel: formatGroupLabel(value, false),
+      seriesName: 'CuPy', color: '#12Ab34', value: 10,
+    }]);
+    expect(html).toContain('A&amp;B&lt;C&gt;D&quot;E&#39;F');
+    expect(html).not.toContain(punctuation);
+    expect(html).toContain('10.00 ms');
+  });
+}
+
+test('tooltip escapes series text and permits only palette hex marker colors', () => {
+  const html = formatTimingTooltip([{
+    seriesName: `A&B<C>D"E'F`, color: 'not a palette color', value: 2,
+  }]);
+  expect(html).toBe('<span style="color:#fff">●</span> A&amp;B&lt;C&gt;D&quot;E&#39;F: <b>2.00 ms</b>');
+  expect(formatTimingTooltip([{ seriesName: 'CPU', color: '#abc', value: 1 }])).toContain('color:#abc');
+});
+
+test('tooltip retains empty and missing-value behavior without nonfinite numbers', () => {
+  expect(formatTimingTooltip([])).toBe('No data');
+  for (const value of [null, NaN, Infinity]) {
+    expect(formatTimingTooltip([{ seriesName: 'CPU', color: '#abc', value }])).toBe('No data');
+  }
 });

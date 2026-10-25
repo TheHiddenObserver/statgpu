@@ -153,6 +153,37 @@ export function formatGroupLabel(run: Run, focused: boolean, includeScale = fals
   return `${firstLine}\n${solver} · ${run.scale.label}`;
 }
 
+/** Escape every data-derived text fragment at the HTML tooltip boundary. */
+function escapeTooltipText(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character]!);
+}
+
+type TimingTooltipItem = {
+  seriesName: string;
+  value: number | null;
+  color: string;
+  axisValueLabel?: string;
+};
+
+export function formatTimingTooltip(params: TimingTooltipItem[]): string {
+  const label = params[0]?.axisValueLabel;
+  const heading = label
+    ? `<b>${escapeTooltipText(label.replace(/\n/g, ' · '))}</b><br/>`
+    : '';
+  const values = params
+    .filter((param) => typeof param.value === 'number' && Number.isFinite(param.value))
+    .map((param) => {
+      // ECharts supplies palette hex colors. Unknown color forms get a fixed
+      // marker instead of entering an HTML attribute or CSS declaration.
+      const color = /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(param.color)
+        ? param.color : '#fff';
+      return `<span style="color:${color}">●</span> ${escapeTooltipText(param.seriesName)}: <b>${param.value!.toFixed(2)} ms</b>`;
+    }).join('<br/>');
+  return `${heading}${values || 'No data'}`;
+}
+
 export function renderTimingChart(
   el: HTMLElement,
   runs: Run[],
@@ -314,26 +345,7 @@ export function renderTimingChart(
         backgroundColor: CHART_STYLE.tooltipBackground,
         borderWidth: 0,
         textStyle: { color: '#fff' },
-        formatter: (
-          params: {
-            seriesName: string;
-            value: number | null;
-            color: string;
-            axisValueLabel?: string;
-          }[],
-        ) => {
-          const heading = params[0]?.axisValueLabel
-            ? `<b>${params[0].axisValueLabel.replace('\n', ' · ')}</b><br/>`
-            : '';
-          const values = params
-            .filter((param) => param.value != null)
-            .map(
-              (param) =>
-                `<span style="color:${param.color}">●</span> ${param.seriesName}: <b>${param.value!.toFixed(2)} ms</b>`,
-            )
-            .join('<br/>');
-          return `${heading}${values || 'No data'}`;
-        },
+        formatter: formatTimingTooltip,
       },
       legend: {
         bottom: 2,

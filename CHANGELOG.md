@@ -4,6 +4,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — local benchmark-data integration (2026-10-25)
 
+- Escaped all dynamic timing-tooltip text, rebuilt tracked dashboard assets, and clarified local-bundle versus published-commit provenance (PR #259).
 - Controlled every installed Torch runtime before campaign imports, including NumPy/CuPy jobs, and verified actual thread bounds.
 - Added scope-preserving diagnostic dashboard schema 1.2, CV identity/alias repair, and repository-hosted batch/export tools.
 - Kept separate source runs and raw evidence immutable; diagnostic previews do not establish canonical performance eligibility.

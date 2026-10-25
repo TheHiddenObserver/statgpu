@@ -2,10 +2,15 @@
 
 ## Source and evidence boundaries
 
-The local integration retains commit `f90f5f8b42b62334e6c746ef3488f8a18a1f6217`
+The preserved local Git bundle retains commit `f90f5f8b42b62334e6c746ef3488f8a18a1f6217`
 (tree `cd06048a4f03cfaa16ce125b73364e11006c8b9f`) as its ancestor. That commit
 changes the campaign child thread setup, its precise manifest pin, and regression
 tests. Its parent is the merged `91df0d9ebc35a49bde917383ba0680806016f3ae`.
+The published branch instead contains `f1072b86f8e896937f2c0bc23abc0504e025aa92`,
+which has that same tree and parent, but a different commit identity. The original
+`f90f5f8b` physical results are source-tree-equivalent evidence, not a physical
+rerun of the published commit. The local bundle ancestry must not be mistaken
+for the published branch ancestry.
 No `statgpu/` numerical implementation, statistical defaults, or numerical
 acceptance thresholds are changed by this integration.
 
