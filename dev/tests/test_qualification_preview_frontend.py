@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -132,6 +133,149 @@ def test_external_manifest_runs_existing_strict_generator(tmp_path):
     assert inventory["eligible_sources"] == 0
     assert inventory["not_canonical_ready_sources"] == 1
     assert result["meta"]["generation_id"] == report["generation_id"] == inventory["generation_id"]
+
+
+def _same_basename_manifests(tmp_path, *, cv=False):
+    manifests = []
+    for index in range(2):
+        folder = tmp_path / ("campaign-%d" % index)
+        folder.mkdir()
+        doc = cv_preview(phase=bool(index)) if cv else preview()
+        for row in doc["records"]:
+            row.update(campaign_id="campaign-%d" % index, job_id="job-%d" % index)
+            if not cv:
+                row["summary_seconds"] = (index + 1) / 4
+        path = save(folder / "preview_data.json", doc)
+        manifests.append(build_external_manifest(path, build_bundle(path), "2026-10-%d" % (24 + index)))
+    return manifests
+
+
+def _merge_manifests(manifests):
+    merged = copy.deepcopy(manifests[0])
+    for manifest in manifests[1:]:
+        merged["sources"].extend(copy.deepcopy(manifest["sources"]))
+        merged["comparisons"].update(manifest["comparisons"])
+        merged["environments"].update(manifest["environments"])
+    merged["catalog_total"] = len(merged["sources"])
+    return merged
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("path_form", ["absolute", "repo_relative", "normalized_relative"])
+@pytest.mark.parametrize("cv", [False, True])
+def test_same_basename_sources_retain_exact_batch_provenance(tmp_path, reverse, path_form, cv):
+    from dev.benchmarks.generate_benchmark_data import generate, validate_output, validate_against_schema
+    from dev.benchmarks.frontend_data.cli import validate_semantic
+
+    manifests = _same_basename_manifests(tmp_path, cv=cv)
+    expected = {}
+    # Separate external manifests remain independently reusable, including CV
+    # shards with their own alias groups and per-record environment identities.
+    for manifest in manifests + manifests[:1]:
+        result, _, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+        row = result["runs"][0]
+        expected[row["benchmark_session_id"]] = row
+    if reverse:
+        manifests.reverse()
+    merged = _merge_manifests(manifests)
+    repo_root = Path(__file__).resolve().parents[2]
+    for source in merged["sources"]:
+        if path_form != "absolute":
+            relative = Path(os.path.relpath(source["path"], repo_root))
+            if path_form == "normalized_relative":
+                relative = relative.parent / ".." / relative.parent.name / relative.name
+            source["path"] = str(relative)
+    original = copy.deepcopy(merged)
+    result, report, inventory = generate(tmp_path, deterministic=True, manifest=merged, strict_sources=True)
+
+    assert merged == original
+    assert validate_output(result) + validate_against_schema(result) + validate_semantic(result, merged, True) == []
+    assert len(result["runs"]) == 2
+    assert report["files_parsed"] == 2
+    assert inventory["parsed_registered_sources"] == 2
+    for row in result["runs"]:
+        # Full row equality protects source ID/path/hash/date/comparison plus
+        # durations, sessions, environments, raw pointers and display names.
+        assert row == expected[row["benchmark_session_id"]]
+        assert row["source"]["file"] == "preview_data.json"
+        assert row["metrics"]["operation_timing"]["source_file"] == "preview_data.json"
+        if not cv:
+            index = int(row["benchmark_session_id"].rsplit("-", 1)[1])
+            assert row["metrics"]["operation_timing"]["duration_ms"] == (index + 1) * 250
+    again = generate(tmp_path, deterministic=True, manifest=merged, strict_sources=True)
+    assert (result, report, inventory) == again
+
+
+@pytest.mark.parametrize("strict", [False, True])
+@pytest.mark.parametrize("duplicate", ["identical", "source_id", "path", "normalized_path", "symlink_path"])
+def test_repeated_manifest_source_is_rejected_not_overwritten(tmp_path, strict, duplicate):
+    from dev.benchmarks.generate_benchmark_data import generate
+
+    merged = _merge_manifests(_same_basename_manifests(tmp_path))
+    first, second = merged["sources"]
+    if duplicate == "identical":
+        merged["sources"][1] = copy.deepcopy(first)
+    elif duplicate == "source_id":
+        second["source_id"] = first["source_id"]
+    else:
+        path = Path(first["path"])
+        if duplicate == "normalized_path":
+            path = path.parent / ".." / path.parent.name / path.name
+            path = Path(os.path.relpath(path, Path(__file__).resolve().parents[2]))
+        elif duplicate == "symlink_path":
+            alias = tmp_path / "alias.json"
+            alias.symlink_to(path)
+            path = alias
+        second["path"] = str(path)
+    reason = "source_id" if duplicate in ("identical", "source_id") else "source path"
+    with pytest.raises(ValueError, match="Duplicate manifest " + reason):
+        generate(tmp_path, deterministic=True, manifest=merged, strict_sources=strict)
+
+
+@pytest.mark.parametrize("binding", ["ambiguous", "missing", "missing_full_path"])
+def test_direct_canonical_injection_rejects_unbound_sources(tmp_path, binding):
+    from dev.benchmarks.frontend_data.cli import _inject_canonical_fields
+
+    manifests = _same_basename_manifests(tmp_path)
+    merged = _merge_manifests(manifests)
+    row = build_bundle(manifests[0]["sources"][0]["path"])["benchmark_data"]["runs"][0]
+    row["source"].pop("original_path")
+    if binding == "missing":
+        row["source"]["file"] = "unregistered.json"
+    elif binding == "missing_full_path":
+        row["source"]["original_path"] = str(tmp_path / "unregistered" / "preview_data.json")
+    reason = "Ambiguous" if binding == "ambiguous" else "Missing"
+    original = copy.deepcopy(row)
+    with pytest.raises(ValueError, match=reason + " manifest source binding"):
+        _inject_canonical_fields([row], merged, tmp_path)
+    assert row == original
+
+
+@pytest.mark.parametrize("binding", ["basename", "original_basename", "absolute", "normalized_relative"])
+def test_direct_canonical_injection_preserves_unique_legacy_binding(tmp_path, binding):
+    from dev.benchmarks.frontend_data.cli import _inject_canonical_fields
+
+    manifests = _same_basename_manifests(tmp_path)
+    manifest = manifests[0]
+    source = manifest["sources"][0]
+    row = build_bundle(source["path"])["benchmark_data"]["runs"][0]
+    if binding in ("basename", "original_basename"):
+        row["source"].pop("original_path")
+        if binding == "original_basename":
+            source["original_path"] = "results/original-preview.json"
+            row["source"]["file"] = "original-preview.json"
+    else:
+        manifest = _merge_manifests(manifests)
+        if binding == "normalized_relative":
+            path = Path(source["path"])
+            path = path.parent / ".." / path.parent.name / path.name
+            row["source"]["original_path"] = os.path.relpath(path, Path(__file__).resolve().parents[2])
+    _inject_canonical_fields([row], manifest, tmp_path)
+    assert row["source"]["source_id"] == source["source_id"]
+    assert row["source"]["original_path"] == source["original_path"]
+    assert row["source"]["sha256"] == source["sha256"]
+    assert row["source"]["date"] == source["source_date"]
+    assert row["comparison_id"] == source["comparison_id"]
 
 
 def test_environment_and_thread_profiles_remain_separate(tmp_path):

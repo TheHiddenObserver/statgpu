@@ -118,44 +118,40 @@ def _build_transitional_comparisons(runs: list[dict], results_dir: Path) -> list
     return sorted(seen.values(), key=lambda c: c["comparison_id"])
 
 
-def _inject_canonical_fields(runs: list[dict], manifest: dict, results_dir: Path) -> None:
+def _inject_canonical_fields(runs: list[dict], manifest: dict, results_dir: Path,
+                             *, manifest_source: Optional[dict] = None) -> None:
     """Inject canonical source_id, case_id, method_config_id, comparison_id (A2+)."""
     from .identity import run_identity
 
-    # Build source lookup by canonical filename AND original path ending
-    source_by_canon: dict[str, dict] = {}
-    source_by_orig: dict[str, dict] = {}
-    for src in manifest.get("sources", []):
-        canon_name = Path(src["path"]).name
-        source_by_canon[canon_name] = src
-        orig = src.get("original_path", "")
-        if orig:
-            orig_name = Path(orig).name
-            source_by_orig[orig_name] = src
+    repo_root = Path(__file__).resolve().parents[3]
 
     for run in runs:
         src_file = run["source"]["file"]
-        # Match by canonical name first, then original name
-        manifest_src = source_by_canon.get(src_file) or source_by_orig.get(src_file)
-        if not manifest_src:
-            # Try original_path ending match
-            for orig_name, src in source_by_orig.items():
-                if orig_name == src_file:
-                    manifest_src = src
-                    break
+        manifest_src = manifest_source
+        if manifest_src is None:
+            # Compatibility for direct helper callers: use recorded full paths
+            # when present, and accept a legacy basename only when unambiguous.
+            recorded_path = run["source"].get("original_path") or src_file
+            if Path(recorded_path).parent != Path("."):
+                candidates = [src for src in manifest.get("sources", [])
+                              if any((repo_root / recorded_path).resolve() == (repo_root / path).resolve()
+                                     for path in (src["path"], src.get("original_path")) if path)]
+            else:
+                candidates = [src for src in manifest.get("sources", [])
+                              if any(src_file == Path(path).name
+                                     for path in (src["path"], src.get("original_path")) if path)]
+            if len(candidates) != 1:
+                reason = "Ambiguous" if candidates else "Missing"
+                raise ValueError(f"{reason} manifest source binding for {recorded_path}")
+            manifest_src = candidates[0]
 
-        if manifest_src:
-            run["source"]["source_id"] = manifest_src["source_id"]
-            run["source"]["original_path"] = manifest_src.get("original_path", "")
-            if manifest_src.get("sha256"):
-                run["source"]["sha256"] = manifest_src["sha256"]
-            run["comparison_id"] = manifest_src.get("comparison_id", manifest_src["source_id"])
-            if manifest_src.get("source_date"):
-                run["source"]["date"] = manifest_src["source_date"]
-        else:
-            # Fallback: transitional source_id
-            run["source"]["source_id"] = f"transitional:{src_file}"
-            run["comparison_id"] = f"transitional:{src_file.replace('/', '-')}"
+        run["source"]["source_id"] = manifest_src["source_id"]
+        run["source"]["original_path"] = manifest_src.get("original_path", "")
+        if manifest_src.get("sha256"):
+            run["source"]["sha256"] = manifest_src["sha256"]
+        run["comparison_id"] = manifest_src.get("comparison_id", manifest_src["source_id"])
+        if manifest_src.get("source_date"):
+            run["source"]["date"] = manifest_src["source_date"]
 
         # Set case_id/method_config_id from parser output or fall back to default
         # Parsers should set these fields explicitly; default is a valid choice
@@ -266,6 +262,11 @@ def generate(results_dir: Path, deterministic: bool = False,
         env_id = config["env_id"]
         try:
             runs, model_entries, warns = parser_fn(filepath, env_id)
+            if manifest is not None:
+                # Bind while the exact parser input is known. Basenames are
+                # display fields, not unique provenance keys across sources.
+                _inject_canonical_fields(runs, manifest, results_dir,
+                                         manifest_source=config["manifest_source"])
             all_runs.extend(runs)
             for m in model_entries:
                 mid = m["model_id"]
@@ -287,7 +288,6 @@ def generate(results_dir: Path, deterministic: bool = False,
 
     # Inject fields
     if manifest is not None:
-        _inject_canonical_fields(all_runs, manifest, results_dir)
         t_frameworks = _build_manifest_frameworks(manifest, all_runs)
         t_comparisons = _build_manifest_comparisons(manifest)
     else:

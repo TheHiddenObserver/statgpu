@@ -18,6 +18,13 @@ Its validation columns are explicitly recorded, unverified claims. Use the Pytho
 normalizer for export-digest verification; that verification is integrity checking,
 not an authenticated source signature or a numerical oracle rerun.
 
+External manifests bind each parsed batch to its exact registered source, not to
+a filename alone. Same-named files in different directories retain separate
+source IDs, original paths, digests and comparison IDs. A manifest must register
+each resolved source path and source ID only once; duplicate registrations are
+rejected, including alternate path spellings for the same file. Relative source
+paths retain the repository-root interpretation used by canonical manifests.
+
 ## Explicit operation timing
 
 A v1.2 run can carry `metrics.operation_timing`:
