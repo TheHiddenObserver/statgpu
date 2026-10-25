@@ -5,6 +5,13 @@
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
+### 修复 (2026-10-25)
+
+- 所有 campaign 后端均在数值模块导入前控制已安装的 Torch 运行时；初始化失败或线程状态不可读仍明确报错。
+- 增加 operation-timing schema 1.2 与诊断展示，不虚构 fit 耗时或性能比较。恢复 CV 嵌套身份，去重 summary/raw 别名，保留 profiling 阶段独立诊断口径。
+- 将批次与导出工具纳入 `dev/benchmarks/data_update/`。历史源码锁保持显式，不改写旧结果，也不自动批准新的资源预算。
+- 验证来源和新旧运行的独立边界见 `dev/benchmarks/data_update/VALIDATION.md`。此次本地整合不代表 dashboard 已部署，也不代表整合后的新 HEAD 已完成物理验收。
+
 ## 未发布 — 工作区修复
 
 ### Benchmark 资格完善（PR #258）

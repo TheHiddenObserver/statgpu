@@ -1,0 +1,8 @@
+{
+  "operator": "REPLACE_WITH_OPERATOR_LABEL",
+  "statement": "REPLACE_WITH_YOUR_ACTUAL_DECLARATION: I guarantee no competing work for the specified new batch on this GPU; operator declaration, not machine verification.",
+  "recorded_at": "REPLACE_WITH_ACTUAL_ISO8601_TIMESTAMP",
+  "scope": "REPLACE_WITH_EXACT_NEW_BATCH_IDS_AND_OBSERVATION_WINDOW",
+  "environment_id": "p100-t1-newrun",
+  "device_uuid": "REPLACE_WITH_ACTUAL_GPU_UUID"
+}

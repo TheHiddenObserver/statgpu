@@ -7,6 +7,13 @@
 
 This page records user-visible changes for current and recent statgpu releases.
 
+### Fixed (2026-10-25)
+
+- Controlled installed Torch runtimes before numerical imports for all campaign backends; failed initialization or unreadable thread counts remain errors.
+- Added operation-timing schema 1.2 and diagnostic rendering without inventing fit time or performance comparisons. Restored nested CV identities, deduplicated summary/raw aliases, and retained profiling phases as distinct diagnostic scopes.
+- Added repository-hosted batch and export tooling at `dev/benchmarks/data_update/`. Historical source pins remain explicit; tools do not rewrite old results or automatically approve new resource budgets.
+- Validation provenance and separate old/new run limits are recorded in `dev/benchmarks/data_update/VALIDATION.md`. This local integration is not a deployed dashboard or a new physical acceptance of the integrated head.
+
 ## Unreleased — working-tree repairs
 
 ### Benchmark qualification improvements (PR #258)
