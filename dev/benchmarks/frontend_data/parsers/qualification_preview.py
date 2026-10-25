@@ -311,6 +311,47 @@ def _alias_dispositions(records):
     return reasons
 
 
+def _external_required_metadata_reason(item, *, record=False):
+    """Check external ingress shapes before aliases or display serialization.
+
+    Equality with a job is not type validation. Unknown optional thread fields
+    remain unknown; this gate does not infer thread counts or qualification.
+    """
+    for key in ("job_id", "campaign_id", "suite_or_lane", "raw_path"):
+        if not isinstance(item.get(key), str) or not item[key].strip():
+            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    if not isinstance(item.get("configuration"), dict):
+        return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    cpu = item.get("cpu_thread_profile")
+    if not isinstance(cpu, dict):
+        return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    requested = cpu.get("requested_cap")
+    if requested is not None and (type(requested) is not int or requested < 1):
+        return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    for key in ("observed_pool_threads", "observed_torch_threads"):
+        values = cpu.get(key)
+        if values is not None and not (
+                type(values) is int and values > 0
+                or isinstance(values, list) and all(type(value) is int and value > 0 for value in values)):
+            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    for key in ("cap_verified", "all_observed_equal_requested"):
+        if key in cpu and type(cpu[key]) is not bool:
+            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    if "claim" in cpu and not isinstance(cpu["claim"], str):
+        return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    if record:
+        if item.get("raw_performance_eligible") is not None and type(item["raw_performance_eligible"]) is not bool:
+            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+        for key in ("raw_pointer", "row_pointer", "timing_key"):
+            if not isinstance(item.get(key), str) or not item[key].strip():
+                return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+        if "statistic" in item and (not isinstance(item["statistic"], str) or not item["statistic"].strip()):
+            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+        if "sample_count" in item and (type(item["sample_count"]) is not int or item["sample_count"] < 1):
+            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    return None
+
+
 def _external_lineage_reason(document, record):
     """External adapters require one consistent job and campaign provenance."""
     jobs = document.get("jobs", [])
@@ -322,6 +363,9 @@ def _external_lineage_reason(document, record):
     if len(jobs) != 1 or len(campaigns) != 1:
         return "EXTERNAL_ADAPTER_LINEAGE_MISMATCH"
     job, campaign = jobs[0], campaigns[0]
+    reason = _external_required_metadata_reason(job)
+    if reason:
+        return reason
     fields = ("campaign_id", "source_commit", "source_fingerprint", "raw_path", "raw_sha256",
               "suite_or_lane", "configuration", "cpu_thread_profile", "environment",
               "validation_status", "correctness_status")
@@ -364,7 +408,14 @@ def normalize_preview(document, filepath, env_id):
         rid = record.get("record_id")
         if not isinstance(rid, str) or not rid or rid in seen: raise ValueError("Missing/duplicate diagnostic record ID")
         seen.add(rid)
-    alias_reasons = _alias_dispositions(records)
+    ingress_reasons = {
+        row["record_id"]: _external_required_metadata_reason(row, record=True)
+        for row in records if isinstance(row.get("context"), dict)
+        and row["context"].get("framework") == "sklearn"
+    }
+    alias_reasons = _alias_dispositions([
+        row for row in records if not ingress_reasons.get(row["record_id"])
+    ])
     source_hash = hashlib.sha256(filepath.read_bytes()).hexdigest()
     seen = set()
     for record in records:
@@ -372,11 +423,15 @@ def normalize_preview(document, filepath, env_id):
         rid = record.get("record_id")
         if not isinstance(rid, str) or not rid or rid in seen: raise ValueError("Missing/duplicate diagnostic record ID")
         seen.add(rid)
-        reason = None
-        if record.get("validation_status") != "validated_diagnostic" or record.get("correctness_status") not in ("complete", "pass", "passed", "success") or record.get("evidence_errors"):
-            reason = "CORRECTNESS_OR_EVIDENCE_NOT_QUALIFIED"
         if record.get("performance_eligible") is not False or record.get("canonical_dashboard_ready") is not False:
             raise ValueError("Diagnostic record attempted performance promotion")
+        reason = ingress_reasons.get(rid)
+        if reason:
+            reason = _identity(record)[1] or reason
+            withheld.append({"record_id": rid, "reason": reason, "raw_pointer": record.get("raw_pointer")})
+            continue
+        if record.get("validation_status") != "validated_diagnostic" or record.get("correctness_status") not in ("complete", "pass", "passed", "success") or record.get("evidence_errors"):
+            reason = "CORRECTNESS_OR_EVIDENCE_NOT_QUALIFIED"
         path = record.get("raw_pointer", "")
         if (record.get("suite_or_lane") == "six-family-cv"
                 and record.get("source_schema") != "statgpu-scoped-cv-candidate-v2"

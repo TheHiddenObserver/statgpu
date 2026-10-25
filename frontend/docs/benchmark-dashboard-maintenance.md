@@ -122,3 +122,18 @@ producer commit (not the renderer build commit). Expand it for full source/raw
 paths, raw JSON pointer, hashes, parser and any explicitly recorded external
 adapter. These are text, not assumed reachable links. External rows remain an
 opt-in display, not performance comparisons; diagnostic qualification is unchanged.
+
+The external scoped-CV importer checks required record identity strings,
+configuration and thread-profile objects before alias grouping, and validates
+the matching job before normalization.
+Malformed external metadata is withheld per record with
+`EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID`; the raw preview and healthy
+neighbors are preserved. Job/record agreement alone does not establish valid
+metadata types. Optional thread counts may remain absent/null; observed limits
+may be a positive integer or a list of positive integers (including an empty
+list for unrecorded observations). Differing valid limits are preserved, not
+reclassified as verified. Present timing statistics, sample counts and raw
+eligibility flags must match their output types. Missing/null optional runtime
+version metadata remains unknown; malformed versions retain their separate
+`EXTERNAL_ADAPTER_VERSION_METADATA_INVALID` reason. Attempts to promote a
+diagnostic record to canonical/performance eligibility still reject the import.

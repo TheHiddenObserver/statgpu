@@ -682,3 +682,176 @@ def test_sklearn_optional_version_metadata_preserves_healthy_neighbors(
     assert len(data["runs"]) == len(rows)
     assert validate_semantic(data, manifest, True) == []
     assert doc == original
+
+
+def _external_ingress_neighbors():
+    """One independent malformed candidate alongside healthy external/native rows."""
+    doc = sklearn_cv_preview()
+    malformed = copy.deepcopy(doc["records"][0])
+    malformed.update(record_id="malformed-ingress", job_id="other-job", campaign_id="other-campaign")
+    job = copy.deepcopy(doc["jobs"][0])
+    job.update(job_id="other-job", campaign_id="other-campaign")
+    campaign = copy.deepcopy(doc["campaigns"][0])
+    campaign["campaign_id"] = "other-campaign"
+    healthy = preview()["records"][0]
+    healthy.update(record_id="healthy-statgpu", job_id="native-job")
+    doc["records"].extend([malformed, healthy])
+    doc["jobs"].append(job)
+    doc["campaigns"].append(campaign)
+    return doc, malformed, job, campaign
+
+
+def _set_ingress_field(target, field, value):
+    if value == "__missing__":
+        target.pop(field, None)
+    else:
+        target[field] = copy.deepcopy(value)
+
+
+def _check_ingress_neighbors(tmp_path, doc, *, valid=False, strict=False):
+    original = copy.deepcopy(doc)
+    path = save(tmp_path / "preview.json", doc)
+    bundle = build_bundle(path)
+    rows = bundle["benchmark_data"]["runs"]
+    assert len(rows) == (3 if valid else 2)
+    assert sorted(row["framework"] for row in rows) == (["sklearn", "sklearn", "statgpu"] if valid else ["sklearn", "statgpu"])
+    assert sorted(row["metrics"]["operation_timing"]["duration_ms"] for row in rows) == ([200, 200, 250] if valid else [200, 250])
+    for row in rows:
+        assert row["evidence"]["performance_eligible"] is False
+        assert row["evidence"]["canonical_dashboard_ready"] is False
+        assert row["evidence"]["source_commit"] == "a" * 40
+    issues = bundle["parse_report"]["issues"]
+    rejected = [item for item in issues if item["message"].startswith("malformed-ingress:")]
+    assert len(rejected) == (0 if valid else 1)
+    assert sum(item["code"] == "ALIAS_OF_RETAINED_OBSERVATIONS" for item in issues) == 3
+    if strict:
+        from dev.benchmarks.generate_benchmark_data import generate
+        from dev.benchmarks.frontend_data.cli import validate_semantic
+        manifest = build_external_manifest(path, bundle, "2026-10-25")
+        data, report, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+        assert len(data["runs"]) == len(rows)
+        assert validate_semantic(data, manifest, True) == []
+    assert doc == original
+    return rejected
+
+
+_REQUIRED_INGRESS_INVALID = [
+    (field, value)
+    for field in ("job_id", "campaign_id", "suite_or_lane", "raw_path", "configuration", "cpu_thread_profile")
+    for value in (["__missing__", None, True, 17, 1.5, [], {}, "", " "]
+                  if field not in ("configuration", "cpu_thread_profile")
+                  else ["__missing__", None, True, 17, 1.5, [], "unknown"])
+]
+
+
+@pytest.mark.parametrize("field,value", _REQUIRED_INGRESS_INVALID)
+@pytest.mark.parametrize("location", ["record", "job", "both"])
+def test_external_required_ingress_shapes_isolate_only_bad_record(tmp_path, field, value, location):
+    doc, record, job, campaign = _external_ingress_neighbors()
+    for target in ([record, job] if location == "both" else [record if location == "record" else job]):
+        _set_ingress_field(target, field, value)
+    # Matching campaign metadata must not turn malformed required IDs into valid identity.
+    if field == "campaign_id" and location == "both":
+        _set_ingress_field(campaign, field, value)
+    rejected = _check_ingress_neighbors(tmp_path, doc)
+    expected = ("EXTERNAL_ADAPTER_LINEAGE_MISMATCH" if field == "job_id" and location == "job"
+                else "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID")
+    assert rejected[0]["code"] == expected
+
+
+_CPU_INGRESS_INVALID = (
+    [("requested_cap", value) for value in (True, False, 0, -1, 1.5, "1", [], {})]
+    + [(field, value) for field in ("observed_pool_threads", "observed_torch_threads")
+       for value in (True, False, 0, -1, 1.5, "1", {}, [None], [True], [0], [-1], [1.5], ["1"], [{}], [[]])]
+    + [(field, value) for field in ("cap_verified", "all_observed_equal_requested")
+       for value in (None, 0, 1, "true", [], {})]
+    + [("claim", value) for value in (None, True, 17, [], {})]
+)
+
+
+@pytest.mark.parametrize("field,value", _CPU_INGRESS_INVALID)
+@pytest.mark.parametrize("location", ["record", "job", "both"])
+def test_external_nested_cpu_ingress_shapes_isolate_only_bad_record(tmp_path, field, value, location):
+    doc, record, job, _ = _external_ingress_neighbors()
+    for target in ([record, job] if location == "both" else [record if location == "record" else job]):
+        _set_ingress_field(target["cpu_thread_profile"], field, value)
+    rejected = _check_ingress_neighbors(tmp_path, doc)
+    assert rejected[0]["code"] == "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+
+
+@pytest.mark.parametrize("profile", [
+    {}, {"requested_cap": None}, {"requested_cap": 1}, {"requested_cap": 8},
+    {"observed_pool_threads": None}, {"observed_pool_threads": []}, {"observed_pool_threads": 1},
+    {"observed_pool_threads": 8}, {"observed_pool_threads": [1, 4]},
+    {"observed_torch_threads": None}, {"observed_torch_threads": []}, {"observed_torch_threads": 1},
+    {"observed_torch_threads": [1, 4]}, {"cap_verified": False}, {"cap_verified": True},
+    {"all_observed_equal_requested": False}, {"all_observed_equal_requested": True}, {"claim": ""},
+    {"requested_cap": 4, "observed_pool_threads": [1, 4], "observed_torch_threads": [2],
+     "cap_verified": True, "all_observed_equal_requested": False, "claim": "Recorded pool bounds"},
+])
+def test_external_supported_cpu_profile_forms_remain_representable(tmp_path, profile):
+    doc, record, job, _ = _external_ingress_neighbors()
+    record["cpu_thread_profile"] = copy.deepcopy(profile)
+    job["cpu_thread_profile"] = copy.deepcopy(profile)
+    _check_ingress_neighbors(tmp_path, doc, valid=True, strict=True)
+
+
+@pytest.mark.parametrize("field,value", [
+    *[("statistic", value) for value in (None, True, 17, 1.5, [], {}, "", " ")],
+    *[("sample_count", value) for value in (None, True, 0, -1, 1.5, [], {}, "3")],
+    *[("raw_performance_eligible", value) for value in (0, 1, 1.5, [], {}, "false")],
+])
+def test_external_adjacent_output_metadata_isolated_before_bundle_validation(tmp_path, field, value):
+    doc, record, _, _ = _external_ingress_neighbors()
+    record[field] = copy.deepcopy(value)
+    rejected = _check_ingress_neighbors(tmp_path, doc, strict=True)
+    assert rejected[0]["code"] == "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("statistic", "__missing__"), ("statistic", "recorded_median"),
+    ("sample_count", "__missing__"), ("sample_count", 3),
+    ("raw_performance_eligible", "__missing__"), ("raw_performance_eligible", None),
+    ("raw_performance_eligible", False), ("raw_performance_eligible", True),
+])
+def test_external_optional_output_metadata_supported_forms(tmp_path, field, value):
+    doc, record, _, _ = _external_ingress_neighbors()
+    _set_ingress_field(record, field, value)
+    _check_ingress_neighbors(tmp_path, doc, valid=True, strict=True)
+
+
+@pytest.mark.parametrize("field", ["performance_eligible", "canonical_dashboard_ready"])
+def test_malformed_external_metadata_cannot_bypass_promotion_guard(tmp_path, field):
+    doc, record, _, _ = _external_ingress_neighbors()
+    record["cpu_thread_profile"] = None
+    record[field] = True
+    with pytest.raises(ValueError, match="attempted performance promotion"):
+        build_bundle(save(tmp_path / "preview.json", doc))
+
+
+@pytest.mark.parametrize("value", [None, True, 17, [], {}])
+def test_external_invalid_alias_metadata_does_not_crash_healthy_neighbors(tmp_path, value):
+    doc, record, _, _ = _external_ingress_neighbors()
+    record["timing_key"] = copy.deepcopy(value)
+    record["raw_pointer"] = "/results/0/unknown/raw_seconds"
+    _check_ingress_neighbors(tmp_path, doc)
+
+
+@pytest.mark.parametrize("field,value", [("cpu_thread_profile", None), ("statistic", []), ("sample_count", False)])
+def test_malformed_external_alias_does_not_poison_retained_healthy_observation(tmp_path, field, value):
+    doc = sklearn_cv_preview()
+    malformed = copy.deepcopy(doc["records"][0])
+    malformed["record_id"] = "malformed-alias"
+    malformed[field] = copy.deepcopy(value)
+    doc["records"].append(malformed)
+    original = copy.deepcopy(doc)
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    rows = bundle["benchmark_data"]["runs"]
+    assert len(rows) == 1
+    assert rows[0]["framework"] == "sklearn"
+    assert rows[0]["metrics"]["operation_timing"]["duration_ms"] == 200
+    issues = bundle["parse_report"]["issues"]
+    assert sum(item["code"] == "ALIAS_OF_RETAINED_OBSERVATIONS" for item in issues) == 3
+    assert [item["code"] for item in issues if item["message"].startswith("malformed-alias:")] == [
+        "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"]
+    assert doc == original
