@@ -1,11 +1,30 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-10-22<br>
+> 最后更新：2026-10-24<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
 ## 未发布 — 工作区修复
+
+### Benchmark 资格完善（PR #258）
+
+- 将配置门禁指南校正为58个必需单GPU参数，包含新增20个推断组合；命令与可执行契约不变。
+- 在计时前观测 OLS/WLS nonrobust、HC0、HC3 推断的真实协方差阶段运算，报告实际计算精度（包括既有加权 CuPy/Torch 提升），缺证据即阻断；明确嵌套分布函数及报告边界，生产算法与容差不变。
+- 兼容 CPython 3.9 的 clean CV 计时：缺少公开 getter 时读取其实际线程默认 profile/trace hook 状态；未知或不可读状态仍拒绝计时，不关闭调用方 hook，数值及计时边界不变。
+- 对没有模块名的 CuPy ufunc `add.at` 绑定方法，改用精确原生所有者和方法描述符验证身份；拒绝替换的所有者或方法，保留原地输出、设备及精度检查，生产 KMeans 运算不变。
+- 修正 CuPy DBSCAN 外层追踪阶段对嵌套既有 float32 距离计算的精度声明，保留整数标签/计数证据、严格设备检查与独立聚类 oracle；生产精度和数值容差不变。
+- 同步不支持能力 CLI 回归测试的显式配置关键字契约，校验预期 blocked 原因，避免 mock 签名 TypeError 干扰测试。
+- CV 干净同步公开拟合计时与 selector/refit 插桩诊断分离，保留目标函数、折分、参数网格及数值阈值。
+- 干净计时拒绝活动中的 Torch 原生 profiler，并检查 CV/最终 refit 的显式收敛状态，包括 Cox RuntimeWarning 对应的不收敛。
+- Gaussian ingress 观察移到计时外；workflow 增加正确性预检并明确 host/mixed 计时口径。
+- 扩展 learning 算法阶段证据并分离 helper 追踪与计时；未闭合或混合计算不标记为全原生。
+- 增加七套统一资格与扫描入口，保留精确节点清单、独立线程 profile、有限规模及不可改写的原始证据。GPU 独占未验证时仅为诊断，不产生加速比或 dashboard 资格。
+- 新增 `run_full_benchmark_matrix.py`，统一先规划、后显式执行的注册/独立 lane；支持多 seed/shape profile、受支持的命名配置与确定性分批。逐 case 的资源/oracle 边界会拒绝或明确排除不支持的点，不静默缩小输入。
+- 覆盖核算不再只看七套注册 suite：区分 275 个注册身份、默认 21 次调用/1692 行代表性矩阵、独立 runner 文件以及有限配置矩阵。保留 blocked、不适用和未执行项，不能把进程成功退出解释为全覆盖。
+- 独立登记公开 KDE bootstrap、hybrid phase、Cox/panel 专项、外部对照、compile 与 memory 等计时协议。wrapper/子程序及重叠 scale 点不是额外独立证据；legacy 或不安全入口不会自动执行。
+- 明确 solver/family/weights/sparse/precision、规模/oracle、统计校准和硬件方面的剩余缺口。输入 dtype、CUDA 输出归属和 host/hybrid 工作流不等于原生计算精度或全算法 CUDA 执行。参见[资格指南](guides/benchmark-qualification.md)及 `dev/benchmarks/BENCHMARK_QUALIFICATION_GAPS.md`。
+- 不修改生产算法或 Logistic 默认值。计划、源码盘点及合成 harness 验证都不是物理 GPU 结果；历史运行不能证明改过的源码或扩大的矩阵。新源码仍需物理 GPU 验收。
 
 ### PR #257 — 完整扫描正确性与证据修复
 

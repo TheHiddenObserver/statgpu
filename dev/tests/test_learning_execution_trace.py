@@ -118,12 +118,13 @@ def test_real_torch_cpu_normal_ci_internal_stages():
     assert {'kde-fit','kde-density','host-interval-assembly'}=={r['stage'] for r in report['stages']}
 
 
-def test_host_scalar_rule_is_reported_without_gpu_compute_claim():
+def test_bandwidth_validation_is_not_misclassified_by_case_whitelist():
     row=b.run_case('bandwidth_helpers',b.Runtime('numpy'),32,4,42,0,1)
     assert row['performance_eligible'] is False
-    assert row['execution_qualification']['compute_placement']=='host-scalar'
+    assert row['execution_qualification']['compute_placement']=='host'
+    assert row['execution_qualification']['observations']['requested_backend_array_events'] > 0
     assert len(row['execution_trace'][0]['stages'])==2
-    assert all(r['placement']=='host-scalar-no-GPU-work-required' for r in row['execution_trace'][0]['stages'])
+    assert all(r['placement']=='array-input-validation-with-host-scalar-rule' for r in row['execution_trace'][0]['stages'])
 
 
 def test_torch_cpu_bootstrap_observes_native_rng_and_quantiles():
@@ -213,13 +214,18 @@ def test_unsupported_boundary_is_machine_readable(monkeypatch,tmp_path):
     import json
     rt=SimpleNamespace(name='torch',device='cuda:0',hardware={},context=nullcontext)
     monkeypatch.setattr(b,'Runtime',lambda *args:rt)
-    def unsupported(*args):
+    received=[]
+    def unsupported(*args, **kwargs):
+        received.append(kwargs)
         raise b.UnsupportedCapability('unsupported kernel/shape combination')
     monkeypatch.setattr(b,'run_case',unsupported)
     output=tmp_path/'unsupported.json'
     assert b.main(['--cases','kde_bootstrap','--backends','torch','--require-backends','--output',str(output)])==2
     row=json.loads(output.read_text())['results'][0]
+    assert received == [{'dtype':'float64','weights':'none','solver':'default',
+                         'sparse':'dense','covariance_type':'default'}]
     assert row['status']=='blocked' and row['blocked_kind']=='unsupported-capability'
+    assert row['reason']=='unsupported kernel/shape combination'
     assert 'timing' not in row
 
 
@@ -401,5 +407,134 @@ def test_numpy_scalar_control_with_array_shape_cannot_prove_cpu_array_work():
     event['backend'] = 'numpy'
     event['inputs'] = [dict(identities(np.float64(1.))[0], shape=[])]
     event['outputs'] = identities(np.asarray(1.))
+    with pytest.raises(TraceIncomplete):
+        trace.report()
+
+
+def test_cupy_ufunc_bound_method_metadata_without_gpu():
+    """Real extension identity only; no CUDA allocation, device query or kernel."""
+    cp = pytest.importorskip('cupy')
+    assert cp.add.at.__self__ is cp.add
+    NumericalTrace._verify_native_callable(cp.add.at, cp, 'cupy', 'add.at')
+    original_add, original_sum = cp.add, cp.sum
+    def target():
+        raise AssertionError('Metadata-only test must not execute a GPU stage')
+    runtime = SimpleNamespace(name='cupy', module=cp, device='cuda:0')
+    with NumericalTrace(runtime, [stage(target, 'scatter', ('add.at',))]):
+        assert cp.add is not original_add
+    assert cp.add is original_add and cp.sum is original_sum
+    assert sys.getprofile() is None
+    # Audit every currently registered primitive, not only the reported method.
+    for name in NumericalTrace.OPS:
+        fn = getattr(cp, name, None)
+        if callable(fn):
+            NumericalTrace._verify_native_callable(fn, cp, 'cupy', name)
+    for name in NumericalTrace.LINALG:
+        fn = getattr(cp.linalg, name, None)
+        if callable(fn):
+            NumericalTrace._verify_native_callable(fn, cp, 'cupy', 'linalg.' + name)
+    NumericalTrace._verify_native_callable(cp.random.RandomState.random_sample,
+                                          cp, 'cupy', 'RandomState.random_sample')
+
+
+@pytest.mark.parametrize('replacement', ['subtract.at', 'add.reduce', 'sum', 'add'])
+def test_cupy_add_at_requires_exact_registered_method(replacement):
+    cp = pytest.importorskip('cupy')
+    fn = cp
+    for part in replacement.split('.'):
+        fn = getattr(fn, part)
+    with pytest.raises(TraceIncomplete, match='bound method'):
+        NumericalTrace._verify_native_callable(fn, cp, 'cupy', 'add.at')
+
+
+@pytest.mark.parametrize('replacement', [np.add.at, [].append, list.append,
+                                         lambda *args: None])
+def test_cupy_add_at_rejects_foreign_builtins_and_python(replacement):
+    module = SimpleNamespace(add=np.add, ufunc=np.ufunc)
+    with pytest.raises(TraceIncomplete, match='bound method'):
+        NumericalTrace._verify_native_callable(replacement, module, 'cupy', 'add.at')
+
+
+def test_cupy_add_at_rejects_forged_callable_metadata():
+    class Forged:
+        __module__ = 'cupy._core._kernel'
+        __name__ = 'at'
+        __self__ = np.add
+        def __call__(self, *args):
+            raise AssertionError('Must not execute a replacement to authenticate it')
+    with pytest.raises(TraceIncomplete, match='bound method'):
+        NumericalTrace._verify_native_callable(Forged(),
+            SimpleNamespace(add=np.add, ufunc=np.ufunc), 'cupy', 'add.at')
+
+    class ufunc(list):
+        __module__ = 'cupy._core._kernel'
+        __name__ = 'cupy_add'
+        at = list.append
+    owner = ufunc()
+    with pytest.raises(TraceIncomplete, match='bound method'):
+        NumericalTrace._verify_native_callable(owner.at,
+            SimpleNamespace(add=owner, ufunc=ufunc), 'cupy', 'add.at')
+
+
+def test_cupy_add_at_rejects_replaced_owner_and_restores_startup(monkeypatch):
+    cp = pytest.importorskip('cupy')
+    original = cp.add
+    original_sum = cp.sum
+    monkeypatch.setattr(cp, 'add', cp.subtract)
+    rt = SimpleNamespace(name='cupy', module=cp, device='cuda:0')
+    def target():
+        raise AssertionError('Startup rejection must precede execution')
+    with pytest.raises(TraceIncomplete, match='bound method'):
+        with NumericalTrace(rt, [stage(target, 'add-at', ('add.at',))]):
+            target()
+    assert cp.sum is original_sum
+    assert cp.add is cp.subtract
+    assert sys.getprofile() is None
+    monkeypatch.setattr(cp, 'add', original)
+
+
+def test_mutating_primitive_observer_records_destination_not_none():
+    """CPU observer regression for the same in-place-output protocol as add.at."""
+    def target(x):
+        assert observed(x, [0, 0], [2., 3.]) is None
+        return x
+    trace = NumericalTrace(cpu_runtime(), [stage(target, 'scatter', ('add.at',))])
+    observed = trace._wrap(np.add.at, 'numpy', 'add.at', mutated_argument=0)
+    destination = np.zeros(2, dtype=np.float64)
+    with trace:
+        assert target(destination) is destination
+    report = trace.report()
+    assert report
+    np.testing.assert_array_equal(destination, [5., 0.])
+    event = trace.records[0]['operations'][0]
+    assert event['outputs'][0]['dtype'] == 'float64'
+    assert event['outputs'][0]['backend'] == 'numpy'
+    assert event['outputs'][0]['shape'] == [2]
+
+
+@pytest.mark.parametrize('direct', [False, True])
+def test_direct_source_calls_cannot_borrow_child_arithmetic(direct):
+    def child(x):
+        return np.sqrt(x)
+    def parent(x):
+        return child(x)
+    trace = NumericalTrace(cpu_runtime(), [stage(parent, 'parent', ('sqrt',), direct_calls_only=direct)])
+    with trace:
+        parent(np.ones(3))
+    if direct:
+        with pytest.raises(TraceIncomplete, match='No matching native arithmetic'):
+            trace.report()
+    else:
+        assert trace.report()['status'] == 'observed'
+
+
+def test_direct_source_call_failure_keeps_failed_operation():
+    def target(x):
+        return np.linalg.cholesky(x)
+    trace = NumericalTrace(cpu_runtime(), [stage(target, 'direct-failure', ('linalg.cholesky',), direct_calls_only=True)])
+    with pytest.raises(np.linalg.LinAlgError):
+        with trace:
+            target(np.zeros((2, 2)))
+    assert trace.records[0]['operations'][0]['status'] == 'failed'
     with pytest.raises(TraceIncomplete):
         trace.report()

@@ -17,12 +17,16 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 MANIFEST = Path(__file__).with_name('full_coverage_manifest.json')
 REVIEWED_RUNNERS = {
     'benchmark_release_refresh', 'benchmark_classification_metrics',
     'benchmark_workflow_coverage', 'benchmark_statistical_coverage',
     'benchmark_model_coverage', 'benchmark_learning_coverage', 'benchmark_cv_coverage',
 }
+REVIEWED_SUITE_IDS = {'gaussian-refresh', 'classification-metrics', 'model-families',
+                      'statistical-families', 'learning-families', 'workflow-families', 'six-family-cv'}
 FAIL = {'fail', 'failed', 'failure', 'error', 'incorrect', 'timeout'}
 INCOMPLETE = {'partial', 'skipped', 'skip', 'unavailable', 'blocked', 'not_run', 'pending'}
 
@@ -95,6 +99,7 @@ def fingerprint(manifest):
     paths += [Path(__file__).with_name(name) for name in (
         'benchmark_cv_models.py', 'cv_external.py', 'cv_source.py',
         'cv_source_schema.json', 'learning_execution_trace.py',
+        'benchmark_qualification.py', 'run_qualification_campaign.py',
     )]
     hashes = {str(p.relative_to(ROOT)) if p.is_relative_to(ROOT) else str(p):
               hashlib.sha256(p.read_bytes()).hexdigest() for p in paths if p.is_file()}
@@ -188,7 +193,30 @@ def main(argv=None):
                 row.update(launch(cmd, output, args.timeout, log))
             except Exception as exc:
                 row.update(status='failed', reason=f'{type(exc).__name__}: {exc}')
+        if output.is_file() and entry['id'] in REVIEWED_SUITE_IDS:
+            try:
+                from dev.benchmarks.benchmark_qualification import evaluate_artifact
+                document = json.loads(output.read_text(encoding='utf8'), parse_constant=lambda x: (_ for _ in ()).throw(ValueError(x)))
+                qualification = evaluate_artifact(document, entry['id'], args.backend,
+                    exit_code=row.get('exit_code'), expected_source=before['git_commit'],
+                    expected_cases=None if args.smoke else entry.get('case_ids'))
+                sidecar = destination / f'{index:03d}.qualification.json'
+                sidecar.write_text(json.dumps(qualification, indent=2, allow_nan=False)+'\n', encoding='utf8')
+                row['qualification_artifact'] = sidecar.name
+                qualified_state = qualification['correctness']['status']
+                if qualified_state == 'failed': row['status'] = 'failed'
+                elif qualified_state == 'partial' and row['status'] != 'failed': row['status'] = 'partial'
+            except (OSError, ValueError, TypeError) as exc:
+                row.update(status='failed', reason=f'Qualification failed: {exc}')
         results.append(row)
+        # A changed numerical/validator source is unsafe for subsequent suites.
+        current = fingerprint(args.manifest)
+        if current['git_commit'] != before['git_commit'] or current['content_sha256'] != before['content_sha256']:
+            row.update(status='failed', reason='Source changed; remaining suites not run')
+            results.extend({'id': pending['id'], 'status': 'not_run',
+                            'reason': 'Earlier source identity guard stopped campaign'}
+                           for pending in entries[index + 1:])
+            break
         print(entry['id']+': '+row['status'], flush=True)
     after = fingerprint(args.manifest)
     changed = before['git_commit'] != after['git_commit'] or before['content_sha256'] != after['content_sha256']
@@ -203,6 +231,8 @@ def main(argv=None):
               'global_uncovered_axes': manifest.get('global_uncovered_axes', []),
               'selected_suite_ids': [e['id'] for e in entries],
               'canonical_dashboard_ready': False,
+              'performance': {'qualification': 'diagnostic_only', 'eligible': False,
+                              'exclusive_gpu_ownership': 'UNVERIFIED_EXCLUSIVITY', 'comparisons': []},
               'note': 'Complete means selected invocations succeeded, NOT all API combinations or physical backend coverage.'}
     (destination/'summary.json').write_text(json.dumps(report, indent=2, ensure_ascii=False)+'\n',encoding='utf8')
     return 2 if failed or (incomplete and not args.allow_incomplete) else 0

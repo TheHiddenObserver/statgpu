@@ -103,3 +103,16 @@ def test_trace_helper_changes_dispatcher_source_fingerprint(tmp_path, monkeypatc
     after = m.fingerprint(manifest)
     assert before['files_sha256'][key] != after['files_sha256'][key]
     assert before['content_sha256'] != after['content_sha256']
+
+
+def test_qualification_policy_changes_source_fingerprint(tmp_path, monkeypatch):
+    scripts=tmp_path/'dev'/'benchmarks';scripts.mkdir(parents=True)
+    dispatcher=scripts/'run_coverage_benchmarks.py';dispatcher.write_text('# dispatcher\n')
+    helper=scripts/'benchmark_qualification.py';helper.write_text('# policy1\n')
+    manifest=scripts/'manifest.json';manifest.write_text('{}')
+    monkeypatch.setattr(m,'ROOT',tmp_path);monkeypatch.setattr(m,'__file__',str(dispatcher))
+    before=m.fingerprint(manifest)
+    helper.write_text('# policy2\n')
+    after=m.fingerprint(manifest)
+    assert before['content_sha256'] != after['content_sha256']
+    assert 'dev/benchmarks/benchmark_qualification.py' in after['files_sha256']

@@ -257,10 +257,11 @@ def run_case(runtime, *, model_name, n, p, dtype, weighted, seed, alpha, warmup,
                                       'compute_inference': False}},
            'backend': {'requested': runtime.name, 'requested_device': runtime.device},
            'status': 'failed'}
-    def new_model():
+    def new_model(observed=True):
         kw = {'device': {'numpy': 'cpu', 'cupy': 'cuda', 'torch': 'torch'}[runtime.name],
               'compute_inference': False, 'gpu_memory_cleanup': False}
-        return ObservedOLS(**kw) if model_name == 'ols' else ObservedRidge(alpha=alpha, solver='exact', **kw)
+        ols, ridge = (ObservedOLS, ObservedRidge) if observed else (LinearRegression, Ridge)
+        return ols(**kw) if model_name == 'ols' else ridge(alpha=alpha, solver='exact', **kw)
     with runtime.context(), warnings.catch_warnings():
         warnings.simplefilter('error')
         # Input allocation/transfer is outside measured regions. Public fit may
@@ -289,9 +290,11 @@ def run_case(runtime, *, model_name, n, p, dtype, weighted, seed, alpha, warmup,
             return row  # No usable timing on a failed correctness gate.
         fit_samples, predict_samples = [], []
         for index in range(warmup + repeats):
-            candidate = new_model()  # Construction excluded, fresh model each fit.
+            candidate = new_model(observed=False)  # No ingress observer in measured fits.
             model, fit_time = time_call(lambda: fit(candidate), runtime, device)
-            verify_route(model, runtime)
+            if (getattr(model, '_selected_backend_name', None) != runtime.name
+                    or getattr(model, '_selected_backend_device', None) != device):
+                raise RuntimeError('Selected backend/device changed after observed preflight')
             prediction, predict_time = time_call(lambda: predict(model), runtime, device)
             if array_identity(prediction) != identity:
                 raise RuntimeError('Prediction placement/dtype changed across repeats')
@@ -307,7 +310,8 @@ def run_case(runtime, *, model_name, n, p, dtype, weighted, seed, alpha, warmup,
         row['timing'] = {'warmup': warmup, 'repeats': repeats, 'statistic': 'median',
                          'correctness_preflight_fits': 1,
                          'cache_state': 'warmed by correctness preflight plus configured warmup; not cold-start',
-                         'instrumentation': 'lightweight backend ingress observation included in fit timing',
+                         'instrumentation': 'ingress observation only in untimed preflight; plain public estimators timed',
+                         'instrumented': False,
                          'synchronized_device': device if runtime.name != 'numpy' else None,
                          'transfer_policy': 'native inputs preallocated; internal casting/report copies included; prediction returned native',
                          'records': [

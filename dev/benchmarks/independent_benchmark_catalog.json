@@ -1,0 +1,2786 @@
+{
+  "audit_baseline_sha": "75426d42f4ac1c053584bc8e06a0608f4350de20",
+  "audit_inputs_sha256": {
+    "independent-command-plan.json": "867515f511a9374a0f4f3fe54ffb076a132e48d9aadab8ce8b44c215bdd30532",
+    "independent-runners.json": "c55b67de270e16d2ed3fa3acc5e9a63fc8e2bd1d97449a306af1dbdffb0b6245"
+  },
+  "counts": {
+    "artifact_processor": 12,
+    "campaign_timing_runner": 7,
+    "correctness_collection_runner": 1,
+    "correctness_gate": 41,
+    "diagnostic": 16,
+    "helper": 41,
+    "independent_parameterized_timing_runner": 41,
+    "legacy_fixed_workload_runner": 8,
+    "legacy_import_time_workload": 20,
+    "legacy_smoke_entry_and_helper": 2,
+    "orchestrator": 10,
+    "unsafe_remote_launcher": 3
+  },
+  "deduplication": {
+    "rules": [
+      "Count runner files, invocation count, unique cases, backend rows and statistical assertions separately.",
+      "Do not add wrapper and children as independent coverage; retain wrapper exact-source/aggregation semantics.",
+      "PR151 v7 lineage includes v5/v6 and earlier v4/v3-derived cases; compare case IDs rather than summing files.",
+      "benchmark_cv_coverage reuses benchmark_cv_models; canonical source schema and external reference lanes are separate protocols, not new model families.",
+      "PCA/KMeans base/external matrix and phase2/phase3b overlap by model; deduplicate exact data/solver/covariance/linkage/backend/scale/timing scope, not names.",
+      "Public KDE, controlled-index experiment, RNG experiment and hybrid phase experiment have distinct estimands/timing scopes and must not be conflated."
+    ],
+    "wrappers": {
+      "dev/benchmarks/benchmark_cox_cv_penalty_order_suite.py": [
+        "dev/benchmarks/benchmark_cox_cv_penalty_order_gpu.py"
+      ],
+      "dev/benchmarks/benchmark_cox_cv_staged_safety_suite.py": [
+        "dev/benchmarks/benchmark_cox_cv_staged_safety_gpu.py"
+      ],
+      "dev/benchmarks/benchmark_nonparametric_comparison_suite.py": [
+        "dev/benchmarks/benchmark_kde_vs_scipy.py",
+        "dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py",
+        "dev/benchmarks/benchmark_nonparametric_vs_r.py"
+      ],
+      "dev/benchmarks/benchmark_pr80_final_gpu_suite.py": [
+        "dev/benchmarks/benchmark_pr80_group_gpu_suite.py",
+        "dev/benchmarks/benchmark_cox_cv_penalty_order_suite.py",
+        "dev/benchmarks/benchmark_cox_cv_staged_safety_suite.py"
+      ],
+      "dev/benchmarks/benchmark_pr80_group_gpu_suite.py": [
+        "dev/benchmarks/benchmark_group_layout_gpu.py",
+        "dev/benchmarks/benchmark_group_lasso_objective_gpu.py",
+        "dev/benchmarks/benchmark_group_nonconvex_layout_gpu.py",
+        "dev/benchmarks/benchmark_group_nonconvex_weighted_gpu.py",
+        "dev/benchmarks/benchmark_group_cv_object_gpu.py"
+      ],
+      "dev/benchmarks/run_coverage_benchmarks.py": [
+        "dev/benchmarks/benchmark_classification_metrics.py",
+        "dev/benchmarks/benchmark_cv_coverage.py",
+        "dev/benchmarks/benchmark_learning_coverage.py",
+        "dev/benchmarks/benchmark_model_coverage.py",
+        "dev/benchmarks/benchmark_release_refresh.py",
+        "dev/benchmarks/benchmark_statistical_coverage.py",
+        "dev/benchmarks/benchmark_workflow_coverage.py"
+      ],
+      "dev/benchmarks/run_qualification_campaign.py": [
+        "dev/benchmarks/benchmark_classification_metrics.py",
+        "dev/benchmarks/benchmark_cv_coverage.py",
+        "dev/benchmarks/benchmark_learning_coverage.py",
+        "dev/benchmarks/benchmark_model_coverage.py",
+        "dev/benchmarks/benchmark_release_refresh.py",
+        "dev/benchmarks/benchmark_statistical_coverage.py",
+        "dev/benchmarks/benchmark_workflow_coverage.py"
+      ],
+      "dev/benchmarks/run_quantile_group_lla_gpu_gate.py": [
+        "dev/benchmarks/validate_quantile_group_lla_gpu.py",
+        "dev/benchmarks/validate_quantile_scalar_lla_gpu.py",
+        "dev/benchmarks/validate_quantile_group_boundary_probe_gpu.py"
+      ],
+      "dev/benchmarks/run_quantile_smooth_fista_gpu_gate.py": [
+        "dev/benchmarks/validate_quantile_smooth_fista_gpu.py"
+      ],
+      "dev/benchmarks/run_quantile_solver_provenance_gpu_gate.py": [
+        "dev/benchmarks/validate_quantile_solver_provenance_gpu.py"
+      ]
+    }
+  },
+  "files": [
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/_bench_unsupervised_fast2.py",
+      "purpose": "Fast unsupervised benchmark - skip slow UMAP numpy.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "hardcoded host paths"
+      ],
+      "sha256": "00e1e58d96d7dd295243b502b74669d1fba523f23e9b160671ed21eefc3d5bbe",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/_bench_unsupervised_full.py",
+      "purpose": "Full unsupervised benchmark with latest code.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "hardcoded host paths"
+      ],
+      "sha256": "f52d91eff49aebbd864d71847cedd333a9ec8b068cb1687c7b403f185138b771",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/_compare_external_v2_remote.py",
+      "purpose": "Compare statgpu vs external frameworks: precision + performance (v2).",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "hardcoded host paths"
+      ],
+      "sha256": "a5846be6917ccf6c2351500161216fb3a2db27ae303edb849f97e2d580c52dfe",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/_compare_gam_aligned_remote.py",
+      "purpose": "Compare statgpu vs pygam with aligned parameters.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "hardcoded host paths"
+      ],
+      "sha256": "b579031cc6f0d15458c5321b37c7859c0214e91aeaf0001763e86d9b3973ef98",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "artifact_processor",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/_convert_format.py",
+      "purpose": "Convert solver benchmark results to match existing benchmark format.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "230889be1069f8540b487ff4a6402bac7ebb083606287839e1024711fcc91cc8",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/_debug_gam_basis.py",
+      "purpose": "Debug: compare basis matrices between statgpu and pygam.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "hardcoded host paths"
+      ],
+      "sha256": "0df05c3d563c33059eb1214b45a65039fe1fb9626d9376ed27444254590b98a6",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/_debug_gam_diff.py",
+      "purpose": "Debug remaining 0.25% difference between statgpu and pygam.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "hardcoded host paths"
+      ],
+      "sha256": "dfeab47d23fb796739d9a249daa3d42e80b9ca506794a4ed82b42bec3e289f71",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/_exact_source_runtime.py",
+      "purpose": "Exact-checkout runtime import provenance for benchmark suites.",
+      "risks": [],
+      "sha256": "6ffc388feafd627b5f6e0468fc71f19ff51c35197743f372b831b1466bc86126",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "artifact_processor",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/_gen_merged_md.py",
+      "purpose": "Generate merged markdown report.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "3b7795d0952c32b6e34c4c0418c04e6b0c9fbcfc6a415594463b7e7cb1ce5e02",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "artifact_processor",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/_merge_new_modules.py",
+      "purpose": "Merge new modules benchmark results into a single frontend-friendly file.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "1ecbff87967da8eeea2ba9b799cfbba014ea5a10b4031051bb4cba366ca38eb7",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "artifact_processor",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/_merge_results.py",
+      "purpose": "Merge all 70 cases into final 3-backend table.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "80b5015251210d4111a82806d9feb6be1cf3c96ca006f2cc866d390dd4435205",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/_new_modules_remote.py",
+      "purpose": "Remote benchmark: Panel Data, GAM, ANOVA across 3 backends.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "hardcoded host paths"
+      ],
+      "sha256": "ef394628a65edbcdd42d0ade27086657d0f147eeb801aa736bd0eeea60c9f796",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/_solver_perf_remote.py",
+      "purpose": "Remote performance benchmark: family x penalty x solver x backend (numpy/cupy/torch).",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "hardcoded host paths"
+      ],
+      "sha256": "18441311cbe18281d5d5ea3998877d59db5f635ca89a15bb1245cab2d5c2d311",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/_solver_prec_remote.py",
+      "purpose": "Remote precision benchmark: family x penalty x solver.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "hardcoded host paths"
+      ],
+      "sha256": "71e141fbb977361d6ba7c133bd25494376f97df62fbaf134039d3b8831586b29",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/_solver_remaining_100K.py",
+      "purpose": "Remaining 25 cases at 100K: 3-backend, N_REPEAT=3.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "hardcoded host paths",
+        "Source explicitly estimates some fista_bb/admm speeds from representative fista path; not fresh measured evidence for those combinations."
+      ],
+      "sha256": "51222a92fd19a403dc3c8389a78184305b7e3e8ea5f8f2cf0f24989499b043a9",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/_test_umap_nn.py",
+      "purpose": "Test UMAP with different nn_method options.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "hardcoded host paths"
+      ],
+      "sha256": "fd12cf291d12d63c844b61b7346edc6bb259c7d589e764f82bfc1bb5d89ead50",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/_test_umap_opt.py",
+      "purpose": "Test optimized UMAP.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "hardcoded host paths"
+      ],
+      "sha256": "2f71b2e621356275ab670059bc466c0c0171ede4a5dad6d700b407df48177e27",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/_test_umap_sizes.py",
+      "purpose": "Test UMAP with different sizes.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "hardcoded host paths"
+      ],
+      "sha256": "5b7dbf78d9a2794537eb5b85156cef5e60892483f24f7add046e49b1a1325a7a",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/_unsupervised_fast_remote.py",
+      "purpose": "Fast unsupervised benchmark: skip slow cases.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "hardcoded host paths"
+      ],
+      "sha256": "672dcffa97b221ea1376e05d6314351fcc86f323dd148b73b60b93ec278d04c4",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "artifact_processor",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/_update_unsupervised_json.py",
+      "purpose": "Update unsupervised benchmark JSON with latest optimized results.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "8419d914b485a8adf4b26dcb97abf2d405bf7384d9c8002e718e8dfc34d3dece",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/bench_coxph_efron_final.py",
+      "purpose": "CoxPH Efron final comprehensive benchmark.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "b44300b52c050ecfc8321269f0b380b674549608ea08edb0ee2634d13334c5c7",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/bench_coxph_efron_save.py",
+      "purpose": "CoxPH Efron comprehensive benchmark \u2014 save results to JSON.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "cbec054661f621c6006588ce101b42f20355eac6f0c799b9c680e9d1274d6023",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_fixed_workload_runner",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/bench_gpu_inference_timing.py",
+      "purpose": "GPU inference precision + timing benchmark \u2014 sandwich, oracle, bootstrap, ordered.",
+      "risks": [
+        "fixed/historical workload or output; needs explicit protocol/output review"
+      ],
+      "sha256": "e04c4405cc260c9469764717b20ea79fc40ae34a664f60b62bfbc2be3edce10c",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/bench_loss_functions.py",
+      "purpose": "Comprehensive benchmark for Quantile, Huber, CoxPH(Breslow/Efron).",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "85a8136537fd541fc0116eb1374fa02f42b5242b5e5d9b20ff851f7c755c624c",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/bench_pr74_results.py",
+      "purpose": "PR #74 inference validation benchmark \u2014 generates results/pr74_inference_validation.json.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "9f42d4121a1f3d8dfbfcd8e79920a685450f628a35f02b2445b4ca96bb7efbfe",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_fixed_workload_runner",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark.py",
+      "purpose": "Benchmark: CPU vs GPU linear regression",
+      "risks": [
+        "fixed/historical workload or output; needs explicit protocol/output review"
+      ],
+      "sha256": "7962e80c1d523a094c9a4a622e5a1108d8ab5c89570724bf232f8ae5dd158b28",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "blocked-admission",
+      "path": "dev/benchmarks/benchmark_all_methods_large_scale.py",
+      "purpose": "Large-scale runtime benchmark across all current statgpu methods.",
+      "risks": [
+        "external R dependency; absence is a separate blocked lane, not PASS",
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "cab411e26f5419d269792465fc41305af157ba68ebf547b0658b2608855d0fcb",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark_all_models_gpu.py",
+      "purpose": "Benchmark all five models with FULL GPU computation.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "b7975a905f2f9b55e43579e801b21811b1a0efdc449d54519c725a01bfc9d68b",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "campaign_timing_runner",
+      "disposition": "registered-campaign",
+      "path": "dev/benchmarks/benchmark_classification_metrics.py",
+      "purpose": "Correctness-gated binary-metric timings; not a canonical dashboard source.",
+      "risks": [],
+      "sha256": "697ada1e2bec7bf78e303e710c7c2ac9fe6032db59fcc395857658abe08ba678",
+      "wrapped_by": [
+        "dev/benchmarks/run_coverage_benchmarks.py",
+        "dev/benchmarks/run_qualification_campaign.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark_comparison.py",
+      "purpose": "Comprehensive benchmark: statgpu vs sklearn vs statsmodels vs R.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "87be9280138ec1c02b0efa8cde322868d2fa5b5de9aa825ef097cc167e99cc6c",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/benchmark_cox_boundary_gpu.py",
+      "purpose": "Physical-GPU audit for the final PR80 Cox public-boundary fixes.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "65aacc533c911db7252f0343ed90a89dff4fabe9161224e9c845dfd524957e51",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "blocked-admission",
+      "path": "dev/benchmarks/benchmark_cox_cluster.py",
+      "purpose": "Dedicated benchmark for CoxPH covariance modes:",
+      "risks": [
+        "external R dependency; absence is a separate blocked lane, not PASS",
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "7e7f373cbfe6730b768da7912f3942720c01b8a932364f07d75363a8c4ce0234",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/benchmark_cox_cv_penalty_order_gpu.py",
+      "purpose": "Physical-GPU gate for order-invariant CoxPHCV custom penalty grids.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "7f6af7be8fd2ac47cb879a3a4cfb62d497a538e9af12a4d59a2f9e4a164807a6",
+      "wrapped_by": [
+        "dev/benchmarks/benchmark_cox_cv_penalty_order_suite.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "orchestrator",
+      "disposition": "wrapper-only-no-double-count",
+      "path": "dev/benchmarks/benchmark_cox_cv_penalty_order_suite.py",
+      "purpose": "Canonical exact-source suite for CoxPHCV custom-grid order semantics.",
+      "risks": [
+        "spawns/executes child suites; count child coverage once"
+      ],
+      "sha256": "3e8cfed112ce17e66f0219b99287a2eb9f878b7cf2416ff0a8d35c14d3dc4c29",
+      "wrapped_by": [
+        "dev/benchmarks/benchmark_pr80_final_gpu_suite.py"
+      ],
+      "wrapper_children": [
+        "dev/benchmarks/benchmark_cox_cv_penalty_order_gpu.py"
+      ]
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/benchmark_cox_cv_staged_safety_gpu.py",
+      "purpose": "Physical-GPU gate for CoxPHCV staged-screening safety fallback.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "b01a9858e942dc1ba6e1c9b3fcb0786414206e5f927915aa02b89f74b381f5b3",
+      "wrapped_by": [
+        "dev/benchmarks/benchmark_cox_cv_staged_safety_suite.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "orchestrator",
+      "disposition": "wrapper-only-no-double-count",
+      "path": "dev/benchmarks/benchmark_cox_cv_staged_safety_suite.py",
+      "purpose": "Canonical exact-source suite for CoxPHCV staged-screening safety.",
+      "risks": [
+        "spawns/executes child suites; count child coverage once"
+      ],
+      "sha256": "1bce0b650513621c2341f865e2e798eae21ce541c86266448f9adafb19a64740",
+      "wrapped_by": [
+        "dev/benchmarks/benchmark_pr80_final_gpu_suite.py"
+      ],
+      "wrapper_children": [
+        "dev/benchmarks/benchmark_cox_cv_staged_safety_gpu.py"
+      ]
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "unsupported-contract",
+      "path": "dev/benchmarks/benchmark_cox_fit_timing.py",
+      "purpose": "Cox PH \u62df\u5408\u8017\u65f6\uff1a\u4ee5 **statsmodels PHReg** \u4e3a\u6210\u719f\u5b9e\u73b0\u57fa\u7ebf\uff0c\u5bf9\u6bd4 statgpu GPU\uff08\u53ca\u53ef\u9009 statgpu CPU\uff09\u3002",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "no declared structured-output path; stdout/artifact adapter needed",
+        "Stdout timing only; PHReg.fit includes inference while statgpu compute_inference=False, so workload is not an equal-scope speedup comparison. Requires aligned timing protocol and artifact adapter."
+      ],
+      "sha256": "8f0c5bfbcf993814ccb39af162a131a61c153315aa853d3f2c9c6b743bf776d6",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "ready-bounded-adapter",
+      "path": "dev/benchmarks/benchmark_cox_stability_review.py",
+      "purpose": "Audit ordinary-Cox stability and warm three-backend fit performance.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "b1caafb95a1c072dfd93abb2e4e7e9d703e3c04ad0a237d426b16fabf2ecada6",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark_coxph.py",
+      "purpose": "Benchmark CoxPH: CPU performance.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "c4dda73a0d18a6d95af32ecf94540d109280fd4db8be4aebaa6c1cb1b66fcfce",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [
+        "dev/benchmarks/benchmark_cv_models.py"
+      ],
+      "category": "campaign_timing_runner",
+      "disposition": "registered-campaign",
+      "path": "dev/benchmarks/benchmark_cv_coverage.py",
+      "purpose": "Scoped six-family CV candidate benchmark, reusing the maintained CV runner.",
+      "risks": [],
+      "sha256": "4bf85f8aa8e8e9f3b3cac6ffcdd7a7c91a645349bdac0ca76179fe32e72d56c1",
+      "wrapped_by": [
+        "dev/benchmarks/run_coverage_benchmarks.py",
+        "dev/benchmarks/run_qualification_campaign.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "deduplicated",
+      "path": "dev/benchmarks/benchmark_cv_models.py",
+      "purpose": "Run the six-family canonical cross-validation benchmark package.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "Six-family workload reused by campaign benchmark_cv_coverage; canonical schema/env-id and optional aligned sklearn references remain a distinct evidence protocol, not six extra disjoint model families."
+      ],
+      "sha256": "8b8a27907e553309201e651d4b28a236c528c39227a4b9d4f727a568cb0d6b8d",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "blocked-admission",
+      "path": "dev/benchmarks/benchmark_distributions.py",
+      "purpose": "Distribution backend precision + performance benchmark.",
+      "risks": [
+        "hardcoded host paths",
+        "contains remote SSH/config/credential-access code; no remote execution authorized",
+        "SSH host-key auto-accept path; not approved for this campaign",
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "Local default is separate from --remote. Never use remote branch; bound 100M default scale and audit result completeness before full physical execution."
+      ],
+      "sha256": "e2bf38a702d4e4a3e88fa38f875d2fbe44af888b22572f0f1011f35920677872",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_fixed_workload_runner",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark_elasticnet_sklearn.py",
+      "purpose": "Elastic Net \u57fa\u51c6\u6d4b\u8bd5\uff1astatgpu vs sklearn",
+      "risks": [
+        "fixed/historical workload or output; needs explicit protocol/output review"
+      ],
+      "sha256": "bd82e3f13a1b16ff36a993f72e49f93d5b434f5c115362626493f599844c4d20",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "ready-bounded-adapter",
+      "path": "dev/benchmarks/benchmark_exact_strata_count_scaling.py",
+      "purpose": "Benchmark a controlled Exact objective as the number of strata grows.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "7e3c374d51e13b8ce741df342ff5445ec966530efe552158a7d5be7da0caa8c6",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "ready-bounded-adapter",
+      "path": "dev/benchmarks/benchmark_exact_ties_scaling.py",
+      "purpose": "Benchmark Exact-ties Cox fits as failure-group count grows.",
+      "risks": [
+        "external R dependency; absence is a separate blocked lane, not PASS",
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "b92df19066d9475b8bed60436ca6103d155e29130c22625c0d9366313b8fe115",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "blocked-admission",
+      "path": "dev/benchmarks/benchmark_external_frameworks.py",
+      "purpose": "Benchmark statgpu against external frameworks (statsmodels/sklearn/R) when available.",
+      "risks": [
+        "external R dependency; absence is a separate blocked lane, not PASS",
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "fd547c0f235018e4d3c218fd13057f3489c978e6b436c7f40815937a6ec252a7",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "ready-bounded-adapter",
+      "path": "dev/benchmarks/benchmark_fama_macbeth_scaling_gpu.py",
+      "purpose": "Measure Fama-MacBeth NumPy/GPU crossover across panel scales.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "aff154b4d736ca40839a3f8bea1bdcdf630f7ea6116c6fc17b96c7abeb9318eb",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark_full_comparison.py",
+      "purpose": "Full benchmark: statgpu vs sklearn vs statsmodels vs R",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "f56a20d1197048ad0fc0faf013d0722d2bc7670f3b487aad4f98d9d2514f4326",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "unsafe_remote_launcher",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark_glm_solver.py",
+      "purpose": "Comprehensive GLM Solver Benchmark: family x penalty x solver.",
+      "risks": [
+        "hardcoded host paths",
+        "contains remote SSH/config/credential-access code; no remote execution authorized",
+        "SSH host-key auto-accept path; not approved for this campaign",
+        "Guarded CLI is not local-safe: main defaults --all and calls run_on_server for both precision and performance. SSH host-key auto-accept/source upload paths require replacement/review."
+      ],
+      "sha256": "565cac95d6202388e2f5d721d67e632020df1011bfe70ff2a6e411c73ca0f981",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "ready-bounded-adapter",
+      "path": "dev/benchmarks/benchmark_gpu_memory_cleanup.py",
+      "purpose": "Benchmark GPU memory cleanup behavior across models.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "no declared structured-output path; stdout/artifact adapter needed",
+        "Measures after-fit CuPy pool snapshots and explicit cleanup, not peak VRAM/RSS or an OOM capacity envelope. Stdout only; add an artifact adapter before campaign ingestion."
+      ],
+      "sha256": "b17388f776d1856d1a7adf05a46883a124d22794808341d693a70cbd50b0a0eb",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark_gpu_optimized.py",
+      "purpose": "Optimized GPU benchmark with warmup and various data sizes.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "9603f86b01d28f5caa43a8d242c02f49c9aac00471319e5b87d987143d414756",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark_gpu_warmup.py",
+      "purpose": "GPU benchmark with warmup and pure computation timing.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "1b6d39b11a03ae57b94f21449f1c269fba216cd70d0ec13cd5eae619d8c7e9ab",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/benchmark_group_cv_object_gpu.py",
+      "purpose": "Exact-source physical-GPU gate for group CV constructor semantics.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "4ff0003be88340b468d5d2fd2128dc6b6766e6e52338237c445ffcf04493cbcf",
+      "wrapped_by": [
+        "dev/benchmarks/benchmark_pr80_group_gpu_suite.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/benchmark_group_lasso_objective_gpu.py",
+      "purpose": "Exact-source physical-GPU gate for public Group Lasso objectives.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "efd4e9f89315391d6480c3767776c3a66692e73200594d2e13ec34232236dbb9",
+      "wrapped_by": [
+        "dev/benchmarks/benchmark_pr80_group_gpu_suite.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/benchmark_group_layout_gpu.py",
+      "purpose": "Exact-source physical-GPU contract for Group Lasso layout semantics.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "6f918372a214ea6d8c7be8bc21fc68ba37b0cf146756058fd3e8da4697019a59",
+      "wrapped_by": [
+        "dev/benchmarks/benchmark_pr80_group_gpu_suite.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/benchmark_group_nonconvex_layout_gpu.py",
+      "purpose": "Exact-source physical-GPU contract for Group MCP/SCAD layout semantics.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "41e2fa90137703d6cc733de9571b3e07f3bad2e279d1b2e7a9a56aecce0633b8",
+      "wrapped_by": [
+        "dev/benchmarks/benchmark_pr80_group_gpu_suite.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/benchmark_group_nonconvex_weighted_gpu.py",
+      "purpose": "Exact-source physical-GPU gate for weighted Group MCP/SCAD direct fit and CV.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "ef81ed44d53c062ef3066ac41967b5a3ecc9885a30c4dbf361a2014535a39408",
+      "wrapped_by": [
+        "dev/benchmarks/benchmark_pr80_group_gpu_suite.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "conditional-external-dependencies",
+      "path": "dev/benchmarks/benchmark_hc2_hc3_hac_gate.py",
+      "purpose": "HC2/HC3/HAC covariance benchmark gate.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "b4b2e20a41aef2b8b2fb6224118c3bdf43691f1866a8688e8e75cbb99a91a10b",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "ready-bounded-adapter",
+      "path": "dev/benchmarks/benchmark_hybrid_phases.py",
+      "purpose": "CPU/current-public optimization-decision benchmark, not release acceptance.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "Independent public KDE bootstrap, eight selector variants plus bandwidth_cv and two knockoff paths; diagnostic phase instrumentation kept separate from timing. Current-native-public paths, not historic hybrid baseline."
+      ],
+      "sha256": "0329404f3f1dfa2f74dce8c552735b5c8f6bd3434964560ad08a753edde48a87",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "unsupported-contract",
+      "path": "dev/benchmarks/benchmark_inference_backends.py",
+      "purpose": "Benchmark inference backends/frameworks and unified resampling runtime.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "fixed large workloads and repository-relative output; needs bounded output adapter",
+        "Fixed large-scale FDR/p-value combination/bootstrap/permutation workload; output-tag writes under repository results, not a caller-selected output directory. Requires a bounded/output adapter."
+      ],
+      "sha256": "9de22416f628393f9675026c26bf805aecf2c5157ce3cb790d5b9482b357430e",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "ready-bounded-adapter",
+      "path": "dev/benchmarks/benchmark_kde_vs_scipy.py",
+      "purpose": "Benchmark and precision comparison: statgpu KDE vs scipy.stats.gaussian_kde.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "297459122180751637df1e6a500ecdfabb2b2a5726719f5fde14daff9d9689b7",
+      "wrapped_by": [
+        "dev/benchmarks/benchmark_nonparametric_comparison_suite.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "conditional-external-dependencies",
+      "path": "dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py",
+      "purpose": "Benchmark and precision comparison: statgpu kernel regression vs statsmodels KernelReg.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "4218e343a742451997d9d54ae7f129f8eefb8d19d299bd576af4b2e3964ae91b",
+      "wrapped_by": [
+        "dev/benchmarks/benchmark_nonparametric_comparison_suite.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "blocked-admission",
+      "path": "dev/benchmarks/benchmark_knockoff_fdr_calibration.py",
+      "purpose": "Knockoff FDR calibration and robustness benchmark.",
+      "risks": [
+        "external R dependency; absence is a separate blocked lane, not PASS",
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "Repeated-seed FDR/power calibration is independent statistical simulation, not replaced by one learning-suite fit."
+      ],
+      "sha256": "52cf9cc3a0f8889ae14f7058220143351bc73bd4449ed2de5aa22ed6163cb88a",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_fixed_workload_runner",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark_knockoff_fixedx.py",
+      "purpose": "Structured benchmark for fixed-X knockoff skeleton.",
+      "risks": [
+        "fixed/historical workload or output; needs explicit protocol/output review"
+      ],
+      "sha256": "f56ad04f4232cdf104e72c1a16f209fadd3b80e56e469c2adfd6ad850bc9d11d",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/benchmark_knockoff_same_xk_parity.py",
+      "purpose": "Parity benchmark: statgpu vs knockpy using the exact same knockoff matrix Xk.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification",
+        "Same-Xk fixed-data correctness against knockpy, not independent timing evidence."
+      ],
+      "sha256": "97ca1a89269d38d41ea9722546f81347101369f1e25304a9f369b2e52f9eaf21",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_fixed_workload_runner",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark_knockoff_vs_baselines.py",
+      "purpose": "Structured benchmark: fixed-X/model-X knockoff vs baseline selectors.",
+      "risks": [
+        "fixed/historical workload or output; needs explicit protocol/output review"
+      ],
+      "sha256": "d8424c2fd2bb45aad62224f2c9b1b0dfce8ae953162a95c8fa7807f32db4e1b6",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_fixed_workload_runner",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark_large_scale.py",
+      "purpose": "Elastic Net \u5927\u89c4\u6a21\u6570\u636e\u57fa\u51c6\u6d4b\u8bd5",
+      "risks": [
+        "fixed/historical workload or output; needs explicit protocol/output review"
+      ],
+      "sha256": "514071e1815db85dc31f0b70b981c62ee2823ad5e7456bda449720832c953676",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "unsupported-contract",
+      "path": "dev/benchmarks/benchmark_lasso_cpu_gpu_tol.py",
+      "purpose": "Lasso CPU vs GPU benchmark at the same tol.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "no declared structured-output path; stdout/artifact adapter needed",
+        "Stdout timing only. Explicit tolerance, solver and input-residency controls; requires artifact adapter and convergence/numerical gates before comparative claim."
+      ],
+      "sha256": "1e36eaef434bc650447550d4e4b15a0116fe7fbf9901ebdf2f5dfc81ded66fbf",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "unsupported-contract",
+      "path": "dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py",
+      "purpose": "Benchmark canonical post-selection OLS across CPU and CuPy.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "no declared structured-output path; stdout/artifact adapter needed",
+        "Stdout timing only for post-selection OLS, not full inference API coverage; requires artifact adapter."
+      ],
+      "sha256": "35432f9520721bd5d4f9bfa742f26b3aebdfbea2385e0ad7981ea25ffe1b5e9a",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "conditional-external-dependencies",
+      "path": "dev/benchmarks/benchmark_lassocv_impls.py",
+      "purpose": "Benchmark runtime comparison for LassoCV implementations.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "539c197a01566f18897c8c7bece76e81c10f47ddbe7837b4b28af277d2bf38e7",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "campaign_timing_runner",
+      "disposition": "registered-campaign",
+      "path": "dev/benchmarks/benchmark_learning_coverage.py",
+      "purpose": "Nonparametric/learning benchmark adapters with explicit coverage boundaries.",
+      "risks": [],
+      "sha256": "64fcb84451bc9a1ce8d5e8c40f4428099ab4b88d1456d4bd1b98185de65262c8",
+      "wrapped_by": [
+        "dev/benchmarks/run_coverage_benchmarks.py",
+        "dev/benchmarks/run_qualification_campaign.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_import_time_workload",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark_logistic.py",
+      "purpose": "Benchmark script for LogisticRegression GPU vs CPU.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "1f8307989b5bbcae9be20b62440d8cb5247e159b606b1d512fe80fc1dbd72a01",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "campaign_timing_runner",
+      "disposition": "registered-campaign",
+      "path": "dev/benchmarks/benchmark_model_coverage.py",
+      "purpose": "Correctness-gated supervised family coverage, not a Cartesian certification.",
+      "risks": [],
+      "sha256": "c39610ad3fe2bd5897ca85dfb20c86e51ad90b3ded251f7dedd6c5d8939f79e3",
+      "wrapped_by": [
+        "dev/benchmarks/run_coverage_benchmarks.py",
+        "dev/benchmarks/run_qualification_campaign.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "blocked-admission",
+      "path": "dev/benchmarks/benchmark_multitarget_sklearn_r.py",
+      "purpose": "Benchmark multi-target linear regression across statgpu, sklearn, and R.",
+      "risks": [
+        "external R dependency; absence is a separate blocked lane, not PASS",
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "Legacy CPU multi-target comparison; campaign workflow suite overlaps model workload but does not replace external R parity lane."
+      ],
+      "sha256": "e51d0ef7d3d3351cc694a537e92d09957eec5a2ab878a799a28a70408b968c2b",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "ready-bounded-adapter",
+      "path": "dev/benchmarks/benchmark_native_kde_bootstrap.py",
+      "purpose": "Controlled-index KDE experiment, NOT timing of the public bootstrap API.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "Controlled realized indices, fixed-factor Gaussian developer experiment. Does not time full public bootstrap RNG. Do not relabel as public API acceleration."
+      ],
+      "sha256": "a8b16dfc6085420b852d19551d13b0036e830b20158e8180ff96de0ece6bd3be",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "ready-bounded-adapter",
+      "path": "dev/benchmarks/benchmark_native_kde_rng.py",
+      "purpose": "RNG-inclusive KDE experiment against the actual public bootstrap APIs.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "RNG-inclusive developer experiment versus current public paths; different RNG streams are validated independently. Not a frozen pre-migration comparison."
+      ],
+      "sha256": "384578b9ab75c6b6f3be66ecc84e9dd21b6150f4e09445c16a8d8bb50a5a815f",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "unsupported-contract",
+      "path": "dev/benchmarks/benchmark_new_modules.py",
+      "purpose": "Comprehensive benchmark for Panel Data, GAM, and ANOVA modules.",
+      "risks": [
+        "hardcoded host paths",
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "Legacy Panel/GAM/ANOVA scale matrix; guarded CLI but hardcoded server path appears in source and failures can be printed/skipped. Review result completeness and backend claims before admission."
+      ],
+      "sha256": "ea7ff56250a8ba321d7728949966cb00c0f6cbaffdf3baaf56dc50d643d757b0",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "orchestrator",
+      "disposition": "wrapper-only-no-double-count",
+      "path": "dev/benchmarks/benchmark_nonparametric_comparison_suite.py",
+      "purpose": "Unified nonparametric comparison suite (Python + R).",
+      "risks": [
+        "external R dependency; absence is a separate blocked lane, not PASS",
+        "spawns/executes child suites; count child coverage once",
+        "Wrapper children write timestamped files in repository results even if final json-out is external. Prefer explicitly planned child invocations or an output-dir adapter; count children once."
+      ],
+      "sha256": "f5467e154f1ff269b6b11c16ac5c3466e0d5b0dd69ec575711269d65478f6ae6",
+      "wrapped_by": [],
+      "wrapper_children": [
+        "dev/benchmarks/benchmark_kde_vs_scipy.py",
+        "dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py",
+        "dev/benchmarks/benchmark_nonparametric_vs_r.py"
+      ]
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "conditional-external-dependencies",
+      "path": "dev/benchmarks/benchmark_nonparametric_vs_r.py",
+      "purpose": "Benchmark and precision comparison: statgpu nonparametric vs R.",
+      "risks": [
+        "external R dependency; absence is a separate blocked lane, not PASS",
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "6e76a97145b83d2bf6b5d3ad816a20e25e3a23afc6f2ae2e76f5a347adaf2ca9",
+      "wrapped_by": [
+        "dev/benchmarks/benchmark_nonparametric_comparison_suite.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "ready-bounded-adapter",
+      "path": "dev/benchmarks/benchmark_panel_stage_b_identity_overhead.py",
+      "purpose": "Measure Stage-B full-content identity overhead on physical GPU backends.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "edc25d9762de2e1e35638115000cd471115b3c11140bb6e3ac385fc537c81434",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "ready-bounded-adapter",
+      "path": "dev/benchmarks/benchmark_panel_stage_c_covariance.py",
+      "purpose": "Physical performance probe for Panel Stage-C covariance paths.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "3d8b336686a40e9dcc1b1a0f7f84b5f7bd87640e34a1831a29afdfe142367eca",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/benchmark_penalized_cox_trusted_gradient.py",
+      "purpose": "Audit the extreme-range Cox SCAD/MCP trusted-gradient path on all backends.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "a6754d02ef0d24b793229dcec5c9e18d9784fd1299800f0f3759619a6d03b5f1",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "blocked-admission",
+      "path": "dev/benchmarks/benchmark_penalized_glm.py",
+      "purpose": "PenalizedGLM full-family benchmark.",
+      "risks": [
+        "hardcoded host paths",
+        "contains remote SSH/config/credential-access code; no remote execution authorized",
+        "SSH host-key auto-accept path; not approved for this campaign",
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "Local default is separate from --remote. Never use remote branch; bound 1M default scale and inspect performance_error/failure rows, not exit code alone."
+      ],
+      "sha256": "3cc2b7d21fa556e978d93dcd1d95e6b09c76d504f955c23b6889cbea8ec2ac1b",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "orchestrator",
+      "disposition": "wrapper-only-no-double-count",
+      "path": "dev/benchmarks/benchmark_pr80_final_gpu_suite.py",
+      "purpose": "Final exact-head physical-GPU promotion suite for PR #80.",
+      "risks": [
+        "spawns/executes child suites; count child coverage once"
+      ],
+      "sha256": "8977e52006f29b1ff43fbb58fb44ca6e39889153cdb4a40a095cf4f821be8f10",
+      "wrapped_by": [],
+      "wrapper_children": [
+        "dev/benchmarks/benchmark_pr80_group_gpu_suite.py",
+        "dev/benchmarks/benchmark_cox_cv_penalty_order_suite.py",
+        "dev/benchmarks/benchmark_cox_cv_staged_safety_suite.py"
+      ]
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "orchestrator",
+      "disposition": "wrapper-only-no-double-count",
+      "path": "dev/benchmarks/benchmark_pr80_group_gpu_suite.py",
+      "purpose": "Canonical exact-source physical-GPU suite for PR #80 group penalties.",
+      "risks": [
+        "spawns/executes child suites; count child coverage once"
+      ],
+      "sha256": "a87c6590be9ff402cd16b226b21ef4500832c86fca9fde6530d2b35a7e21e022",
+      "wrapped_by": [
+        "dev/benchmarks/benchmark_pr80_final_gpu_suite.py"
+      ],
+      "wrapper_children": [
+        "dev/benchmarks/benchmark_group_layout_gpu.py",
+        "dev/benchmarks/benchmark_group_lasso_objective_gpu.py",
+        "dev/benchmarks/benchmark_group_nonconvex_layout_gpu.py",
+        "dev/benchmarks/benchmark_group_nonconvex_weighted_gpu.py",
+        "dev/benchmarks/benchmark_group_cv_object_gpu.py"
+      ]
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "ready-bounded-adapter",
+      "path": "dev/benchmarks/benchmark_public_native_kde_bootstrap.py",
+      "purpose": "Correctness-gated FULL public KDE bootstrap (NumPy, CuPy, Torch).",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "Full public NumPy/CuPy/Torch bootstrap including RNG, refits, quantiles, transfers and NumPy returns. One invocation covers one kernel/selector/weight/dimension case, not its complete advertised matrix."
+      ],
+      "sha256": "ba49155ba1aef44b08bb1452b159aacf87f410377fdd837701cfd568f5525d23",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/benchmark_qualification.py",
+      "purpose": "Pure, conservative qualification shared by all seven candidate suites.",
+      "risks": [],
+      "sha256": "d966f8ae7fb35f95a2f794f14cf08e73a2b97900bd5ab5170f9deeab215015ee",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "campaign_timing_runner",
+      "disposition": "registered-campaign",
+      "path": "dev/benchmarks/benchmark_release_refresh.py",
+      "purpose": "Correctness-gated v0.3 Gaussian fit/predict benchmark pilot.",
+      "risks": [],
+      "sha256": "b768b1c7b9d8e6e3a5b9ced3aad4ef072b5602fd73e2cff26a778d6a17154865",
+      "wrapped_by": [
+        "dev/benchmarks/run_coverage_benchmarks.py",
+        "dev/benchmarks/run_qualification_campaign.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "unsupported-contract",
+      "path": "dev/benchmarks/benchmark_resampling_strategy_and_external.py",
+      "purpose": "Benchmark resampling strategy backends and large-scale external comparisons.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "fixed large workloads and repository-relative output; needs bounded output adapter",
+        "Independent resampling-strategy and external-baseline scale comparisons; output-tag/fixed scales need a bounded/output adapter. Overlaps inference_backends semantically, not identical cases."
+      ],
+      "sha256": "399ea9726b79ee5912a128efa7608748c7969584c5e4ff5f8ad3b4b4fc2f9fde",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_fixed_workload_runner",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark_ridge_lasso.py",
+      "purpose": "Benchmark script for Ridge and Lasso regression.",
+      "risks": [
+        "fixed/historical workload or output; needs explicit protocol/output review"
+      ],
+      "sha256": "04ca2ac0d35cab1448420d24033f5387ef0eab7b6fde6c43ae0ce67081034c47",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_fixed_workload_runner",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/benchmark_statgpu_full.py",
+      "purpose": "Run statgpu on saved benchmark data and compare with glmnet.",
+      "risks": [
+        "hardcoded host paths",
+        "fixed/historical workload or output; needs explicit protocol/output review"
+      ],
+      "sha256": "291a774ba46308ec48c9ae4475d2b6164be0fc8cef07e7c7bd8f6d8687da5a1f",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "campaign_timing_runner",
+      "disposition": "registered-campaign",
+      "path": "dev/benchmarks/benchmark_statistical_coverage.py",
+      "purpose": "Executable statistical-family benchmark matrix, not canonical evidence.",
+      "risks": [],
+      "sha256": "6c4195742133479a3fd43dcfa41dbdfe8cb006d7a4402914d20b4847a341cf41",
+      "wrapped_by": [
+        "dev/benchmarks/run_coverage_benchmarks.py",
+        "dev/benchmarks/run_qualification_campaign.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "blocked-admission",
+      "path": "dev/benchmarks/benchmark_survival_completion.py",
+      "purpose": "Three-backend correctness and performance gate for Cox survival completion.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "7200241b77b984983c31afef3e3dae24e284f530bf4b13779cdd37e9c35f13d2",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "ready-bounded-adapter",
+      "path": "dev/benchmarks/benchmark_torch_compile_maintenance.py",
+      "purpose": "Physical-GPU benchmark for the maintenance torch.compile policy.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "Fresh subprocess per compile mode; cases within a mode share caches. Maintenance correctness/cold-warm evidence differs from scale crossover."
+      ],
+      "sha256": "f3d68f29f6b96b5133130dbb884dca657844b07aff1838a5cd9f712c56368412",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "ready-bounded-adapter",
+      "path": "dev/benchmarks/benchmark_torch_compile_scale.py",
+      "purpose": "Scale-crossover benchmark for statgpu's explicit ``torch.compile`` path.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "Fresh subprocess per case/mode/scale; explicit cold cost, warm latency and amortization. Standard/extended scales can be expensive."
+      ],
+      "sha256": "027a78c606ead7097a54d228f436d95a16ba843e3e6db3ab97aad79348f87a25",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "blocked-admission",
+      "path": "dev/benchmarks/benchmark_torch_vs_cupy_comprehensive.py",
+      "purpose": "Comprehensive benchmark: Torch vs CuPy GPU backend.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "9cbf2d84172cf16004a025adf3aff03f12ec3b75b3428ae90780171d7e0508fe",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "conditional-external-dependencies",
+      "path": "dev/benchmarks/benchmark_unsupervised.py",
+      "purpose": "Benchmark and validate statgpu unsupervised estimators.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "PCA/KMeans base runner overlaps external_matrix core tasks but lacks full reference/parameter matrix; select one protocol per exact case."
+      ],
+      "sha256": "d8ad61c7d64ad9c4d23243d589eec43302acc0a722df1d43952c0dc9af2a3276",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "conditional-external-dependencies",
+      "path": "dev/benchmarks/benchmark_unsupervised_dbscan_cython.py",
+      "purpose": "DBSCAN CPU Cython fast-path validation benchmark.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "Compiled-extension fast-path comparison is a separate build-configuration lane; availability/parity must be recorded."
+      ],
+      "sha256": "ba1c5b2d43e1acc586e813cc043f1de945f6d45cae5dcf18cd790d21008713f3",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "conditional-external-dependencies",
+      "path": "dev/benchmarks/benchmark_unsupervised_external_matrix.py",
+      "purpose": "Matrix benchmark for statgpu unsupervised estimators vs sklearn/statsmodels/R.",
+      "risks": [
+        "external R dependency; absence is a separate blocked lane, not PASS",
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "PCA/KMeans matrix versus sklearn/statsmodels/R; device-resident timing requires --preload-device-data, not comparable to host-ingress public timing by default."
+      ],
+      "sha256": "337b3a6993618e5ae1c2bf810291fbb88d5de675428a0422d99fcac91288c7ee",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "conditional-external-dependencies",
+      "path": "dev/benchmarks/benchmark_unsupervised_phase2.py",
+      "purpose": "Remote validation matrix for Phase 2 unsupervised estimators.",
+      "risks": [
+        "external R dependency; absence is a separate blocked lane, not PASS",
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "Fixed DBSCAN/GMM/NMF/agglomerative cases; phase3b overlaps GMM/agglomerative but adds covariance/linkage dimensions, not a duplicate script."
+      ],
+      "sha256": "04e18fd2f9fad83ec460be35aaa4175151c63bf5014b3f342915b0320a93344a",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "conditional-external-dependencies",
+      "path": "dev/benchmarks/benchmark_unsupervised_phase3.py",
+      "purpose": "Phase 3 unsupervised accuracy/runtime comparison.",
+      "risks": [
+        "external R dependency; absence is a separate blocked lane, not PASS",
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "46c3ec93251321f0c6e4a851817413d7adf39a89666217945bc84a252490b965",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "conditional-external-dependencies",
+      "path": "dev/benchmarks/benchmark_unsupervised_phase3b.py",
+      "purpose": "Phase 3B validation for GaussianMixture covariance types and agglomerative linkages.",
+      "risks": [
+        "external R dependency; absence is a separate blocked lane, not PASS",
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified",
+        "GMM covariance-type/agglomerative-linkage expansion overlaps phase2 by model names only; deduplicate by exact case configuration, not estimator name."
+      ],
+      "sha256": "f3a064e228f38a0c1a076ad62b7d1eb432ebe3476721405ae21c7e84d30f3e58",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "independent_parameterized_timing_runner",
+      "disposition": "conditional-external-dependencies",
+      "path": "dev/benchmarks/benchmark_unsupervised_phase3c.py",
+      "purpose": "Phase 3C validation for IncrementalPCA and MiniBatchNMF.",
+      "risks": [
+        "CLI/source audited only; runtime support, clean-source identity and result completeness unverified"
+      ],
+      "sha256": "17da594117ce167bc2fd4b453c25c8b86bab2372a9859f70649f2fa215fe6655",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "campaign_timing_runner",
+      "disposition": "registered-campaign",
+      "path": "dev/benchmarks/benchmark_workflow_coverage.py",
+      "purpose": "Correctness-gated diagnostics, selection, multi-target and formula benchmarks.",
+      "risks": [],
+      "sha256": "f046fa65b8876916bed2877857e2d6c5c4977b870067e97d846c8320aeada0e6",
+      "wrapped_by": [
+        "dev/benchmarks/run_coverage_benchmarks.py",
+        "dev/benchmarks/run_qualification_campaign.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/compare_gpu_cpu_loss.py",
+      "purpose": "Compare pinball loss between CPU and GPU quantile bootstrap refits.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "b37873f931537d794d01f8cb1f463657df49fea1f6f7e9b8628fb61b0ba24fef",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/cv_external.py",
+      "purpose": "Aligned CPU reference measurements for canonical CV benchmarks.",
+      "risks": [],
+      "sha256": "f297374acf5ac84337ae98d8fd0c5342580d501a014a94027e8a303aee0546b0",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "artifact_processor",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/cv_source.py",
+      "purpose": "Validation helpers for canonical cross-validation benchmark sources.",
+      "risks": [],
+      "sha256": "8c14832066d3319244043a7d6d496990dcfaf763473480496c34c0ee5c8707da",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/debug_oracle_cpu.py",
+      "purpose": "Debug diagnostic script",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "01e62e6077b4af277eb7e56c27da38cc376adfda4efaf16fcf2d76f1ae1135c2",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/debug_torch_bootstrap.py",
+      "purpose": "Debug diagnostic script",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "fa4b500224eba07d2cd998dde6d967ef29ffbf241eebf98176c6be663e7e3de2",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/diagnose_issue160_float32_lbfgs.py",
+      "purpose": "Issue #160 diagnostic runner for float32 GLM L-BFGS parity.",
+      "risks": [],
+      "sha256": "54881c76d43080ce41bc48186887903e2e3231dfd293cb6c03249ff62112faae",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/fix_torch_bootstrap.py",
+      "purpose": "Fix Torch Bootstrap on Tesla P100 by suppressing dynamo errors.",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery",
+        "Debug workaround changes Torch dynamo configuration and executes numerical work at import; not a maintained acceptance gate."
+      ],
+      "sha256": "38987c274f84095a16f5d23805ba8a9325f2b1b0c6c35f2d653c240738ae3e5d",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/__init__.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "495e40e045df909885450c10978c88f674020a5f19c71b71171db678c62b8a2e",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "artifact_processor",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/__main__.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "5f6c450ae401e366c6f97a3b02e56435f18aa03d07df3c7b072dbea775ca4e9a",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/canonical.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "3e05e949a0ff78aea0e05ac48c39b95daacaebde1849510b46dbf7280e7ff986",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/catalog.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "caa78eade8a5a643c4622e49b29d79945967ab43eb7f9cb6f587fe402d24dd86",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "artifact_processor",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/cli.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "284715ec36eb40bb171d818765ef0b511d09ff651c86d520b99aa41d1dc736fc",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/identity.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "81bd74983161587fc8e694289e973eaa2a2df6fe3c3cc7fcdd2b13abb7c7fe52",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/models.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "46253d440fb9f9247eee255d3469b8564d8899f9e3e668274b6695042e028f04",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/__init__.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "09a7ce51d27f209681b32713a359c0f952d31da8f12a4c7c0e53d6ac13611247",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/coxph.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "cc8c8e90032ff138525c1278a97253dc057d07affeb344275dddd079680d5603",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/cv_models.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "a633db7860bb6ca04e173f975429b7f4306f6f7d0bf810190eee2c6116d489ea",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/cv_package.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "69f81b3a805b34d2690ad5dd56c71c3d04f6da901042e5348a07e63555940813",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/domains.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "3396ee25fb8b68d26c7f2b2a98d491b8740a5a378227bd5ecad4bf5b0684a796",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/elasticnet.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "2f6b1af23481f0e28af4f80ce0da2c3b4710c15508dc9799c5e9209d7aedd961",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/knockoff.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "6d20ea3b78c4bc82f17527f97e1307ae951b7eaf14163d876bc88225fc87d08f",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/loss_functions.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "a01458e36827df288953fa8a8d4640cbc0e9cf90b9e423daa572996a5b7906ba",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/new_modules.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "e2b6fbd20466157882ac793435364d67202080d4eacb06f9b51f1c7282a0e0a0",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/new_modules_complete.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "0323d99b13908d94bd770031b32db2ee66b8e224062dcca4070d581e68fd6930",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/panel_stage_b.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "5a8b129970bfee25c4a00d0e12c6f52cde74e9cf9397db963fade97680ebc924",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/panel_stage_c.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "2f3e5eb597a3026e0aa2dc679ae3bef01fd56c02d9b9367a5f62370291597495",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/panel_stage_c_final.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "39a69d7fbc9df6b16387a4a772a4293a84f87d107dddcc5fd6d78df541a0abbc",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/panel_stage_c_identifiability.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "8706fc39216447f4f471efd9774ca498df1dd6e5cd5beb925511c951be68b320",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/panel_stage_c_rank_df.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "e1987c0e2e6a513d688a9819d630f9cec10e9b2fad1b937893edebf24b2fa7da",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/panel_stage_c_rank_policy.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "58d70dcb51fd31fc9f72142fe577c56af55e43a98e5a44fac9b0db04d4f180fe",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/penalized_glm.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "072f1509009593b1dffde35a53adc2db3241e32f77c426efd7c3bc1881ebcaae",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/pr74.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "423d7e79a84e3bd3922aedeb6ad345b25377aa7368815b689689bec2fa8ff7ce",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/pr74_complete.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "44485e83e63b19d7d7c796a6b57eb30bf9e12845c1f637ede71df5cd9f22b0bc",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/solver.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "e0ecf60626327dce23d33dc38f6d71e6a77a53e8a6f7bfc890cbc468ff1b492a",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/unsupervised.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "b6d17c4fcdb6a755328a1e14c8246de7b21c79e69da057a245f79289d352023e",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/parsers/validation.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "f816ca96f978d93d9e87767900bb242d7fe85b31ff784c9a5db091d70ca00a55",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/frontend_data/registry.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "fc1d5ebc555efdafc02078dec92351260d49aa4b9cc8c475b9f881ba8bd6f19f",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "artifact_processor",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/generate_benchmark_data.py",
+      "purpose": "Generate unified benchmark data JSON for the statgpu frontend dashboard.",
+      "risks": [],
+      "sha256": "cb31cac7cecd2097ec7e071894d0447e7f4cb170898fcfbcc13308da2c73f5e1",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "artifact_processor",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/generate_complete_report.py",
+      "purpose": "Generate complete comparison report: statgpu vs glmnet with detailed timing table.",
+      "risks": [],
+      "sha256": "7fa935c51e4404444068be5640f245da0cc4c386a07ed7c5e0201c5c3dea0cb4",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/hybrid_phase_observer.py",
+      "purpose": "Diagnostic Python stage observer. Never install during performance samples.",
+      "risks": [],
+      "sha256": "7bcc6d223d6a233ea7609ab6a907d2f133e2a3a320e7634d3ccd61e654b3230d",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/learning_execution_trace.py",
+      "purpose": "Scoped diagnostic observation of selected numerical operations, not a GPU profiler.",
+      "risks": [],
+      "sha256": "f43551062260f356060c2e90a9eb3299606b95b4f8124ac7d3ada6b1adf5ba54",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/multitarget_benchmark_utils.py",
+      "purpose": "Shared parser/data-generation/validation helper",
+      "risks": [],
+      "sha256": "49a4fd96a00e05aad09442a7203dc7f9241934a47392d52664779b33cd9d4cf3",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/native_kde_bootstrap.py",
+      "purpose": "Experimental device-resident, fixed-index CuPy KDE bootstrap.",
+      "risks": [],
+      "sha256": "21fc7b8fea536efe2fa8b4ac2ef85ae89fa1fa146b9e9de01c8fd6035bd1aac6",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/native_kde_rng.py",
+      "purpose": "Experimental CuPy-native RNG and fixed-factor KDE percentile bootstrap.",
+      "risks": [],
+      "sha256": "01ed530eeeac47f0d7f5ae5c9dc52398fccf518685f5811441a37d2d845d5c0e",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "artifact_processor",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/pr79/aggregate_results.py",
+      "purpose": "Validate raw PR79 evidence and emit the only canonical Gate object.",
+      "risks": [],
+      "sha256": "b0ed22dea7b7eac5291beb8aa9e4e9fc3e4873729b10a5aacefa784a7e6285c8",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/pr79/diagnose_cox_pen.py",
+      "purpose": "Reproducible penalized CoxPH fixed-beta and fitted-model parity checks.",
+      "risks": [],
+      "sha256": "2eb537fae6fe24e5e98dea331ef93fd3ff974988cb81056c92ea3357522666fc",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/pr79/diagnose_newton.py",
+      "purpose": "Newton solver convergence diagnostic for penalized CoxPH.",
+      "risks": [],
+      "sha256": "b43f315e9219b47f07eb1ec2466e3e6094ec4310467d11806b64e273191e9210",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/pr79/diagnose_torch_triton.py",
+      "purpose": "Torch Efron binary diagnostic: isolated grouped-GEMM vs Triton vs NumPy.",
+      "risks": [],
+      "sha256": "91a3ecf40a0b26985b72da0020dfdcf75359b06ea7853b7e4754f4a23825908e",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "artifact_processor",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/pr79/emit_final_report.py",
+      "purpose": "Render the final PR79 Core Accuracy Gate report from validated JSON.",
+      "risks": [],
+      "sha256": "0bfd3ac42181ea934666af10196e71614f8c88fda413b04f122258f3ee7fbb38",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/pr79/generators/linear.py",
+      "purpose": "Data generators for LinearRegression, Ridge, and Panel benchmark cases.",
+      "risks": [],
+      "sha256": "fe3fd709789af53d34f6bf695111b435c6586a23a0e61b5f09c5720d886c5d30",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/pr79/generators/panel.py",
+      "purpose": "Panel data generators for PooledOLS, FE, RE, Between, FD, FamaMacBeth.",
+      "risks": [],
+      "sha256": "b91fd29201fca4aaed48d888fffdc86597ad479a6b545a5bb0afd59b56eb9c5d",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/pr79/generators/survival.py",
+      "purpose": "Survival data generators for CoxPH benchmark cases.",
+      "risks": [],
+      "sha256": "dc5309bfa85227619996f7279d230edb93aecc62b37195f3ed3efb33229fe869",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_collection_runner",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/pr79/run_accuracy.py",
+      "purpose": "Collect raw PR79 accuracy evidence without dropping failed runs.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "068624a021cdfccd647c80d138ab9776f8fe7c76a6d1d5a6fe6a338d8ea7303d",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/pr79/runners/common.py",
+      "purpose": "Shared utilities for PR79 benchmark runners.",
+      "risks": [],
+      "sha256": "f2259da913bc6e5a16a0dbc489d2628bd6a63d2413e52073cece1e3216767050",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_smoke_entry_and_helper",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/pr79/runners/python_reference_runner.py",
+      "purpose": "Python external-framework reference runner for PR79 benchmarks.",
+      "risks": [
+        "fixed/historical workload or output; needs explicit protocol/output review"
+      ],
+      "sha256": "b1d9a07dca17ca2c35f34282e1ced6e12a85d5c1d718c232c90ae12ec54dc70e",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "legacy_smoke_entry_and_helper",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/pr79/runners/statgpu_runner.py",
+      "purpose": "StatGPU benchmark runner for PR79 validation.",
+      "risks": [
+        "fixed/historical workload or output; needs explicit protocol/output review"
+      ],
+      "sha256": "039477b3939b351cd2658fad59a52bf76dae22f1d8781dfaab9ba9d82076b972",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/pr79/torch_parity.py",
+      "purpose": "Three-backend penalized CoxPH parity and P100 timing diagnostic.",
+      "risks": [],
+      "sha256": "ea2e9bc5342b6b6806740f6a289505ff46b41cf4c5eaa52126be1a8975115452",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "helper",
+      "disposition": "support-only",
+      "path": "dev/benchmarks/pr79/validators/numerical.py",
+      "purpose": "Strict numerical validation for the PR79 accuracy evidence pipeline.",
+      "risks": [],
+      "sha256": "c0d6738218e1e783b480629b2d0470e08792541c42c8c85f27e5f5eeaa5bbb1f",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "orchestrator",
+      "disposition": "wrapper-only-no-double-count",
+      "path": "dev/benchmarks/run_coverage_benchmarks.py",
+      "purpose": "Auditable benchmark-suite dispatcher; never converts missing coverage into PASS.",
+      "risks": [
+        "spawns/executes child suites; count child coverage once"
+      ],
+      "sha256": "cb9d27d017eea33ae24f442c744d05b6af5209cd44c503e3c0c918e99752e14b",
+      "wrapped_by": [],
+      "wrapper_children": [
+        "dev/benchmarks/benchmark_classification_metrics.py",
+        "dev/benchmarks/benchmark_cv_coverage.py",
+        "dev/benchmarks/benchmark_learning_coverage.py",
+        "dev/benchmarks/benchmark_model_coverage.py",
+        "dev/benchmarks/benchmark_release_refresh.py",
+        "dev/benchmarks/benchmark_statistical_coverage.py",
+        "dev/benchmarks/benchmark_workflow_coverage.py"
+      ]
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "unsafe_remote_launcher",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/run_full_benchmark.py",
+      "purpose": "Upload and run complete benchmark (R glmnet + statgpu) on remote server.",
+      "risks": [
+        "hardcoded host paths",
+        "contains remote SSH/config/credential-access code; no remote execution authorized",
+        "SSH host-key auto-accept path; not approved for this campaign",
+        "external R dependency; absence is a separate blocked lane, not PASS"
+      ],
+      "sha256": "99f830729557f11d24a130c4112d1b81fba321de299b44f8d98c2d3fd8b6e5c9",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [
+        "dev/benchmarks/diagnose_issue160_float32_lbfgs.py"
+      ],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/run_issue160_diagnostic_matrix.py",
+      "purpose": "Issue #160 full diagnostic matrix built on the traced L-BFGS runner.",
+      "risks": [],
+      "sha256": "a740cf4b271bc7b34b2e9cfa28c7032f0d9826b656d36b52717ac2a20452515b",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "unsafe_remote_launcher",
+      "disposition": "blocked-unsafe",
+      "path": "dev/benchmarks/run_large_scale.py",
+      "purpose": "Upload and run large-scale benchmark on remote server.",
+      "risks": [
+        "hardcoded host paths",
+        "contains remote SSH/config/credential-access code; no remote execution authorized",
+        "SSH host-key auto-accept path; not approved for this campaign"
+      ],
+      "sha256": "b9efbd624cc9b3a632ae93d6721c89a8163b201fe27e0c1129e55bcfb86d3124",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "orchestrator",
+      "disposition": "wrapper-only-no-double-count",
+      "path": "dev/benchmarks/run_qualification_campaign.py",
+      "purpose": "Plan or explicitly execute a serial, bounded seven-suite qualification campaign.",
+      "risks": [
+        "spawns/executes child suites; count child coverage once"
+      ],
+      "sha256": "bcaa1a8b3e85152072e0c1f4754254cdfac847a1a436bd66574cd1eac6d55426",
+      "wrapped_by": [],
+      "wrapper_children": [
+        "dev/benchmarks/benchmark_classification_metrics.py",
+        "dev/benchmarks/benchmark_cv_coverage.py",
+        "dev/benchmarks/benchmark_learning_coverage.py",
+        "dev/benchmarks/benchmark_model_coverage.py",
+        "dev/benchmarks/benchmark_release_refresh.py",
+        "dev/benchmarks/benchmark_statistical_coverage.py",
+        "dev/benchmarks/benchmark_workflow_coverage.py"
+      ]
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "orchestrator",
+      "disposition": "wrapper-only-no-double-count",
+      "path": "dev/benchmarks/run_quantile_group_lla_gpu_gate.py",
+      "purpose": "Exact-source wrapper for PR #166 Quantile Group/low-level LLA CUDA gates.",
+      "risks": [
+        "spawns/executes child suites; count child coverage once"
+      ],
+      "sha256": "9e5886fa8b6ff19b83f73082acd17e70c7dcbb9e3dd4d65ca8daf8cdc1386e1e",
+      "wrapped_by": [],
+      "wrapper_children": [
+        "dev/benchmarks/validate_quantile_group_lla_gpu.py",
+        "dev/benchmarks/validate_quantile_scalar_lla_gpu.py",
+        "dev/benchmarks/validate_quantile_group_boundary_probe_gpu.py"
+      ]
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "orchestrator",
+      "disposition": "wrapper-only-no-double-count",
+      "path": "dev/benchmarks/run_quantile_smooth_fista_gpu_gate.py",
+      "purpose": "Exact-source wrapper for the PR #166 smooth Quantile FISTA CUDA gate.",
+      "risks": [
+        "spawns/executes child suites; count child coverage once"
+      ],
+      "sha256": "9acbc4b89aa853ea78aa0d3653523f09a6e9542ccfa60aa21462eb322bbd4a78",
+      "wrapped_by": [],
+      "wrapper_children": [
+        "dev/benchmarks/validate_quantile_smooth_fista_gpu.py"
+      ]
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "orchestrator",
+      "disposition": "wrapper-only-no-double-count",
+      "path": "dev/benchmarks/run_quantile_solver_provenance_gpu_gate.py",
+      "purpose": "Exact-source wrapper for the PR #164 physical CUDA acceptance matrix.",
+      "risks": [
+        "spawns/executes child suites; count child coverage once"
+      ],
+      "sha256": "2b4d54a51edf11cc30c2d30870ba23f7dbf8ec872b7beca296b280f585595cd9",
+      "wrapped_by": [],
+      "wrapper_children": [
+        "dev/benchmarks/validate_quantile_solver_provenance_gpu.py"
+      ]
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/test_hessian_finite_diff.py",
+      "purpose": "Finite-difference Hessian verification for ordered logit/probit.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "ab1b28a229e83cfe246ab5c032e70e689ff97d333a5876b6615a40a6a03dcee9",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_cupy_inverse_lut.py",
+      "purpose": "Physical CuPy validation for Issue #120.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "701318288ce2c5eab7e4f130625b4a8f635c13d835ccf8fe1500b2f2dc3ae745",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_fama_macbeth_optimized_gpu.py",
+      "purpose": "Optimized-source physical GPU gate for Fama-MacBeth.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "1c3779a9d00425e651244fa452873cc6a43f8570716ed10fb970d452583a6daa",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_fama_macbeth_rank_precision_precedence_gpu.py",
+      "purpose": "Physical CuPy/Torch gate for Fama-MacBeth rank/precision error precedence.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "c5b74572c6452b2e0927298e0cce1d99584af12f08560071bafa2a779090fbb8",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_fama_macbeth_review_fix_gpu.py",
+      "purpose": "Exact-head physical GPU validation for the PR126 Fama-MacBeth review fixes.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "0180bda7f305670447fdf09c6777e650ebaa34341853bb977693f3ab7cd7a962",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_fama_macbeth_rhs_cancellation_gpu.py",
+      "purpose": "Physical CuPy/Torch gate for Fama-MacBeth Gram-RHS cancellation safety.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "f8547deab25d66aaf13ad5d69425f081838833f3c4fd73810bc3f7946a2635c7",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_fama_macbeth_t2_tail_gpu.py",
+      "purpose": "Exact-head CuPy/Torch CUDA validation for the Fama-MacBeth t(2) tail fix.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "829551625862d572b35a13e4bd06b243e0c7d65f104f72ce994a1e4af1f6fdbb",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_gaussian_inference_backend_native_gpu.py",
+      "purpose": "Physical CuPy/Torch acceptance for issue #127 Gaussian inference.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "bd104cb8577927c537b4bd7d7d8eca369e579d8bd181ebb87b7bd14b9946d3d2",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_gaussian_inference_cupy_rank_recovery_gpu.py",
+      "purpose": "Focused physical CuPy rank-recovery acceptance for PR #129.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "e2a9b3e2674df3e996d5eaa5810c6f72f5a800f3c6d47348fc7fef376f08b46e",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_gaussian_residual_bootstrap_gpu.py",
+      "purpose": "Exact-source physical CUDA gate for backend-native Gaussian residual bootstrap.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "9b170b812c86a9671b6047ac3932b59264cafcad209fb874c7a9acb4a944de19",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_glm_weighted_explicit_solvers_gpu.py",
+      "purpose": "Physical CUDA acceptance for issue #150 weighted smooth GLM solvers.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification",
+        "Baseline weighted-solver gate reused in later PR151 v4-v7 chain; retain as child case lineage."
+      ],
+      "sha256": "a88c08e1aa040592d8f677e8128ddb4914d100c1fbf159c250caeee9ceb11329",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_nodewise_alpha_gpu.py",
+      "purpose": "Physical CUDA acceptance for the public nodewise-alpha inference contract.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "2c0158ca7292eb13495734d144ff1266e0b2b049b46aec96799b3d7ac37ac9e7",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_nodewise_alpha_simulation.py",
+      "purpose": "Deterministic diagnostic simulation for the node-wise tuning migration.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "cb4d5e0c9c38f516027c3be92cf9cbde527064d095db131b4b1ef2764edeebe4",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_panel_cupy_device_affinity_gpu.py",
+      "purpose": "Exact-head physical CuPy validation for Panel device-affinity contracts.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "200f3194fc65709d6d5dee0c029c4e7fd7b517c4ff9da8f5bb6c9314b7a26f32",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_panel_hac_chronology_gpu.py",
+      "purpose": "Physical GPU gate for PooledOLS chronology and shared inference routing.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "e94c5577ed82bb48a62b5e5dbbf4bd77e4147a6faf48b93a01c1cceaa2810b24",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_panel_intercept_cancellation_gpu.py",
+      "purpose": "Physical CuPy/Torch gate for cancellation-safe panel least-squares paths.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "cba1e7df0de19df968293a2af2910e3f5f71f8d3b9b7e1fa61b73f5068e02251",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_panel_stage_a_gpu.py",
+      "purpose": "Physical CuPy/Torch validation for Panel P1 Stage A (Issue #93 / PR #119).",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "722b416e9dd35216d1ab2c925cb4c63041c1f0263c272f1a3dffd7b1b9ed919f",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_panel_stage_b_disconnected_fe_gpu.py",
+      "purpose": "Focused physical GPU gate for disconnected two-way PanelOLS rank handling.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "ce23bc2f83138d4d0b7d75f12eeae76066406508cc622e8b8fc97f95abb943f7",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_panel_stage_b_gpu.py",
+      "purpose": "Physical CuPy/Torch acceptance for Panel Tier-1 Stage B (Issue #93).",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "2402a4e4dcad7f438f256f83581677888b887edafb6d5cf2d35ce89360fde808",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_panel_stage_c_gpu.py",
+      "purpose": "Physical CuPy/Torch acceptance for Panel Tier-1 Stage C covariance.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "cf85d76d9549d803f8120074f1ccbe6027b0f71399dca5cb88f078b46b874306",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_penalized_glm_inference_gpu.py",
+      "purpose": "Physical CUDA acceptance for the penalized-GLM inference contract.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "36bb30844ca8cc68939e177299aa16297c52257632094642f194fe088eca0ec1",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_post_selection_ols_gpu.py",
+      "purpose": "Physical CuPy/Torch validation for post-selection OLS inference (#137).",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "f0c2a3389d1dd9f8460cc61eed9508f895e7fea1de7fcd75de06c084f68ddd0e",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [
+        "dev/benchmarks/validate_pr151_inverse_gamma_domain_gpu_v4.py"
+      ],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_pr151_final_gpu_v5.py",
+      "purpose": "PR151 physical CUDA schema v5: final review-closure gate.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification",
+        "Composed by later v6/v7; retained child/legacy provenance, not additive independent campaign coverage."
+      ],
+      "sha256": "d3cd92982a1df6837b7f21c15637f975c5c7c29a1f7c81e31a27037119b3f125",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [
+        "dev/benchmarks/validate_pr151_final_gpu_v5.py"
+      ],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_pr151_final_gpu_v6.py",
+      "purpose": "PR151 physical CUDA schema v6: analytic-weight inference closure gate.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification",
+        "Superseded/composed by v7; retain source inventory but select final v7 for deduplicated PR151 evidence."
+      ],
+      "sha256": "366e1be4029d31164462b45ac14a745c3348de1d118b561afc7c4f59d898e41e",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [
+        "dev/benchmarks/validate_pr151_final_gpu_v5.py",
+        "dev/benchmarks/validate_pr151_final_gpu_v6.py"
+      ],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_pr151_final_gpu_v7.py",
+      "purpose": "PR151 physical CUDA schema v7: corrected analytic-weight inference gate.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification",
+        "Latest PR151 final gate composes v5/v6-derived cases; do not schedule v3/v4/v5/v6/v7 as independent additive closure without expanding their case identities."
+      ],
+      "sha256": "537ee8f0627dc2276379fac0bf03a9060a4c4abaefd1120fa905519b8ea0a7c4",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [
+        "dev/benchmarks/validate_glm_weighted_explicit_solvers_gpu.py"
+      ],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_pr151_inverse_gamma_domain_gpu_v4.py",
+      "purpose": "PR151 physical CUDA schema v4: inverse-power Gamma domain closure.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification",
+        "Composes weighted solver v3 and is incorporated into v5/v7 lineage; avoid duplicate execution."
+      ],
+      "sha256": "ec751569d17fd704896ed0832c19a7d493624a11c5e6fb0bf918e62dc9da9cde",
+      "wrapped_by": [],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_quantile_group_boundary_probe_gpu.py",
+      "purpose": "Physical CUDA gate for Quantile Group flat-IRLS boundary convergence.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "0eaf740a756176de90aaa5c13a9f95091697c37fbfee92f528168051cd1df668",
+      "wrapped_by": [
+        "dev/benchmarks/run_quantile_group_lla_gpu_gate.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_quantile_group_lla_gpu.py",
+      "purpose": "Physical CUDA acceptance for automatic Quantile Group Proximal IRLS-LLA.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "05691837d7d84dd2073babc395df10d6833f916f163a8faa370f8b788f040e96",
+      "wrapped_by": [
+        "dev/benchmarks/run_quantile_group_lla_gpu_gate.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_quantile_scalar_lla_gpu.py",
+      "purpose": "Physical CUDA cases for low-level Quantile LLA accuracy and convergence.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "f959c63d1cceb0d22aa39fe87d770fba213f09c614fb226a8beb8dfcdbeae072",
+      "wrapped_by": [
+        "dev/benchmarks/run_quantile_group_lla_gpu_gate.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_quantile_smooth_fista_gpu.py",
+      "purpose": "Physical CUDA acceptance for explicit smooth Quantile FISTA in PR #166.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "0bf520fb717797c691fcd048074dafbe89d858a87e97adc8e0e00fb083bc8d6c",
+      "wrapped_by": [
+        "dev/benchmarks/run_quantile_smooth_fista_gpu_gate.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "correctness_gate",
+      "disposition": "separate-correctness-gate",
+      "path": "dev/benchmarks/validate_quantile_solver_provenance_gpu.py",
+      "purpose": "Physical CUDA acceptance for PR #164 / Issue #163.",
+      "risks": [
+        "correctness gate; any incidental timing is not standalone performance qualification"
+      ],
+      "sha256": "283cfcb7940e7d07464875e73dc57479eb87a62c1e4b42e736ca5d8f9f0ae82a",
+      "wrapped_by": [
+        "dev/benchmarks/run_quantile_solver_provenance_gpu_gate.py"
+      ],
+      "wrapper_children": []
+    },
+    {
+      "case_lineage_or_reuse": [],
+      "category": "diagnostic",
+      "disposition": "diagnostic-review-required",
+      "path": "dev/benchmarks/verify_gpu_bootstrap.py",
+      "purpose": "Debug diagnostic script",
+      "risks": [
+        "top-level execution; do not import or run --help as discovery"
+      ],
+      "sha256": "89c770a01ababf05e466564d3b6065f346bf2ba8db20959b315ea3016420f3e9",
+      "wrapped_by": [],
+      "wrapper_children": []
+    }
+  ],
+  "provenance_note": "Historical source-only audit. Hash drift is reported, never silently called execution evidence or a permanent current-source pin.",
+  "regeneration": "python -m dev.benchmarks.independent_benchmark_registry --regenerate-catalog AUDIT_JSON COMMAND_PLAN_JSON --output NEW_CATALOG_JSON",
+  "schema_version": "statgpu-independent-catalog-v1"
+}

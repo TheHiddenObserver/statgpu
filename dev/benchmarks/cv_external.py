@@ -88,7 +88,7 @@ def _folds(spec: Any, X, y, seed: int):
 
     return kfold_indices(
         n_samples=len(X),
-        n_splits=3,
+        n_splits=getattr(spec, "cv_folds", 3),
         random_state=seed,
         shuffle=True,
     )
@@ -245,7 +245,7 @@ def build_sklearn_reference(
             },
             "convergence": {
                 "candidate_count": len(_candidate_values(spec)),
-                "fold_count": 3,
+                "fold_count": getattr(spec, "cv_folds", 3),
                 "failed_candidates": 0,
                 "failed_folds": 0,
                 "final_refit_converged": True,

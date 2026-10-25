@@ -9,6 +9,7 @@
 - [Open the interactive dashboard](../../assets/benchmarks/index.html)
 - [Understand filters, charts, metrics, and provenance](statgpu_benchmark_dashboard.md)
 - [Compare workloads and reproduce measurements](../benchmarks.md)
+- [Plan and audit seven-suite qualification campaigns](benchmark-qualification.md)
 
 Start by selecting an environment and model family, then narrow the method, solver, scale, and backend. Use **Metric scope** to distinguish Fit, CV, Inference, Prediction, and Selection. Only metric groups present in the selected records appear in the detail panels; a missing panel is not a zero result or a claim that the library lacks that capability.
 
