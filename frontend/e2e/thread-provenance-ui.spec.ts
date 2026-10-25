@@ -30,7 +30,9 @@ test('thread selector and expandable raw provenance survive repeated filters wit
   await page.goto('/');
   const threads = page.getByRole('combobox', { name: 'Host CPU thread limits' });
   await expect(threads).toHaveValue('all');
-  await expect(threads.locator('option[value="multi"]')).toBeDisabled();
+  // Inspect the native option state: label retargeting can check the enclosing select.
+  await expect(threads.locator('option[value="multi"]')).toHaveJSProperty('disabled', true);
+  await expect(threads.locator('option[value="single"]')).toHaveJSProperty('disabled', false);
   await threads.selectOption('single');
   await page.getByRole('checkbox', { name: 'sklearn', exact: true }).check();
   await expect(page.locator('.overview-table-title')).toHaveText('Showing 2 of 2 runs');
