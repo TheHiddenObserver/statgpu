@@ -2,6 +2,11 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
+## Unreleased — internal simplification (2026-10-29)
+
+- Moved the existing Gaussian inference host-Torch device default into its canonical conversion helper, removing one import-time patch while preserving the historical installer import as a no-op.
+- Added a developer entrypoint index without moving benchmark tools, rewriting evidence, or removing public compatibility APIs.
+
 ## Unreleased — local benchmark-data integration (2026-10-25)
 
 - Bound diagnostic rows to their exact registered source and rejected ambiguous duplicate source paths/IDs (PR #259).
