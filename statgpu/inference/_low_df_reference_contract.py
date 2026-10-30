@@ -1,4 +1,4 @@
-"""Stable low-degree Student-t two-sided inference contract.
+"""Compatibility helpers for class-owned low-degree Student-t inference.
 
 The regularized-incomplete-beta representation used by the generic Student-t
 implementation can square an extreme statistic before evaluating the tail. For
@@ -10,8 +10,6 @@ the same numerical semantics.
 """
 
 from __future__ import annotations
-
-import functools
 
 import numpy as np
 
@@ -56,76 +54,4 @@ def _reference_scalar(*, backend, xp, device):
 
 
 def _install_low_df_reference_contract() -> None:
-    """Route df=1/2 Student-t p-values and critical values through stable formulas."""
-    current_pvalue = TDistributionBase.two_sided_pvalue
-    current_critical = TDistributionBase.two_sided_critical_value
-    if getattr(current_pvalue, "_statgpu_low_df_reference", False):
-        return
-
-    @functools.wraps(current_pvalue)
-    def _two_sided_pvalue_stable(self, stat_abs, df):
-        df_f = float(df)
-        if df_f not in _LOW_DF:
-            return current_pvalue(self, stat_abs, df)
-
-        backend, xp, device = _backend_context(self, stat_abs)
-        statistic_abs = _statistic_abs_on_backend(
-            stat_abs,
-            backend=backend,
-            xp=xp,
-            device=device,
-        )
-        pvalues, _ = two_sided_reference_inference(
-            statistic_abs,
-            distribution="t",
-            alpha=0.05,
-            backend=backend,
-            xp=xp,
-            df=df_f,
-            device=device,
-        )
-        return pvalues
-
-    @functools.wraps(current_critical)
-    def _two_sided_critical_value_stable(
-        self,
-        alpha,
-        df,
-        *,
-        max_bisect_steps=60,
-    ):
-        df_f = float(df)
-        if df_f not in _LOW_DF:
-            return current_critical(
-                self,
-                alpha,
-                df,
-                max_bisect_steps=max_bisect_steps,
-            )
-
-        backend, xp, device = _backend_context(self)
-        statistic_ref = _reference_scalar(
-            backend=backend,
-            xp=xp,
-            device=device,
-        )
-        _, critical = two_sided_reference_inference(
-            statistic_ref,
-            distribution="t",
-            alpha=alpha,
-            backend=backend,
-            xp=xp,
-            df=df_f,
-            device=device,
-        )
-        return critical
-
-    _two_sided_pvalue_stable._statgpu_low_df_reference = True
-    _two_sided_pvalue_stable._statgpu_original = current_pvalue
-    _two_sided_critical_value_stable._statgpu_low_df_reference = True
-    _two_sided_critical_value_stable._statgpu_original = current_critical
-    TDistributionBase.two_sided_pvalue = _two_sided_pvalue_stable
-    TDistributionBase.two_sided_critical_value = _two_sided_critical_value_stable
-
-
-_install_low_df_reference_contract()
+    """No-op: ``TDistributionBase`` owns the stable low-df boundary directly."""

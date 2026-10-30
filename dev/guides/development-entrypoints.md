@@ -20,6 +20,23 @@ Existing specialized protocols and the lower-level coverage dispatcher remain
 available. This index chooses starting points; it does not remove or rename CLI
 entrypoints, change their arguments, or authorize a workload.
 
+## Canonical contract owners and compatibility imports
+
+Start at the owning definition when changing these existing contracts. The old
+modules remain importable, but importing or reloading them does not replace a
+function or method.
+
+| Contract | Owning definition | Retained compatibility module |
+| --- | --- | --- |
+| Gaussian inference array/device conversion | [`_gaussian_inference._as_backend_array`](../../statgpu/linear_model/_gaussian_inference.py) | `_gaussian_inference_device_contract` |
+| Direct Quantile IRLS validation | [`QuantileLoss.irls`](../../statgpu/losses/_quantile.py) | `_quantile_irls_validation_contract` |
+| Low-degree Student-t two-sided reference routing | [`TDistributionBase`](../../statgpu/inference/_distributions_backend.py) | `_low_df_reference_contract` (also retains backend conversion helpers) |
+| Adaptive Group Lasso nonsmooth curvature | [`solvers._utils._smooth_penalty_lipschitz`](../../statgpu/solvers/_utils.py) | `_adaptive_group_lipschitz_contract` |
+
+Quantile IRLS and Student-t methods retain their historical `__wrapped__` and
+`_statgpu_original` links to the unchanged unchecked numerical methods. Those
+links are not new public APIs or permission to bypass validation in callers.
+
 ## Historical implementations are not interchangeable with compatibility APIs
 
 - `statgpu/linear_model/legacy/` contains old standalone implementations **and**
@@ -29,6 +46,8 @@ entrypoints, change their arguments, or authorize a workload.
   production imports, public re-exports, old serialized object paths, and tests.
   Keep a compatibility import when required; a lack of in-repository callers is
   not proof that external callers do not exist.
+- Compare module globals and exception behavior as well as function bodies;
+  identical function ASTs alone do not establish interchangeable implementations.
 - Prefer integrating a behavior-preserving runtime installer into its owning
   helper when the import order and all consumers are understood. If a private
   installer path is retained for compatibility, it should not keep wrapping an

@@ -2,9 +2,11 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
-## Unreleased — internal simplification (2026-10-29)
+## Unreleased — internal simplification (2026-10-29–2026-10-30)
 
 - Moved the existing Gaussian inference host-Torch device default into its canonical conversion helper, removing one import-time patch while preserving the historical installer import as a no-op.
+- Moved Quantile IRLS validation, low-degree Student-t reference routing, and Adaptive Group Lasso curvature handling into their owning definitions without changing the numerical kernels or public call signatures.
+- Preserved historical compatibility imports, callable serialization paths, and applicable unchecked-method introspection links without import-time rebinding.
 - Added a developer entrypoint index without moving benchmark tools, rewriting evidence, or removing public compatibility APIs.
 
 ## Unreleased — local benchmark-data integration (2026-10-25)
