@@ -68,74 +68,7 @@ def _restore_instance_attr(instance, name, previous):
 
 
 def _install_linear_attempt_device_contract() -> None:
-    """Publish the current LinearRegression attempt device before y conversion."""
-    current = LinearRegression.fit
-    if getattr(current, "_statgpu_attempt_device_contract", False):
-        return
-
-    @functools.wraps(current)
-    def _fit_with_attempt_device(
-        self,
-        X=None,
-        y=None,
-        sample_weight=None,
-        formula=None,
-        data=None,
-    ):
-        original_get_backend = self._get_backend
-        original_to_array = self._to_array
-        saved_get_backend = self.__dict__.get("_get_backend", _MISSING)
-        saved_to_array = self.__dict__.get("_to_array", _MISSING)
-        direct_X = X
-        selected_backend = {"name": None}
-
-        def _get_backend_tracked(*args, **kwargs):
-            backend = original_get_backend(*args, **kwargs)
-            name = _backend_name(getattr(backend, "name", None))
-            selected_backend["name"] = name
-            self._selected_backend_name = name
-            # Clear stale provenance from a previous fit before any conversion.
-            self._selected_backend_device = None
-            label = _device_label(
-                direct_X,
-                name,
-                allow_runtime_fallback=True,
-            )
-            if label is not None:
-                self._selected_backend_device = label
-            return backend
-
-        def _to_array_tracked(value, *args, **kwargs):
-            arr = original_to_array(value, *args, **kwargs)
-            # In the direct X/y path, X is the first converted public operand.
-            # Publish its actual device before y conversion/alignment can fail.
-            if direct_X is not None and value is direct_X:
-                name = _backend_name(
-                    kwargs.get("backend") or selected_backend["name"]
-                )
-                label = _device_label(arr, name)
-                if label is not None:
-                    self._selected_backend_device = label
-            return arr
-
-        self._get_backend = _get_backend_tracked
-        self._to_array = _to_array_tracked
-        try:
-            return current(
-                self,
-                X=X,
-                y=y,
-                sample_weight=sample_weight,
-                formula=formula,
-                data=data,
-            )
-        finally:
-            _restore_instance_attr(self, "_get_backend", saved_get_backend)
-            _restore_instance_attr(self, "_to_array", saved_to_array)
-
-    _fit_with_attempt_device._statgpu_attempt_device_contract = True
-    _fit_with_attempt_device._statgpu_original = current
-    LinearRegression.fit = _fit_with_attempt_device
+    """Compatibility no-op; LinearRegression owns attempt provenance at definition."""
 
 
 def _install_pglm_attempt_device_contract() -> None:
@@ -622,5 +555,4 @@ def _install_exact_raw_response_contract() -> None:
 
 _install_public_validation_cleanup_contract()
 _install_exact_raw_response_contract()
-_install_linear_attempt_device_contract()
 _install_pglm_attempt_device_contract()

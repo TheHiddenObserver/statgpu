@@ -31,11 +31,37 @@ function or method.
 | Gaussian inference array/device conversion | [`_gaussian_inference._as_backend_array`](../../statgpu/linear_model/_gaussian_inference.py) | `_gaussian_inference_device_contract` |
 | Direct Quantile IRLS validation | [`QuantileLoss.irls`](../../statgpu/losses/_quantile.py) | `_quantile_irls_validation_contract` |
 | Low-degree Student-t two-sided reference routing | [`TDistributionBase`](../../statgpu/inference/_distributions_backend.py) | `_low_df_reference_contract` (also retains backend conversion helpers) |
+| Penalized Cox numeric alpha-grid validation and class introspection | [`_penalized_cox_cv._validate_alpha_grid`](../../statgpu/linear_model/penalized/_penalized_cox_cv.py) and [`PenalizedCoxPHModel`](../../statgpu/linear_model/penalized/_penalized_cox.py) | `_penalized_cox_public_contract` |
 | Adaptive Group Lasso nonsmooth curvature | [`solvers._utils._smooth_penalty_lipschitz`](../../statgpu/solvers/_utils.py) | `_adaptive_group_lipschitz_contract` |
 
 Quantile IRLS and Student-t methods retain their historical `__wrapped__` and
 `_statgpu_original` links to the unchanged unchecked numerical methods. Those
 links are not new public APIs or permission to bypass validation in callers.
+
+### Definition-owned fit and CV lifecycle boundaries
+
+- [`LinearRegression`](../../statgpu/linear_model/wrappers/_linear.py) composes
+  its fail-closed transaction and current-attempt device tracking at class
+  definition, **outside** the existing finite-input guard. The numerical fit
+  body and required wrapper order remain unchanged. The historical transaction
+  installer and Linear-only hook in `_latest_review_fix_contract` are no-ops;
+  compatibility cleanup/device helpers remain dynamically resolved.
+- [`Ridge`](../../statgpu/linear_model/wrappers/_ridge.py) composes its optimized
+  failed-refit boundary at class definition, retaining the finite guard and
+  later public migration layers. Its old installer remains a no-op.
+- [`CoxPHCV`](../../statgpu/survival/_cox_cv.py) owns parameter export/update,
+  clone, pickle, and reusable-split helpers. The old split-lifecycle module
+  retains callable aliases and the still-required constructor/fit wrappers.
+  Penalty ordering and staged-screening safety remain separate layers; their
+  dynamic selector hooks and locking behavior must not be collapsed casually.
+
+This is not a general removal of fit wrappers. The PGLM stack still coordinates
+finite validation, inference-device controls, direct cleanup capture,
+current-attempt provenance, estimation-only cleanup, Gaussian/group
+transactions, and later solver/inference contracts. LassoCV similarly layers
+weighted objectives, uniform-weight identity, and device affinity. Preserve the
+observed ordering, dynamic delegates, and failure rollback when consolidating
+another slice; similar names or repeated guards do not establish equivalence.
 
 ## Historical implementations are not interchangeable with compatibility APIs
 

@@ -4,10 +4,10 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 ## Unreleased — internal simplification (2026-10-29–2026-10-30)
 
-- Moved the existing Gaussian inference host-Torch device default into its canonical conversion helper, removing one import-time patch while preserving the historical installer import as a no-op.
-- Moved Quantile IRLS validation, low-degree Student-t reference routing, and Adaptive Group Lasso curvature handling into their owning definitions without changing the numerical kernels or public call signatures.
-- Preserved historical compatibility imports, callable serialization paths, and applicable unchecked-method introspection links without import-time rebinding.
-- Added a developer entrypoint index without moving benchmark tools, rewriting evidence, or removing public compatibility APIs.
+- Moved Gaussian inference device defaults, Quantile IRLS validation, low-degree Student-t routing, and Adaptive Group Lasso curvature handling into their owning definitions without changing numerical kernels or public call signatures.
+- Defined LinearRegression and Ridge refit-boundary composition alongside their classes, preserving finite-validation, device-provenance, cleanup, and failure-state ordering instead of installing these layers through package imports.
+- Moved Penalized Cox grid validation/introspection and CoxPHCV parameter, clone, and pickle lifecycle methods into their owning definitions, retaining historical imports and the still-required CV dispatch wrappers.
+- Preserved compatibility imports, callable serialization paths, and applicable unchecked-method links; added a developer entrypoint index without removing public APIs or moving benchmark tools.
 - Refreshed the current statistical runner's distribution-source dependency pin without changing historical benchmark evidence or acceptance claims.
 
 ## Unreleased — local benchmark-data integration (2026-10-25)

@@ -4,6 +4,8 @@ Linear regression with full statistical inference and GPU support.
 
 __all__ = ["LinearRegression"]
 
+import functools
+import sys
 from typing import Optional, Union
 import numpy as np
 from scipy import stats
@@ -48,6 +50,196 @@ def _normalize_score_response(y, prediction):
     return y
 
 
+def _with_linear_fit_transactions(cls):
+    """Compose failure/provenance hooks after the class's finite guard exists.
+
+    Keep the transaction outside provenance tracking and finite validation;
+    both can fail before the numerical fit body is entered. Compatibility
+    helpers are resolved at call time, preserving their historical globals.
+    """
+    current = cls.fit
+
+    @functools.wraps(current)
+    def _fit_with_attempt_device(
+        self,
+        X=None,
+        y=None,
+        sample_weight=None,
+        formula=None,
+        data=None,
+    ):
+        from statgpu.linear_model.penalized import _latest_review_fix_contract as contract
+
+        original_get_backend = self._get_backend
+        original_to_array = self._to_array
+        saved_get_backend = self.__dict__.get("_get_backend", contract._MISSING)
+        saved_to_array = self.__dict__.get("_to_array", contract._MISSING)
+        direct_X = X
+        selected_backend = {"name": None}
+
+        def _get_backend_tracked(*args, **kwargs):
+            backend = original_get_backend(*args, **kwargs)
+            name = contract._backend_name(getattr(backend, "name", None))
+            selected_backend["name"] = name
+            self._selected_backend_name = name
+            # Clear stale provenance from a previous fit before any conversion.
+            self._selected_backend_device = None
+            label = contract._device_label(
+                direct_X,
+                name,
+                allow_runtime_fallback=True,
+            )
+            if label is not None:
+                self._selected_backend_device = label
+            return backend
+
+        def _to_array_tracked(value, *args, **kwargs):
+            arr = original_to_array(value, *args, **kwargs)
+            # In the direct X/y path, X is the first converted public operand.
+            # Publish its actual device before y conversion/alignment can fail.
+            if direct_X is not None and value is direct_X:
+                name = contract._backend_name(
+                    kwargs.get("backend") or selected_backend["name"]
+                )
+                label = contract._device_label(arr, name)
+                if label is not None:
+                    self._selected_backend_device = label
+            return arr
+
+        self._get_backend = _get_backend_tracked
+        self._to_array = _to_array_tracked
+        try:
+            return current(
+                self,
+                X=X,
+                y=y,
+                sample_weight=sample_weight,
+                formula=formula,
+                data=data,
+            )
+        finally:
+            contract._restore_instance_attr(self, "_get_backend", saved_get_backend)
+            contract._restore_instance_attr(self, "_to_array", saved_to_array)
+
+    _fit_with_attempt_device._statgpu_attempt_device_contract = True
+    _fit_with_attempt_device._statgpu_original = current
+
+    @functools.wraps(_fit_with_attempt_device)
+    def _fit_with_fail_closed_transaction(
+        self,
+        X=None,
+        y=None,
+        sample_weight=None,
+        formula=None,
+        data=None,
+    ):
+        from . import _linear_fit_transaction_contract as contract
+
+        # Preserve the PR79 backend-boundary source contract: the wrapped
+        # implementation still owns the literal `X_arr = X` and `y_arr = y`
+        # staging until backend resolution. This wrapper does not convert either
+        # public input before delegating; it only supplies failure transactionality.
+        backend_resolved = False
+        cleanup_calls = {"cupy": 0, "torch": 0}
+        original_get_backend = self._get_backend
+        original_cleanup_cuda = self._cleanup_cuda_memory
+        original_cleanup_torch = self._cleanup_torch_memory
+        saved_instance_attrs = {
+            name: self.__dict__.get(name, contract._MISSING)
+            for name in (
+                "_get_backend",
+                "_cleanup_cuda_memory",
+                "_cleanup_torch_memory",
+            )
+        }
+
+        def _get_backend_tracked(*args, **kwargs):
+            nonlocal backend_resolved
+            result = original_get_backend(*args, **kwargs)
+            backend_resolved = True
+            return result
+
+        def _tracked_cleanup(backend_name, cleanup):
+            cleanup_calls[backend_name] += 1
+            return cleanup()
+
+        def _cleanup_cuda_tracked():
+            device_label = str(
+                getattr(self, "_selected_backend_device", "") or ""
+            ).lower()
+            return _tracked_cleanup(
+                "cupy",
+                lambda: contract._run_cupy_cleanup_on_device(
+                    original_cleanup_cuda, device_label
+                ),
+            )
+
+        def _cleanup_torch_tracked():
+            return _tracked_cleanup("torch", original_cleanup_torch)
+
+        self._get_backend = _get_backend_tracked
+        self._cleanup_cuda_memory = _cleanup_cuda_tracked
+        self._cleanup_torch_memory = _cleanup_torch_tracked
+        try:
+            return _fit_with_attempt_device(
+                self,
+                X=X,
+                y=y,
+                sample_weight=sample_weight,
+                formula=formula,
+                data=data,
+            )
+        except Exception:
+            exc = sys.exc_info()[1]
+            backend_name = str(
+                getattr(self, "_selected_backend_name", "") or ""
+            ).lower()
+            finite_backend = str(
+                getattr(exc, "_statgpu_finite_backend", "") or ""
+            ).lower()
+            finite_device = str(
+                getattr(exc, "_statgpu_finite_device", "") or ""
+            ).lower()
+            cleanup_backend = backend_name if backend_resolved else finite_backend
+            # Conversion/alignment and backend solve/inference can both fail
+            # before the backend reaches its success-only cleanup. Outer public
+            # finite validation is earlier still, so check_finite() records the
+            # input allocator and concrete device that created its temporary
+            # reduction. Supply cleanup exactly once on that device.
+            if cleanup_backend == "cupy" and cleanup_calls["cupy"] == 0:
+                if backend_resolved:
+                    self._cleanup_cuda_memory()
+                else:
+                    # Do not call the tracked delegate here: on a failed refit it
+                    # can still see `_selected_backend_device` from the previous
+                    # successful fit and rebind cleanup to the stale device.
+                    _tracked_cleanup(
+                        "cupy",
+                        lambda: contract._run_cupy_cleanup_on_device(
+                            original_cleanup_cuda, finite_device
+                        ),
+                    )
+            elif cleanup_backend == "torch" and cleanup_calls["torch"] == 0:
+                if backend_resolved:
+                    self._cleanup_torch_memory()
+                else:
+                    _tracked_cleanup("torch", original_cleanup_torch)
+            contract._invalidate_failed_linear_fit(self)
+            raise
+        finally:
+            for name, previous in saved_instance_attrs.items():
+                if previous is contract._MISSING:
+                    self.__dict__.pop(name, None)
+                else:
+                    self.__dict__[name] = previous
+
+    _fit_with_fail_closed_transaction._statgpu_linear_fit_transaction = True
+    _fit_with_fail_closed_transaction._statgpu_original = _fit_with_attempt_device
+    cls.fit = _fit_with_fail_closed_transaction
+    return cls
+
+
+@_with_linear_fit_transactions
 class LinearRegression(BaseEstimator):
     """
     Ordinary least squares linear regression with GPU acceleration
