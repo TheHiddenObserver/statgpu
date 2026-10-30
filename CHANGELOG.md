@@ -8,6 +8,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 - Moved Quantile IRLS validation, low-degree Student-t reference routing, and Adaptive Group Lasso curvature handling into their owning definitions without changing the numerical kernels or public call signatures.
 - Preserved historical compatibility imports, callable serialization paths, and applicable unchecked-method introspection links without import-time rebinding.
 - Added a developer entrypoint index without moving benchmark tools, rewriting evidence, or removing public compatibility APIs.
+- Refreshed the current statistical runner's distribution-source dependency pin without changing historical benchmark evidence or acceptance claims.
 
 ## Unreleased — local benchmark-data integration (2026-10-25)
 
