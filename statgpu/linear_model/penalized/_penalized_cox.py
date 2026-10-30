@@ -24,6 +24,26 @@ from statgpu.survival._numeric import (
 from ._base import PenalizedGeneralizedLinearModel
 
 class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
+    """Penalized Cox proportional hazards model.
+
+    The estimator minimizes -ell(coef) / n plus a validated L1, L2/Ridge,
+    ElasticNet, SCAD, MCP, or null penalty. Here ell is the summed
+    right-censored Cox partial log likelihood and n counts all training rows,
+    including censored observations, rather than just events. With the built-in
+    string penalty='l2', the penalty is alpha * ||coef||**2 / 2. On the same
+    data and tie method, its objective matches CoxPH(penalty=n * alpha / 2).
+    This direct-fit conversion does not equate the two CV searches, whose
+    training sizes and held-out score normalizations differ. The
+    Cox partial likelihood has no identifiable intercept, so
+    ``fit_intercept=True`` is rejected. Breslow and Efron ties are supported on
+    NumPy, CuPy, and Torch CUDA backends.
+
+    Penalized Cox inference is currently estimation-only:
+    ``compute_inference=True`` raises ``NotImplementedError``. Use
+    :class:`statgpu.survival.CoxPH` for unpenalized or fixed-L2 Cox inference,
+    aligning its penalty normalization with the desired objective.
+    """
+
     _SUPPORTED_PENALTY_NAMES = frozenset(
         {
             "",
@@ -39,52 +59,6 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
             "mcp",
         }
     )
-    """Penalized Cox proportional hazards model.
-
-    Minimizes: -partial_likelihood(X, time, event) + penalty(coef)
-
-    The Cox PH model estimates log-hazard ratios:
-        h(t|X) = h0(t) * exp(X @ coef)
-
-    Supports L1, L2, ElasticNet, SCAD, and MCP penalties.
-
-    Parameters
-    ----------
-    penalty : str or Penalty, default='l2'
-        Penalty type.
-    alpha : float, default=1.0
-        Regularization strength.
-    ties : str, default='breslow'
-        Method for handling tied event times: 'breslow' or 'efron'.
-    solver : str, default='auto'
-        Solver: 'auto', 'fista', 'fista_bb', 'newton'.
-        'auto' selects Newton for smooth penalties.
-    max_iter : int, default=1000
-        Maximum iterations.
-    tol : float, default=1e-4
-        Convergence tolerance.
-    fit_intercept : bool, default=False
-        Must be ``False``.  The Cox partial likelihood is invariant to an
-        additive constant in the linear predictor, so an intercept is not
-        identifiable and is never fitted.
-    compute_inference : bool, default=False
-        Penalized Cox inference is not yet implemented.  Passing ``True``
-        raises ``NotImplementedError`` during ``fit``; use unpenalized
-        :class:`statgpu.survival.CoxPH` when inference is required.
-    device : str, default='auto'
-        Device: 'auto', 'cpu', 'cuda', 'torch'.
-
-    Examples
-    --------
-    >>> from statgpu.linear_model import PenalizedCoxPHModel
-    >>> # y must be (n, 2) array with columns [time, event]
-    >>> model = PenalizedCoxPHModel(penalty='l2', alpha=0.01)
-    >>> model.fit(X, y_surv)
-    >>> hazard_ratio = model.predict_hazard_ratio(X_test)
-
-    >>> # Sparse Cox model with L1 penalty
-    >>> model = PenalizedCoxPHModel(penalty='l1', alpha=0.05)
-    """
 
     _estimator_type = "regressor"
 

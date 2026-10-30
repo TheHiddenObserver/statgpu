@@ -46,10 +46,6 @@ from .penalized._penalized_cv import PenalizedGLM_CV, ApproximateCVWarning
 from ._ordered_logit import OrderedLogitRegression
 from ._ordered_probit import OrderedProbitRegression
 
-# Shared Gaussian helpers support explicit Torch CPU execution when no native
-# tensor or concrete device is available to select a CUDA device.
-from . import _gaussian_inference_device_contract as _gaussian_inference_device_contract
-
 # The unified penalized engine uses one backend-neutral direct-fit `solver`.
 # Keep the historical `cpu_solver` constructor argument for one compatibility
 # cycle, but make meaningful legacy use visibly deprecated. LassoCV owns the

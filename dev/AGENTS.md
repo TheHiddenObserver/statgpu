@@ -22,6 +22,8 @@
 
 ## 主要代码入口
 
+开发、验证与历史代码的入口索引见 [`guides/development-entrypoints.md`](guides/development-entrypoints.md)。新增 runner 或兼容层之前，先确认是否已有可复用入口；历史脚本及证据的归档边界也在该索引中说明。
+
 - `statgpu/__init__.py`: 顶层公共 API 汇总，包括模型、后端、推断、特征选择和非参数方法。
 - `statgpu/_base.py`: estimator 基类，包含设备解析、后端获取和数组转换逻辑。
 - `statgpu/_config.py`: 全局设备管理，支持 `cpu`、`cuda`、`torch`、`auto`。

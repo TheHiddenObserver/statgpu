@@ -1094,14 +1094,59 @@ class TDistributionBase:
         return sf.exp(log_pdf)
 
     def two_sided_pvalue(self, stat_abs, df):
+        df_f = float(df)
+        # Lazy import: the stable reference helper also uses this distribution
+        # backend. The old module remains the owner of its compatibility helpers.
+        from . import _low_df_reference_contract as reference
+
+        if df_f not in reference._LOW_DF:
+            return TDistributionBase._two_sided_pvalue_unchecked(self, stat_abs, df)
+        backend, xp, device = reference._backend_context(self, stat_abs)
+        statistic_abs = reference._statistic_abs_on_backend(
+            stat_abs, backend=backend, xp=xp, device=device,
+        )
+        pvalues, _ = reference.two_sided_reference_inference(
+            statistic_abs, distribution="t", alpha=0.05,
+            backend=backend, xp=xp, df=df_f, device=device,
+        )
+        return pvalues
+
+    def _two_sided_pvalue_unchecked(self, stat_abs, df):
         return self._two_sided_pvalue_standard(stat_abs, df)
 
     def two_sided_critical_value(self, alpha, df, *, max_bisect_steps=60):
+        df_f = float(df)
+        from . import _low_df_reference_contract as reference
+
+        if df_f not in reference._LOW_DF:
+            return TDistributionBase._two_sided_critical_value_unchecked(
+                self, alpha, df, max_bisect_steps=max_bisect_steps,
+            )
+        backend, xp, device = reference._backend_context(self)
+        statistic_ref = reference._reference_scalar(
+            backend=backend, xp=xp, device=device,
+        )
+        _, critical = reference.two_sided_reference_inference(
+            statistic_ref, distribution="t", alpha=alpha,
+            backend=backend, xp=xp, df=df_f, device=device,
+        )
+        return critical
+
+    def _two_sided_critical_value_unchecked(self, alpha, df, *, max_bisect_steps=60):
         sf = self._sf
         a = float(alpha)
         if not (0.0 < a < 1.0):
             return sf.as_float64(float("nan"))
         return self._ppf_standard(1.0 - a / 2.0, df, max_bisect_steps=max_bisect_steps)
+
+    # Retain historical generic-call/introspection links without replacing the
+    # public methods during package initialization.
+    two_sided_pvalue.__wrapped__ = _two_sided_pvalue_unchecked
+    two_sided_pvalue._statgpu_original = _two_sided_pvalue_unchecked
+    two_sided_pvalue._statgpu_low_df_reference = True
+    two_sided_critical_value.__wrapped__ = _two_sided_critical_value_unchecked
+    two_sided_critical_value._statgpu_original = _two_sided_critical_value_unchecked
+    two_sided_critical_value._statgpu_low_df_reference = True
 
     def rvs(self, df, *, size=None, loc=0.0, scale=1.0, dtype=None):
         return _rvs_t(self._sf, df=df, size=size, loc=loc, scale=scale, dtype=dtype)
