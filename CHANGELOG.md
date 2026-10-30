@@ -6,7 +6,7 @@ All notable changes to statgpu are documented here, organized by release and dat
 
 - Moved Gaussian inference device defaults, Quantile IRLS validation, low-degree Student-t routing, and Adaptive Group Lasso curvature handling into their owning definitions without changing numerical kernels or public call signatures.
 - Defined LinearRegression and Ridge refit-boundary composition alongside their classes, preserving finite-validation, device-provenance, cleanup, and failure-state ordering instead of installing these layers through package imports.
-- Moved Penalized Cox grid validation/introspection and CoxPHCV parameter, clone, and pickle lifecycle methods into their owning definitions, retaining historical imports and the still-required CV dispatch wrappers.
+- Moved Penalized Cox grid validation/introspection and CoxPHCV parameter, clone, and pickle lifecycle methods into their owning definitions; retained historical imports and CV dispatch wrappers, and made split-lifecycle reloads idempotent.
 - Preserved compatibility imports, callable serialization paths, and applicable unchecked-method links; added a developer entrypoint index without removing public APIs or moving benchmark tools.
 - Refreshed the current statistical runner's distribution-source dependency pin without changing historical benchmark evidence or acceptance claims.
 

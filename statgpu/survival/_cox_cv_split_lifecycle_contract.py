@@ -12,36 +12,42 @@ from ._cox_cv import (
 )
 
 
-_ORIGINAL_COXPHCV_INIT = _module.CoxPHCV.__init__
-_ORIGINAL_COXPHCV_FIT_CV = _module.CoxPHCV._fit_cv
-_ORIGINAL_COXPHCV_GET_PARAMS = _module._COXPHCV_BASE_GET_PARAMS
-_ORIGINAL_COXPHCV_SET_PARAMS = _module._COXPHCV_BASE_SET_PARAMS
-_ORIGINAL_COXPHCV_GETSTATE = None
+# importlib.reload reuses this module's globals. Recapturing our installed
+# wrappers would make their original-function lookups recurse into themselves.
+# Keep the whole installation stable, including any later user-added wrappers.
+if globals().get("_SPLIT_LIFECYCLE_OWNER") is not _module.CoxPHCV:
+    _ORIGINAL_COXPHCV_INIT = _module.CoxPHCV.__init__
+    _ORIGINAL_COXPHCV_FIT_CV = _module.CoxPHCV._fit_cv
+    _ORIGINAL_COXPHCV_GET_PARAMS = _module._COXPHCV_BASE_GET_PARAMS
+    _ORIGINAL_COXPHCV_SET_PARAMS = _module._COXPHCV_BASE_SET_PARAMS
+    _ORIGINAL_COXPHCV_GETSTATE = None
 
 
-@wraps(_ORIGINAL_COXPHCV_INIT)
-def _init_with_split_lifecycle(self, *args, **kwargs):
-    _ORIGINAL_COXPHCV_INIT(self, *args, **kwargs)
-    _clear_materialized_split_state(self)
+    @wraps(_ORIGINAL_COXPHCV_INIT)
+    def _init_with_split_lifecycle(self, *args, **kwargs):
+        _ORIGINAL_COXPHCV_INIT(self, *args, **kwargs)
+        _clear_materialized_split_state(self)
 
 
-@wraps(_ORIGINAL_COXPHCV_FIT_CV)
-def _fit_cv_with_reusable_splits(self, *args, **kwargs):
-    """Use one private reusable snapshot without rewriting constructor state."""
-    public_splits = self.cv_splits
-    effective_splits = _materialize_cv_splits(self)
-    if effective_splits is public_splits:
-        return _ORIGINAL_COXPHCV_FIT_CV(self, *args, **kwargs)
+    @wraps(_ORIGINAL_COXPHCV_FIT_CV)
+    def _fit_cv_with_reusable_splits(self, *args, **kwargs):
+        """Use one private reusable snapshot without rewriting constructor state."""
+        public_splits = self.cv_splits
+        effective_splits = _materialize_cv_splits(self)
+        if effective_splits is public_splits:
+            return _ORIGINAL_COXPHCV_FIT_CV(self, *args, **kwargs)
 
-    self.cv_splits = effective_splits
-    try:
-        return _ORIGINAL_COXPHCV_FIT_CV(self, *args, **kwargs)
-    finally:
-        self.cv_splits = public_splits
+        self.cv_splits = effective_splits
+        try:
+            return _ORIGINAL_COXPHCV_FIT_CV(self, *args, **kwargs)
+        finally:
+            self.cv_splits = public_splits
 
 
-_module.CoxPHCV.__init__ = _init_with_split_lifecycle
-_module.CoxPHCV._fit_cv = _fit_cv_with_reusable_splits
+    _module.CoxPHCV.__init__ = _init_with_split_lifecycle
+    _module.CoxPHCV._fit_cv = _fit_cv_with_reusable_splits
+    _SPLIT_LIFECYCLE_OWNER = _module.CoxPHCV
+
 # Historical callable paths and original-function snapshots remain importable.
 # Parameter inspection, reconstruction, clone and serialization are now defined
 # by CoxPHCV itself, rather than installed as mutable class replacements.

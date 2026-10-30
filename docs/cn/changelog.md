@@ -1,9 +1,13 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-10-24<br>
+> 最后更新：2026-10-30<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
+
+### 修复（2026-10-30，未发布）
+
+- **CoxPHCV split-lifecycle 重新加载**：重新加载私有模块 `_cox_cv_split_lifecycle_contract` 时，旧实现会把已安装的构造和 CV 包装函数捕获为自身的原始函数，导致构造或 CV 执行出现 `RecursionError`。现在对同一 estimator 类保持安装结果稳定，保留一次性 split 迭代器复用、clone/pickle 以及调用方后加的包装层。普通导入、数值拟合和公开签名不变。回归测试：`dev/tests/test_pr261_cox_cv_reload.py`。
 
 ### 修复 (2026-10-25)
 
