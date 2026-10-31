@@ -1,11 +1,15 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-30<br>
+> Last updated: 2026-10-31<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
 This page records user-visible changes for current and recent statgpu releases.
+
+### Improved (2026-10-31, unreleased)
+
+- **LassoCV internal ownership**: Made CPU conversion and concrete GPU-device alignment part of the class-owned input preparation method, and made the shared selector device/uniform-weight/weighted delegation explicit. Numerical kernels, knockoff consumers, AUTO final-refit behavior and historical compatibility entries remain unchanged. This refactor changes no public parameters or statistical behavior and makes no new performance or physical-GPU validation claim.
 
 ### Fixed (2026-10-30, unreleased)
 

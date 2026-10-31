@@ -1502,7 +1502,19 @@ def _fit_lasso_single_alpha_fast(
     }
 
 
-def _select_lasso_alpha_cv(
+def _select_lasso_alpha_cv(X, y, *args, **kwargs):
+    """Run the shared device -> uniform-weight -> weighted/unweighted selector.
+
+    Resolve the composition lazily: this module is imported before the CV
+    classes and their compatibility modules. No installer replaces this entry.
+    The device layer also serves knockoff consumers, not just LassoCV.fit.
+    """
+    from statgpu.linear_model import _lassocv_device_affinity_contract as affinity
+
+    return affinity._select_lasso_alpha_cv_on_design_device(X, y, *args, **kwargs)
+
+
+def _select_lasso_alpha_cv_unweighted(
     X,
     y,
     *,

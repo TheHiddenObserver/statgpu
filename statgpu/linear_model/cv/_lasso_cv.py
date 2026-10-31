@@ -8,6 +8,7 @@ from _lasso.py for all CV logic (cache, fast-refit, backend-aware).
 __all__ = ["LassoCV"]
 
 from typing import Optional, Union
+from functools import wraps
 import warnings
 
 import numpy as np
@@ -316,7 +317,7 @@ class LassoCV(CVEstimatorBase):
         ):
             self.__dict__.pop(attr, None)
 
-    def _prepare_cv_inputs_for_resolved_device(
+    def _prepare_cv_inputs_without_affinity(
         self, X, y, sample_weight, device_name: str
     ):
         """Preserve the concrete resolved backend before entering the CV helper.
@@ -352,6 +353,40 @@ class LassoCV(CVEstimatorBase):
             )
         )
         return X_cv, y_cv, sample_weight_cv
+
+    # Retain the original introspection chain and unchecked callable metadata.
+    _prepare_cv_inputs_without_affinity.__name__ = "_prepare_cv_inputs_for_resolved_device"
+    _prepare_cv_inputs_without_affinity.__qualname__ = "LassoCV._prepare_cv_inputs_for_resolved_device"
+
+    @wraps(_prepare_cv_inputs_without_affinity)
+    def _prepare_cv_inputs_for_resolved_device(
+        self, X, y, sample_weight, device_name: str
+    ):
+        """Prepare CV operands on the resolved backend and concrete design device."""
+        from statgpu.linear_model import _lassocv_device_affinity_contract as affinity
+
+        # Preserve the old captured-method boundary, not subclass dispatch to
+        # the unchecked implementation; helpers retain their compatibility seams.
+        X_cv, y_cv, sample_weight_cv = affinity._ORIGINAL_PREPARE(
+            self, X, y, sample_weight, device_name
+        )
+        resolved = str(device_name).strip().lower()
+        try:
+            resolved_device = Device(resolved)
+        except ValueError as exc:
+            raise ValueError(
+                f"LassoCV resolved an unsupported execution device {device_name!r}."
+            ) from exc
+
+        if resolved_device is Device.CPU:
+            return affinity._convert_cpu_cv_inputs(self, X_cv, y_cv, sample_weight_cv)
+        if resolved_device is Device.CUDA:
+            return affinity._align_cupy_cv_inputs(X_cv, y_cv, sample_weight_cv)
+        if resolved_device is Device.TORCH:
+            return affinity._align_torch_cv_inputs(X_cv, y_cv, sample_weight_cv)
+        return X_cv, y_cv, sample_weight_cv
+
+    _prepare_cv_inputs_for_resolved_device.__statgpu_pr138_lassocv_device_affinity__ = True
 
     def _resolve_cv_solver(self, device_name: str) -> str:
         """Resolve the actual CV solver without changing legacy GPU behavior."""

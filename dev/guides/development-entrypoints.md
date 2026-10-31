@@ -55,10 +55,19 @@ links are not new public APIs or permission to bypass validation in callers.
   Penalty ordering and staged-screening safety remain separate layers; their
   dynamic selector hooks and locking behavior must not be collapsed casually.
 
+- [`LassoCV`](../../statgpu/linear_model/cv/_lasso_cv.py) owns resolved-device
+  input preparation. The shared [`_lasso._select_lasso_alpha_cv`](../../statgpu/linear_model/wrappers/_lasso.py)
+  entry lazily delegates through device context, exact uniform-weight routing,
+  and the unchanged weighted/unweighted numerical paths. This explicit chain
+  also serves knockoff consumers and preserves historical dynamic delegates.
+  Weighted/uniform installers are no-ops; the affinity installer still owns the
+  shared AUTO fit-device resolver. Compatibility modules are therefore not all
+  side-effect-free, and the selector still has required delegation layers.
+
 This is not a general removal of fit wrappers. The PGLM stack still coordinates
 finite validation, inference-device controls, direct cleanup capture,
 current-attempt provenance, estimation-only cleanup, Gaussian/group
-transactions, and later solver/inference contracts. LassoCV similarly layers
+transactions, and later solver/inference contracts. LassoCV retains
 weighted objectives, uniform-weight identity, and device affinity. Preserve the
 observed ordering, dynamic delegates, and failure rollback when consolidating
 another slice; similar names or repeated guards do not establish equivalence.
