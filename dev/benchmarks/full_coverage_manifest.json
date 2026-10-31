@@ -691,7 +691,7 @@
       "historical_v2_execution_status": "CPU137pass1known_failure173",
       "historical_v2_invocation_validation": "CLIverified; worker138CPUcases137pass1knownFsamplingfailure#173;149contracttests pass",
       "source_dependencies_sha256": {
-        "statgpu/inference/_distributions_backend.py": "da8bc5fdcf7345accacfa671a9c471d9ff06242b706730522a007abb078cb518"
+        "statgpu/inference/_distributions_backend.py": "0f11d903da9aa2c44eb09fca9869ba6e4fe316d19141459c386fce25c5d18491"
       }
     },
     {

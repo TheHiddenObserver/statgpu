@@ -363,6 +363,10 @@ def _objective_gradient(loss, penalty, X, y, coef):
 
 
 def _smooth_penalty_lipschitz(penalty):
+    # Preserve the historical adaptive-group boundary, including its separate
+    # stripped name lookup; other penalty names retain the original semantics.
+    if str(getattr(penalty, "name", "none")).lower().strip() == "adaptive_group_lasso":
+        return 0.0
     if penalty is None:
         return 0.0
     _pname = _penalty_name(penalty)
@@ -372,6 +376,10 @@ def _smooth_penalty_lipschitz(penalty):
     alpha = float(getattr(penalty, 'alpha', 0.0))
     l1_ratio = float(getattr(penalty, 'l1_ratio', 0.0))
     return alpha * (1.0 - l1_ratio)
+
+
+# Historical capability marker, now on the owning helper rather than a wrapper.
+_smooth_penalty_lipschitz._statgpu_adaptive_group_contract = True
 
 
 def _smooth_penalty_value_dev(penalty, coef):

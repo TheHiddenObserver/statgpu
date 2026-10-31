@@ -46,10 +46,6 @@ from .penalized._penalized_cv import PenalizedGLM_CV, ApproximateCVWarning
 from ._ordered_logit import OrderedLogitRegression
 from ._ordered_probit import OrderedProbitRegression
 
-# Shared Gaussian helpers support explicit Torch CPU execution when no native
-# tensor or concrete device is available to select a CUDA device.
-from . import _gaussian_inference_device_contract as _gaussian_inference_device_contract
-
 # The unified penalized engine uses one backend-neutral direct-fit `solver`.
 # Keep the historical `cpu_solver` constructor argument for one compatibility
 # cycle, but make meaningful legacy use visibly deprecated. LassoCV owns the
@@ -135,7 +131,6 @@ _debiased_simultaneous_reporting_finite_contract.install_debiased_simultaneous_r
 # equivalent row-count problem while leaving the unweighted fast path untouched.
 from . import _weighted_lassocv_review_contract as _weighted_lassocv_review_contract
 
-_weighted_lassocv_review_contract.install_weighted_lassocv_review_contract()
 
 # Positive constant analytic weights are exactly the unweighted statistical
 # problem. Preserve that identity by delegating them to the maintained fast path.
@@ -143,7 +138,6 @@ from . import (
     _lassocv_uniform_weight_identity_contract as _lassocv_uniform_weight_identity_contract,
 )
 
-_lassocv_uniform_weight_identity_contract.install_lassocv_uniform_weight_identity_contract()
 
 # LassoCV input preparation must keep response/weights on the concrete CuPy or
 # Torch CUDA device that owns a native design matrix, matching direct fit affinity.

@@ -14,6 +14,11 @@ reference array is supplied. Bind the entire selector transaction to the design'
 concrete device so a design on, for example, ``cuda:3`` cannot later acquire
 ``cuda:0`` indices or FISTA buffers merely because device 0 was current.
 
+Input preparation belongs to ``LassoCV`` itself; the historical helper names
+remain importable. The canonical shared selector explicitly delegates through
+this device layer and the uniform/weighted layers instead of being replaced by
+three installers. Only the shared AUTO fit resolver is still installed here.
+
 Finite-CV-evidence selection policy belongs to ``LassoCV.fit`` itself, not this
 shared selector wrapper. Other private consumers of ``_select_lasso_alpha_cv``
 (such as knockoff feature-selection helpers) therefore retain their existing
@@ -49,14 +54,15 @@ from statgpu.backends._utils import _cupy_asarray_on_device, _move_torch_tensor
 from statgpu.linear_model import _penalized_inference_api_contract as _api_contract
 from statgpu.linear_model.cv._lasso_cv import LassoCV
 from statgpu.linear_model.wrappers import _lasso as _lasso_impl
+from statgpu.linear_model import _lassocv_uniform_weight_identity_contract as _uniform
 
 
 _AFFINITY_MARKER = "__statgpu_pr138_lassocv_device_affinity__"
 _AUTO_REFIT_MARKER = "__statgpu_pr138_lassocv_auto_refit_device__"
 _SELECTOR_AFFINITY_MARKER = "__statgpu_pr138_lassocv_selector_device_affinity__"
-_ORIGINAL_PREPARE = LassoCV._prepare_cv_inputs_for_resolved_device
+_ORIGINAL_PREPARE = LassoCV._prepare_cv_inputs_without_affinity
 _ORIGINAL_INPUT_NATIVE_DEVICE = _api_contract._input_native_device
-_ORIGINAL_SELECT = _lasso_impl._select_lasso_alpha_cv
+_ORIGINAL_SELECT = _uniform._select_lasso_alpha_cv
 
 
 def _align_cupy_cv_inputs(X_cv, y_cv, sample_weight_cv):
@@ -123,36 +129,8 @@ def _input_native_or_resolved_lassocv_device(self, X):
     return None
 
 
-@functools.wraps(_ORIGINAL_PREPARE)
-def _prepare_cv_inputs_for_resolved_device(
-    self,
-    X,
-    y,
-    sample_weight,
-    device_name: str,
-):
-    X_cv, y_cv, sample_weight_cv = _ORIGINAL_PREPARE(
-        self,
-        X,
-        y,
-        sample_weight,
-        device_name,
-    )
-    resolved = str(device_name).strip().lower()
-    try:
-        resolved_device = Device(resolved)
-    except ValueError as exc:
-        raise ValueError(
-            f"LassoCV resolved an unsupported execution device {device_name!r}."
-        ) from exc
-
-    if resolved_device is Device.CPU:
-        return _convert_cpu_cv_inputs(self, X_cv, y_cv, sample_weight_cv)
-    if resolved_device is Device.CUDA:
-        return _align_cupy_cv_inputs(X_cv, y_cv, sample_weight_cv)
-    if resolved_device is Device.TORCH:
-        return _align_torch_cv_inputs(X_cv, y_cv, sample_weight_cv)
-    return X_cv, y_cv, sample_weight_cv
+# Historical import path, now the class-owned implementation.
+_prepare_cv_inputs_for_resolved_device = LassoCV._prepare_cv_inputs_for_resolved_device
 
 
 @functools.wraps(_ORIGINAL_SELECT)
@@ -184,13 +162,7 @@ def _select_lasso_alpha_cv_on_design_device(X, y, *args, **kwargs):
 
 
 def install_lassocv_device_affinity_contract():
-    current_prepare = LassoCV._prepare_cv_inputs_for_resolved_device
-    if not getattr(current_prepare, _AFFINITY_MARKER, False):
-        setattr(_prepare_cv_inputs_for_resolved_device, _AFFINITY_MARKER, True)
-        LassoCV._prepare_cv_inputs_for_resolved_device = (
-            _prepare_cv_inputs_for_resolved_device
-        )
-
+    """Install only the still-shared AUTO fit-device resolver."""
     current_resolver = _api_contract._input_native_device
     if not getattr(current_resolver, _AUTO_REFIT_MARKER, False):
         setattr(
@@ -200,10 +172,14 @@ def install_lassocv_device_affinity_contract():
         )
         _api_contract._input_native_device = _input_native_or_resolved_lassocv_device
 
-    current_selector = _lasso_impl._select_lasso_alpha_cv
-    if not getattr(current_selector, _SELECTOR_AFFINITY_MARKER, False):
-        setattr(_select_lasso_alpha_cv_on_design_device, _SELECTOR_AFFINITY_MARKER, True)
-        _lasso_impl._select_lasso_alpha_cv = _select_lasso_alpha_cv_on_design_device
+
+# Preserve the historical shared selector signature/markers without replacing
+# its canonical entry. Only the AUTO fit resolver still needs installation.
+setattr(_select_lasso_alpha_cv_on_design_device, _SELECTOR_AFFINITY_MARKER, True)
+functools.update_wrapper(
+    _lasso_impl._select_lasso_alpha_cv,
+    _select_lasso_alpha_cv_on_design_device,
+)
 
 
 __all__ = [
