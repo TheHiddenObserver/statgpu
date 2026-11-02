@@ -107,7 +107,10 @@ class GeneralizedLinearModel(BaseEstimator):
     gpu_memory_cleanup : bool, default=False
         Best-effort GPU memory-pool cleanup.
     compute_inference : bool, default=False
-        Enable supported M-estimation coefficient inference.
+        Enable supported M-estimation coefficient inference. With
+        ``solver='fista'``, inference performs a final IRLS refit of the
+        reported fitted state because FISTA's coefficient-change stopping
+        point is not an inference-grade covariance solution.
     cov_type : str, default='nonrobust'
         nonrobust, hc0, hc1 for ordinary GLM inference; no hac_maxlags constructor argument.
 
@@ -633,6 +636,16 @@ class GeneralizedLinearModel(BaseEstimator):
             self._fit_irls(X_arr, y_arr, sample_weight, family, backend_name)
         elif solver_name == "fista":
             self._fit_fista(X_arr, y_arr, sample_weight, family, backend_name)
+            if self._compute_inference_enabled:
+                # FISTA is a first-order fit-only solver.  Its coefficient-change
+                # stopping point can satisfy tol while covariance-based p-values
+                # remain materially different from the IRLS/Newton solution.
+                # Re-fit the same model with IRLS before publishing inference so
+                # the reported covariance, SE, and p-values are evaluated at a
+                # stationary solution.  The explicit FISTA fit-only path is
+                # unchanged when compute_inference=False.
+                self._fit_irls(X_arr, y_arr, sample_weight, family, backend_name)
+                solver_name = "fista+irls-inference"
         elif solver_name in ("newton", "lbfgs"):
             self._fit_smooth_solver(
                 X_arr, y_arr, sample_weight, solver_name, backend_name
