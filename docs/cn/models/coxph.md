@@ -607,62 +607,114 @@ torch_cv = CoxPHCV(
 
 ## 目标函数与估计方程
 
-Cox 模型用偏似然估计协变量效应，不必预先指定基线风险率的函数形式。
-其基本思路是：每当事件发生，将发生事件的记录与当时仍处于风险集中的记录比较。
-
-记第 `i` 行的起始时间为 `a_i`、终止时间为 `b_i`、事件指示为 `delta_i`、分层标签为 `s_i`。
-时刻 `t` 在第 `s` 层中的风险集为
+第 $s$ 层中的 Cox 比例风险模型为
 
 $$
-R_s(t)=\{i : a_i < t \le b_i,\ s_i=s\}.
+h_s(t\mid x_i)=h_{0s}(t)\exp(\eta_i),
+\qquad
+\eta_i=x_i^\top\beta.
 $$
 
-风险集包括已经进入观察、但尚未在该时刻之前退出的同层记录。没有并列事件时，
+基线风险函数 $h_{0s}(t)$ 不作参数化指定，并通过偏似然从系数估计中消去。
+记第 $i$ 行的进入时间为 $a_i$、退出时间为 $b_i$、事件指示为
+$\delta_i$、分层标签为 $s_i$。时刻 $t$ 的风险集为
+
+$$
+R_s(t)=\{i:a_i<t\le b_i,\ s_i=s\}.
+$$
+
+记录在进入观察后才进入风险集，并在退出时刻仍属于风险集。没有并列事件时，
 分层 Cox 偏对数似然为
 
 $$
-\ell(\beta)=\sum_s\sum_{i:\delta_i=1,\ s_i=s}
-\left[x_i^\top\beta-
-\log\left\{\sum_{j\in R_s(b_i)}\exp(x_j^\top\beta)\right\}\right].
+\ell(\beta)=
+\sum_s\sum_{\substack{i:\delta_i=1\\s_i=s}}
+\left[
+x_i^\top\beta-
+\log\left\{\sum_{j\in R_s(b_i)}\exp(x_j^\top\beta)\right\}
+\right].
 $$
 
-每一项用事件记录的线性预测值，减去当时风险集中所有记录的相对风险总和的对数。
-删失记录虽然没有单独的事件项，但在退出观察之前仍可进入风险集，因此会影响估计。
-Breslow、Efron 与 Exact 对并列事件采用不同的分母计算方式，风险集均遵循 `(start, stop]` 约定。
-
-令 `penalty=lambda`，`CoxPH` 最大化以下总和尺度的带惩罚目标，不对偏对数似然取平均：
+删失记录没有单独的事件项，但在退出观察前仍会进入风险集，因此也会影响估计。
+当 L2 惩罚参数为 $\lambda$ 时，CoxPH 最大化总和尺度的目标函数
 
 $$
-Q_\lambda(\beta)=\ell(\beta)-\lambda\lVert\beta\rVert_2^2.
+Q_\lambda(\beta)=\ell(\beta)-\lambda\|\beta\|_2^2,
 $$
 
-记 `U(beta)` 为未加惩罚的偏似然得分，即偏对数似然对系数的梯度。
-带 L2 惩罚的估计方程为
-
-$$
-U_\lambda(\beta)=U(\beta)-2\lambda\beta=0.
-$$
-
-若 $J(\beta)=-\partial U(\beta)/\partial\beta$ 是未加惩罚的观测信息矩阵，
-则 Newton 更新所用的信息矩阵为 $A(\beta)=J(\beta)+2\lambda I_p$。
-这里 $I_p$ 是 $p$ 维单位矩阵，$p$ 为特征数；L2 惩罚在各系数方向上增加相同的曲率。
+对应的带惩罚得分方程为
+$U_\lambda(\beta)=U(\beta)-2\lambda\beta=0$，其中
+$U(\beta)=\partial\ell(\beta)/\partial\beta$。
 
 ## 风险集与并列事件处理
 
-同一时刻观察到多个事件时，需要指定并列事件处理方法。`ties="breslow"` 和
-`ties="efron"` 分别使用 Breslow 与 Efron 偏似然；`ties="exact"` 则通过基本对称多项式
-动态规划计算 Exact 分母，避免逐一枚举可能的事件组合。Exact 的计算和内存开销仍会随
-数据规模、同一时刻的事件数量及特征数增加，选择时应同时考虑统计设定和计算成本。
+对于第 $s$ 层中时刻 $t$ 发生的事件，记事件集合及其大小为
 
-无论是否使用延迟进入、分层、L2 惩罚，三个后端都按相同的 `(start, stop]` 约定构建风险集：
-记录在起点 `start` 尚未进入风险集，在终点 `stop` 仍属于风险集；分层之间分别计算。
-GPU 稳健推断也使用这一约定。`CoxPH` 与 `CoxPHCV` 的分层、受试者和聚类标签均应是一维向量。
+$$
+D_s(t)=\{i:\delta_i=1,\ b_i=t,\ s_i=s\},
+\qquad d_s(t)=|D_s(t)|.
+$$
 
-临时工作区超过配置上限时，会在所选后端改用内存需求更低的算法，不会静默转到 CPU。
-`STATGPU_EXACT_NESTED_MAX_BYTES`、`STATGPU_EXACT_BATCH_MAX_BYTES` 和
-`STATGPU_COX_GROUP_MAX_BYTES` 分别控制对应工作区，默认均为 512 MiB；
-这些设置限制的是各自的临时工作区，不是整个拟合过程的总内存。具体配置和算法说明见
-[开发参考](../../../dev/references/coxph-implementation-and-evidence.md#implementation-snapshot)。
+定义风险集和事件集合中的相对风险总和
+
+$$
+S_s^{(0)}(t)=\sum_{j\in R_s(t)}\exp(\eta_j),
+\qquad
+E_s^{(0)}(t)=\sum_{i\in D_s(t)}\exp(\eta_i).
+$$
+
+三种并列事件处理方法的区别在于如何构造这一事件组对应的分母。
+
+**Breslow 方法**对同一时刻的所有事件使用完整风险集分母：
+
+$$
+\ell_B(\beta)=
+\sum_{s,t}\left[
+\sum_{i\in D_s(t)}\eta_i
+-d_s(t)\log S_s^{(0)}(t)
+\right].
+$$
+
+**Efron 方法**将并列事件的贡献按 $d_s(t)$ 个步骤逐步扣除：
+
+$$
+\ell_E(\beta)=
+\sum_{s,t}\left[
+\sum_{i\in D_s(t)}\eta_i
+-\sum_{q=0}^{d_s(t)-1}
+\log\left\{
+S_s^{(0)}(t)-\frac{q}{d_s(t)}E_s^{(0)}(t)
+\right\}
+\right].
+$$
+
+**Exact 方法**对风险集中所有大小为 $d_s(t)$ 的子集求和：
+
+$$
+Z_s^{(d_s(t))}(t)=
+\sum_{\substack{A\subseteq R_s(t)\\|A|=d_s(t)}}
+\exp\left(\sum_{j\in A}\eta_j\right),
+$$
+
+$$
+\ell_X(\beta)=
+\sum_{s,t}\left[
+\sum_{i\in D_s(t)}\eta_i-\log Z_s^{(d_s(t))}(t)
+\right].
+$$
+
+当 $d_s(t)=1$ 时，三种方法的分母相同。Exact 方法使用基本对称多项式动态规划计算分母，
+而不是显式枚举所有子集；其计算和内存开销仍会随风险集规模、最大并列事件数及特征数增加。
+
+三种方法均遵循相同的 $(a_i,b_i]$ 风险集约定，并在各层内分别计算。
+**CoxPH** 和 **CoxPHCV** 的分层、受试者及聚类标签均应为一维向量。
+临时工作区超过配置上限时，所选后端会改用内存需求更低的算法，而不会静默切换到 CPU。
+**STATGPU_EXACT_NESTED_MAX_BYTES**、**STATGPU_EXACT_BATCH_MAX_BYTES** 和
+**STATGPU_COX_GROUP_MAX_BYTES** 的默认值均为 512 MiB，限制的是各自的临时工作区，
+而不是整个拟合过程的总内存。
+
+得分与观测信息矩阵的公式、Exact 动态规划递推，以及这些计算如何映射到 GPU，
+见[数学推导与计算实现说明](../../../dev/references/coxph-implementation-and-evidence.md#implementation-snapshot)。
 
 ## 公式接口
 
@@ -687,22 +739,41 @@ CoxPH().fit(
 
 ## 优化与收敛
 
-模型使用带线搜索的 Newton 迭代，并在最终系数处检查 KKT 条件，判断估计方程是否已充分满足。
-线搜索失败时不会继续更新系数，也不会报告收敛。建议先检查 `converged_`，
-再结合以下字段判断是否需要调整数据或求解设置：
+在第 $m$ 轮迭代中，记未加惩罚的观测信息矩阵为
+$J(\beta^{(m)})=-\partial U/\partial\beta$，并令
+$A(\beta^{(m)})=J(\beta^{(m)})+2\lambda I_p$。Newton 方向由下式求得：
+
+$$
+A(\beta^{(m)})\Delta^{(m)}
+=U(\beta^{(m)})-2\lambda\beta^{(m)},
+\qquad
+\beta^{(m+1)}=\beta^{(m)}+\alpha_m\Delta^{(m)}.
+$$
+
+步长从 1 开始；若带惩罚目标函数没有增加，则逐步缩小步长。
+收敛检查使用归一化 KKT 残差：
+
+$$
+r_{\mathrm{KKT}}=
+\frac{\|U(\beta)-2\lambda\beta\|_\infty}
+{1+\|U(\beta)\|_\infty+2\lambda\|\beta\|_\infty};
+\qquad
+r_{\mathrm{KKT}}\le\texttt{tol}.
+$$
+
+线搜索失败时不会更新系数，也不会报告收敛。系数变化较小或达到
+**max_iter** 本身都不能证明模型已经收敛。可结合以下字段判断拟合状态：
 
 | 字段 | 如何解读 |
 |---|---|
-| `converged_` | 最终参数是否通过收敛检查。 |
-| `termination_reason_` | 汇总后的停止状态：`kkt_converged`、`line_search_failed` 或 `stalled_with_large_kkt`。 |
-| `optimization_stop_reason_` | 求解器原始停止原因，包括 `max_iter`；警告信息也会报告此值。 |
-| `n_iter_` | 实际迭代次数。 |
-| `final_kkt_inf_` | 最终 KKT 残差的无穷范数，反映估计方程尚未满足的程度。 |
-| `final_kkt_normalized_` | 归一化后的最终 KKT 残差，用于核对收敛判定。 |
+| **converged_** | 最终参数是否通过收敛检查。 |
+| **termination_reason_** | 汇总后的停止状态：**kkt_converged**、**line_search_failed** 或 **stalled_with_large_kkt**。 |
+| **optimization_stop_reason_** | 求解器原始停止原因，包括 **max_iter**；警告信息也会报告此值。 |
+| **n_iter_** | 实际迭代次数。 |
+| **final_kkt_inf_** | 最终 KKT 残差的无穷范数。 |
+| **final_kkt_normalized_** | 归一化后的最终 KKT 残差，用于核对收敛判定。 |
 
-似然、梯度、Hessian 矩阵、协方差、基线风险和收敛状态都根据最终系数重新计算。
-达到 `max_iter` 只表示迭代次数已用尽，不表示模型已经收敛。
-若残差仍较大，应先检查特征尺度、共线性和事件信息是否充足，再决定是否增加迭代次数。
+似然、梯度、Hessian 矩阵、协方差、基线风险和收敛状态均根据最终系数重新计算。
 
 ## 惩罚强度缩放与推断
 
