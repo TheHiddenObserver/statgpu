@@ -371,8 +371,10 @@ evaluation.
    \qquad M,E\in\{0,1\}^{G\times n}.
    $$
 
-   Each row represents one stratum/failure-time group; each column represents
-   one observation. The GPU reduces along the observation axis to compute
+   The mask is a computational representation of risk-set membership, not an
+   additional model parameter. Each row represents one stratum/failure-time
+   group; each column represents one observation. The GPU reduces along the
+   observation axis to compute
 
    $$
    S_g^{(m)}=\sum_{i=1}^n M_{gi}w_ix_i^{\otimes m},
