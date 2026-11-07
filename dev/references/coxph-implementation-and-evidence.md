@@ -64,15 +64,15 @@ $$
 $$
 
 **Efron.** The event weights are removed fractionally across the $d_{sk}$
-substeps. With $q=0,\ldots,d_{sk}-1$,
+substeps. With $v=0,\ldots,d_{sk}-1$,
 
 $$
 \ell_E(\beta)
  =\sum_{s,k}\left[
    \sum_{i\in D_{sk}}\eta_i
-   -\sum_{q=0}^{d_{sk}-1}
+   -\sum_{v=0}^{d_{sk}-1}
      \log\left\{
-       S_{sk}^{(0)}-\frac{q}{d_{sk}}F_{sk}^{(0)}
+       S_{sk}^{(0)}-\frac{v}{d_{sk}}F_{sk}^{(0)}
      \right\}
  \right].
 $$
@@ -82,8 +82,8 @@ set:
 
 $$
 Z_{sk}^{(d_{sk})}(\beta)
- =\sum_{\substack{A\subseteq R_{sk}\\|A|=d_{sk}}}
-   \exp\left(\sum_{j\in A}\eta_j\right),
+ =\sum_{\substack{\mathcal A\subseteq R_{sk}\\|\mathcal A|=d_{sk}}}
+   \exp\left(\sum_{j\in\mathcal A}\eta_j\right),
 $$
 
 $$
@@ -129,7 +129,7 @@ J_B(\beta)
  \right].
 $$
 
-For Efron, define $c_{skq}=q/d_{sk}$,
+For Efron, define $c_{skv}=v/d_{sk}$,
 
 $$
 a_{skq}=S_{sk}^{(0)}-c_{skq}F_{sk}^{(0)},
@@ -143,34 +143,34 @@ The score and information are
 $$
 U_E(\beta)
  =\sum_{s,k}\left[
-   \sum_{i\in D_{sk}}x_i-\sum_{q=0}^{d_{sk}-1}\mu_{skq}
+   \sum_{i\in D_{sk}}x_i-\sum_{v=0}^{d_{sk}-1}\mu_{skv}
  \right],
 $$
 
 $$
 J_E(\beta)
- =\sum_{s,k}\sum_{q=0}^{d_{sk}-1}
+ =\sum_{s,k}\sum_{v=0}^{d_{sk}-1}
  \left[
-   \frac{S_{sk}^{(2)}-c_{skq}F_{sk}^{(2)}}{a_{skq}}
-   -\mu_{skq}\mu_{skq}^{\top}
+   \frac{S_{sk}^{(2)}-c_{skv}F_{sk}^{(2)}}{a_{skv}}
+   -\mu_{skv}\mu_{skv}^{\top}
  \right].
 $$
 
-For Exact ties, assign each size-$d_{sk}$ subset $A$ probability
+For Exact ties, assign each size-$d_{sk}$ subset $\mathcal A$ probability
 
 $$
-\pi_{sk}(A)
- =\frac{\exp(\sum_{j\in A}\eta_j)}
+\pi_{sk}(\mathcal A)
+ =\frac{\exp(\sum_{j\in\mathcal A}\eta_j)}
         {Z_{sk}^{(d_{sk})}},
 \qquad
-z_A=\sum_{j\in A}x_j.
+z_{\mathcal A}=\sum_{j\in\mathcal A}x_j.
 $$
 
 The denominator derivatives are the mean and covariance of this weighted
 subset sum:
 
 $$
-m_{sk}=\mathbb E_{\pi_{sk}}(z_A),
+m_{sk}=\mathbb E_{\pi_{sk}}(z_{\mathcal A}),
 \qquad
 V_{sk}=\operatorname{Cov}_{\pi_{sk}}(z_A).
 $$
@@ -265,15 +265,66 @@ $$
 Thus the DP produces the partition, score, and information together; it
 does not need to materialize the subsets.
 
-For ordinary right-censored data, risk sets are nested within each stratum.
-Sorting rows by decreasing stop time turns each risk set into a prefix. StatGPU
-therefore reuses one segmented prefix DP across failure groups instead of
-restarting the DP for every group. For fixed moment width, the row/subset-size
-work scales as $O(n\,d_{\max})$, where $d_{\max}$ is the largest tied-event
-count; derivative-state width additionally grows with $p+p^2$. This prefix
-path is used only when conservative bounds on predictor range, combinatorial
-counts, and moment magnitude are safe; otherwise the normalized log-space DP
-is retained.
+For ordinary right-censored data without delayed entry, sort rows within each
+stratum by decreasing stop time. Every failure group's risk set is then a
+prefix of this ordering. Let $q$ be a prefix endpoint and
+$[q]=\{1,\ldots,q\}$. For fixed subset size $r$, unrolling the Exact recurrence
+gives
+
+$$
+Z_r^{(q)}
+ =\sum_{j=1}^{q}w_jZ_{r-1}^{(j-1)}.
+$$
+
+The right-hand side is a prefix sum over $q$. The same construction applies
+to the raw first- and second-moment numerators. Define
+$z_{\mathcal A}=\sum_{j\in\mathcal A}x_j$ and
+$w_{\mathcal A}=\exp(\sum_{j\in\mathcal A}\eta_j)$, and let
+
+$$
+L_r^{(q)}
+ =\sum_{\substack{\mathcal A\subseteq[q]\\|\mathcal A|=r}}
+   w_{\mathcal A}z_{\mathcal A},
+\qquad
+K_r^{(q)}
+ =\sum_{\substack{\mathcal A\subseteq[q]\\|\mathcal A|=r}}
+   w_{\mathcal A}z_{\mathcal A}z_{\mathcal A}^{\top}.
+$$
+
+Their row-wise updates are
+
+$$
+L_r^{(q)}
+ =L_r^{(q-1)}
+  +w_q\left\{L_{r-1}^{(q-1)}
+              +Z_{r-1}^{(q-1)}x_q\right\},
+$$
+
+$$
+\begin{aligned}
+K_r^{(q)}
+={}&K_r^{(q-1)}+w_q\Big[
+ K_{r-1}^{(q-1)}
+ +L_{r-1}^{(q-1)}x_q^\top
+ +x_qL_{r-1}^{(q-1)\top}
+ +Z_{r-1}^{(q-1)}x_qx_q^\top
+\Big].
+\end{aligned}
+$$
+
+Thus, for each subset size $r$, the partition and moment numerators are
+segmented prefix scans over rows, reset at stratum boundaries. The outer loop
+over $r=1,\ldots,d_{\max}$ remains sequential because order $r$ depends on
+order $r-1$; within each order, the scan over $q$ is parallel. Failure groups
+read the state at their risk-set prefix endpoint and tied-event count. For
+$r=1$, the partition scan is simply the cumulative sum of the row weights.
+
+For fixed moment width, the row/subset-size work scales as
+$O(n\,d_{\max})$, where $d_{\max}$ is the largest tied-event count;
+derivative-state width additionally grows with $p+p^2$. This prefix path is
+used only when conservative bounds on predictor range, combinatorial counts,
+and moment magnitude are safe; otherwise the normalized log-space DP is
+retained.
 
 The Torch CUDA channel-wise scan is a narrowly gated optimization. It is
 eligible only for at least 2,048 rows and when a scanned moment tensor has
@@ -290,8 +341,10 @@ uses the native Torch scan rather than falling back to the general Exact path.
 Delayed entry changes membership to $a_i<t\le b_i$, so a single ordering no
 longer makes every risk set a nested prefix. Those cases use batched Exact
 states when the estimated workspace fits, or a bounded per-group DP otherwise.
-The fallback changes the batching strategy, not the statistical likelihood or
-the selected array backend.
+The batched path updates independent failure groups and subset sizes together,
+but the recurrence over observation rows remains sequential. The fallback
+changes the batching strategy, not the statistical likelihood or the selected
+array backend.
 
 ### 5. Penalized Newton optimization
 
@@ -319,6 +372,16 @@ A(\beta^{(m)})\Delta^{(m)}
 \qquad
 \beta^{(m+1)}
  =\beta^{(m)}+\alpha_m\Delta^{(m)}.
+$$
+
+If the computed direction has a non-finite or non-positive directional
+derivative, $U_\lambda(\beta^{(m)})^\top\Delta^{(m)}$, StatGPU replaces it
+with the normalized score direction
+
+$$
+\Delta^{(m)}
+ =\frac{U_\lambda(\beta^{(m)})}
+        {1+\|U_\lambda(\beta^{(m)})\|_\infty}.
 $$
 
 The step length starts at one and is halved until the penalized objective
@@ -361,13 +424,13 @@ evaluation.
    failure time. The sorted state is reused across Newton iterations.
 
 2. **General counting-process Breslow/Efron fits.** Failure groups are formed
-   within strata. For group $g$, let $(s_g,t_g)$ denote its stratum and failure
+   within strata. For group $k$, let $(s_k,t_k)$ denote its stratum and failure
    time. For a batch of $G$ groups, define the risk and event masks
 
    $$
-   M_{gi}=\mathbf{1}\{a_i<t_g\le b_i,\ s_i=s_g\},
+   M_{ki}=\mathbf{1}\{a_i<t_k\le b_i,\ s_i=s_k\},
    \qquad
-   E_{gi}=\mathbf{1}\{\delta_i=1,\ b_i=t_g,\ s_i=s_g\},
+   E_{ki}=\mathbf{1}\{\delta_i=1,\ b_i=t_k,\ s_i=s_k\},
    \qquad M,E\in\{0,1\}^{G\times n}.
    $$
 
@@ -377,9 +440,9 @@ evaluation.
    observation axis to compute
 
    $$
-   S_g^{(m)}=\sum_{i=1}^n M_{gi}w_ix_i^{\otimes m},
+   S_k^{(m)}=\sum_{i=1}^n M_{ki}w_ix_i^{\otimes m},
    \qquad
-   F_g^{(m)}=\sum_{i=1}^n E_{gi}w_ix_i^{\otimes m},
+   F_k^{(m)}=\sum_{i=1}^n E_{ki}w_ix_i^{\otimes m},
    \qquad m=0,1,2.
    $$
 
@@ -429,6 +492,14 @@ $$
                     \exp(x^\top\widehat\beta)\right\}.
 $$
 
+For ordinary right-censored rows, each stratum's risk sets are nested. The
+implementation sorts stop times in decreasing order and obtains all event-time
+denominators from one log-risk prefix scan. NumPy uses
+**logaddexp.accumulate**, Torch uses **logcumsumexp**, and CuPy uses a shifted
+cumulative sum when the predictor range is within its numerical gate. Delayed
+entry breaks the prefix structure; extreme CuPy predictor ranges also retain
+the stable backend-native per-failure-group calculation.
+
 Let $J=J(\widehat\beta)$ and $A=J+2\lambda I_p$. For an unpenalized
 model-based fit, the covariance is $J^{-1}$. For a positive fixed L2 penalty,
 the model-based frequentist covariance is
@@ -438,9 +509,29 @@ $$
  =A^{-1}JA^{-1},
 $$
 
-not $A^{-1}$. For robust inference, let $u_g$ be the score residual
-aggregated over independent unit $g$ (subject or cluster), and let
-$B=\sum_g u_gu_g^\top$. The sandwich covariance is
+not $A^{-1}$. For Breslow/Efron fits, the robust meat uses conventional
+Breslow martingale score residuals, even when coefficient estimation uses
+Efron ties. With the masks from Section 6, define
+$\bar x_k=S_k^{(1)}/S_k^{(0)}$ and the contribution of row $i$ at failure group
+$k$ by
+
+$$
+r_{ik}
+ =\left(
+ E_{ki}-M_{ki}\exp(\eta_i)\frac{d_k}{S_k^{(0)}}
+ \right)(x_i-\bar x_k).
+$$
+
+Aggregate repeated rows within each independent subject or cluster $c$,
+
+$$
+u_c=\sum_{i\in c}\sum_k r_{ik},
+\qquad
+B=\sum_c u_cu_c^\top.
+$$
+
+When neither identifier is supplied, each row is its own independent unit.
+The sandwich covariance is
 
 $$
 \widehat{\operatorname{Var}}_{\mathrm{robust}}(\widehat\beta)
