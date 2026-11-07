@@ -432,8 +432,9 @@ evaluation.
    failure time. The sorted state is reused across Newton iterations.
 
 2. **General counting-process Breslow/Efron fits.** Failure groups are formed
-   within strata. For group $k$, let $(s_k,t_k)$ denote its stratum and failure
-   time. For a batch of $G$ groups, define the risk and event masks
+   within strata, and each dense batch contains failure times from one stratum.
+   For group $k$, let $(s_k,t_k)$ denote its stratum and failure time. For a
+   batch of $G$ groups, define the risk and event masks
 
    $$
    M_{ki}=\mathbf{1}\{a_i<t_k\le b_i,\ s_i=s_k\},
