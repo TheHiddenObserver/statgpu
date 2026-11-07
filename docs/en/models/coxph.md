@@ -789,9 +789,11 @@ r_{\mathrm{KKT}}=
 r_{\mathrm{KKT}}\le\texttt{tol}.
 $$
 
-A failed line search does not update coefficients and cannot report
-convergence. A small coefficient step or reaching **max_iter** is not, by
-itself, a convergence certificate. Public fitted-state fields include:
+A failed line search does not accept its trial coefficients. StatGPU still
+checks the final normalized KKT residual: the fit is reported as converged only
+if that residual is at most `tol`; otherwise
+`termination_reason_="line_search_failed"`. A small coefficient step or
+reaching **max_iter** alone is not a convergence certificate. Public fitted-state fields include:
 
 - **converged_**;
 - **termination_reason_**;
@@ -872,8 +874,10 @@ model.summary()
 For an unpenalized fit, nonrobust covariance is the usual inverse observed
 information. Positive-penalty covariance follows the dedicated contract above.
 
-For Breslow and Efron ties, strict robust inference uses statgpu's internal exact
-counting-process score residuals; it does not require statsmodels. Repeated rows
+For Breslow and Efron coefficient fits, strict robust inference computes
+counting-process martingale score residuals directly; it does not require
+`statsmodels`. The residual meat follows the Breslow baseline-hazard
+convention even when coefficient estimation uses Efron ties. Repeated rows
 are summed by `subject_id` before forming HC0/HC1 meat, and cluster covariance is
 summed by `cluster`.
 
@@ -903,12 +907,12 @@ distinction explicitly.
 
 `inference_mode="strict"` is the default. `inference_mode="approx"` remains
 accepted for backward compatibility, but the unified public fit path treats it
-as a compatibility-only alias and still computes the exact counting-process
-score sandwich. Consequently successful public fits report
+as a compatibility-only alias and still computes the counting-process score
+sandwich described above. Consequently successful public fits report
 `inference_approximate_=False` and no approximation fallback reason.
-Here, exact refers to computing the counting-process score residuals, not to
-finite-sample exact tests. Coefficient z tests and confidence intervals still
-use a large-sample normal approximation, including with `ties="exact"`.
+The direct residual calculation does not imply finite-sample exact tests.
+Coefficient z tests and confidence intervals still use a large-sample normal
+approximation, including with `ties="exact"`.
 
 Exact ties currently support model-based (`cov_type="nonrobust"`) inference only.
 Requesting HC0, HC1, or cluster inference with `ties="exact"` raises
