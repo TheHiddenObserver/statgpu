@@ -219,8 +219,8 @@ $$
 
 The same update also carries the normalized first and second moments of the
 subset covariate sum. Let $m_r^{(q)}=\mathbb E(z_{\mathcal A})$ and
-$C_r^{(q)}=\mathbb E(z_{\mathcal A}z_{\mathcal A}^\top)$ under the weighted distribution over
-size-$r$ subsets of the first $q$ rows. Define the mixture weights
+$C_r^{(q)}=\mathbb E(z_{\mathcal A}z_{\mathcal A}^\top)$ under the weighted
+distribution over size-$r$ subsets of the first $q$ rows. Define the mixture weights
 
 $$
 a_r^{(q)}
@@ -291,7 +291,7 @@ K_r^{(q)}
    w_{\mathcal A}z_{\mathcal A}z_{\mathcal A}^{\top}.
 $$
 
-Their row-wise updates are
+Set $L_0^{(q)}=0$ and $K_0^{(q)}=0$. Their row-wise updates are
 
 $$
 L_r^{(q)}
@@ -337,8 +337,7 @@ retained.
 
 The Torch CUDA channel-wise scan is a narrowly gated optimization. It is
 eligible only for at least 2,048 rows and when a scanned moment tensor has
-at most 64 channels. The row
-and channel gates are controlled by
+at most 64 channels. The row and channel gates are controlled by
 **STATGPU_TORCH_EXACT_SCAN_MIN_ROWS** and
 **STATGPU_TORCH_EXACT_SCAN_MAX_CHANNELS**; **STATGPU_TORCH_EXACT_SCAN_STRATEGY**
 accepts auto, native, or channelwise. The auto strategy enables the channel-wise
