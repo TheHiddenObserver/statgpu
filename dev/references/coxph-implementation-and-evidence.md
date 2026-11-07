@@ -132,10 +132,10 @@ $$
 For Efron, define $c_{skv}=v/d_{sk}$,
 
 $$
-a_{skq}=S_{sk}^{(0)}-c_{skq}F_{sk}^{(0)},
+a_{skv}=S_{sk}^{(0)}-c_{skv}F_{sk}^{(0)},
 \qquad
-\mu_{skq}
- =\frac{S_{sk}^{(1)}-c_{skq}F_{sk}^{(1)}}{a_{skq}}.
+\mu_{skv}
+ =\frac{S_{sk}^{(1)}-c_{skv}F_{sk}^{(1)}}{a_{skv}}.
 $$
 
 The score and information are
@@ -172,7 +172,7 @@ subset sum:
 $$
 m_{sk}=\mathbb E_{\pi_{sk}}(z_{\mathcal A}),
 \qquad
-V_{sk}=\operatorname{Cov}_{\pi_{sk}}(z_A).
+V_{sk}=\operatorname{Cov}_{\pi_{sk}}(z_{\mathcal A}).
 $$
 
 Consequently,
@@ -218,8 +218,8 @@ $$
 $$
 
 The same update also carries the normalized first and second moments of the
-subset covariate sum. Let $m_r^{(q)}=\mathbb E(z_A)$ and
-$C_r^{(q)}=\mathbb E(z_Az_A^\top)$ under the weighted distribution over
+subset covariate sum. Let $m_r^{(q)}=\mathbb E(z_{\mathcal A})$ and
+$C_r^{(q)}=\mathbb E(z_{\mathcal A}z_{\mathcal A}^\top)$ under the weighted distribution over
 size-$r$ subsets of the first $q$ rows. Define the mixture weights
 
 $$
@@ -310,6 +310,15 @@ K_r^{(q)}
  +Z_{r-1}^{(q-1)}x_qx_q^\top
 \Big].
 \end{aligned}
+$$
+
+At the risk-set prefix endpoint $q=n_R$ and required order $r=d$, these raw
+moments recover the normalized subset moments used above:
+
+$$
+m_{sk}=\frac{L_d^{(n_R)}}{Z_d^{(n_R)}},
+\qquad
+V_{sk}=\frac{K_d^{(n_R)}}{Z_d^{(n_R)}}-m_{sk}m_{sk}^\top.
 $$
 
 Thus, for each subset size $r$, the partition and moment numerators are
@@ -434,6 +443,9 @@ evaluation.
    \qquad M,E\in\{0,1\}^{G\times n}.
    $$
 
+   Let $D_k=\{i:E_{ki}=1\}$ and
+   $d_k=|D_k|=\sum_{i=1}^n E_{ki}$.
+
    The mask is a computational representation of risk-set membership, not an
    additional model parameter. Each row represents one stratum/failure-time
    group; each column represents one observation. The GPU reduces along the
@@ -496,7 +508,7 @@ For ordinary right-censored rows, each stratum's risk sets are nested. The
 implementation sorts stop times in decreasing order and obtains all event-time
 denominators from one log-risk prefix scan. NumPy uses
 **logaddexp.accumulate**, Torch uses **logcumsumexp**, and CuPy uses a shifted
-cumulative sum when the predictor range is within its numerical gate. Delayed
+cumulative sum when the centered predictor range is at most 500. Delayed
 entry breaks the prefix structure; extreme CuPy predictor ranges also retain
 the stable backend-native per-failure-group calculation.
 
