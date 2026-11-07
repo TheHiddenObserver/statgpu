@@ -627,73 +627,123 @@ Set `compute_inference=True` when covariance, tests, or survival curves are need
 
 ## Objective Function and Estimating Equation
 
-Cox regression estimates covariate effects through partial likelihood without
-specifying a functional form for the baseline hazard. At each event time, it
-compares the event row with the records still in its risk set.
-
-For row `i`, start time `a_i`, stop time `b_i`, event indicator `delta_i`, and
-stratum `s_i`, the risk set for an event at `t` is
+Within stratum $s$, the Cox proportional-hazards model is
 
 $$
-R_s(t)=\{i : a_i < t \le b_i,\ s_i=s\}.
+h_s(t\mid x_i)=h_{0s}(t)\exp(\eta_i),
+\qquad
+\eta_i=x_i^\top\beta.
 $$
 
-The risk set contains same-stratum records that have entered observation and
-have not left before the event time. Without tied failures, the stratified Cox
-partial log likelihood is
+The baseline hazard $h_{0s}(t)$ is left unspecified and removed by partial
+likelihood. For row $i$, let $a_i$ be its entry time, $b_i$ its exit time,
+$\delta_i$ its event indicator, and $s_i$ its stratum. The risk set at time
+$t$ is
 
 $$
-\ell(\beta)=\sum_s\sum_{i:\delta_i=1,\ s_i=s}
-\left[x_i^\top\beta-
-\log\left\{\sum_{j\in R_s(b_i)}\exp(x_j^\top\beta)\right\}\right].
+R_s(t)=\{i:a_i<t\le b_i,\ s_i=s\}.
 $$
 
-Each event term compares its linear predictor with the log of the total
-relative hazard in its risk set. Censored records have no separate event term
-but can contribute to risk sets until observation ends, so they affect estimation.
-Breslow, Efron, and Exact ties replace the tied-event denominator according to
-their respective definitions but retain the same `(start, stop]` risk sets.
-With `penalty=lambda`, StatGPU maximizes the total, summed objective
+A record enters the risk set only after its start time and remains in it through
+its stop time. Without tied failures, the stratified partial log likelihood is
 
 $$
-Q_\lambda(\beta)=\ell(\beta)-\lambda\lVert\beta\rVert_2^2.
+\ell(\beta)=
+\sum_s\sum_{\substack{i:\delta_i=1\\s_i=s}}
+\left[
+x_i^\top\beta-
+\log\left\{\sum_{j\in R_s(b_i)}\exp(x_j^\top\beta)\right\}
+\right].
 $$
 
-Writing `U(beta)` for the unpenalized partial-likelihood score, the gradient of
-the partial log likelihood with respect to the coefficients, the fitted
-coefficient solves
+Censored records have no event term, but contribute to risk sets until they
+leave observation. With L2 penalty $\lambda$, CoxPH maximizes the summed
+objective
 
 $$
-U_\lambda(\beta)=U(\beta)-2\lambda\beta=0.
+Q_\lambda(\beta)=\ell(\beta)-\lambda\|\beta\|_2^2,
 $$
 
-If $J(\beta)=-\partial U(\beta)/\partial\beta$ is the unpenalized observed
-information, the derivative used by penalized Newton steps is
-$A(\beta)=J(\beta)+2\lambda I_p$. Here $I_p$ is the identity matrix for the
-$p$ features; L2 adds the same curvature in every coefficient direction.
+so the penalized score equation is
+$U_\lambda(\beta)=U(\beta)-2\lambda\beta=0$, where
+$U(\beta)=\partial\ell(\beta)/\partial\beta$.
 
 ## Risk Sets and Tie Methods
 
-Ties occur when more than one event is observed at the same time.
-`ties="breslow"` and `ties="efron"` use their standard tied-event partial
-likelihoods. `ties="exact"` evaluates the exact tied-event denominator with an
-elementary-symmetric dynamic program. The same counting-process risk-set engine
-is used for delayed entry, strata, Exact ties, L2-penalized fits, and GPU robust
-inference, which keeps the `(start, stop]` convention consistent across backends.
-A row is excluded at its `start` and included at its `stop`; risk sets are
-constructed separately within each stratum.
-`CoxPH` and `CoxPHCV` accept one-dimensional stratum, subject, and cluster
-labels. Exact dynamic programming avoids enumerating
-all event subsets, but its computation and memory needs still increase with data
-size, tied-event group size, and feature count.
+For a failure time $t$ in stratum $s$, let
 
-When a temporary workspace exceeds its configured limit, the selected backend
-uses a lower-memory algorithm rather than silently switching to CPU.
-`STATGPU_EXACT_NESTED_MAX_BYTES`, `STATGPU_EXACT_BATCH_MAX_BYTES`, and
-`STATGPU_COX_GROUP_MAX_BYTES` each default to 512 MiB and limit their respective
-workspaces, not the total memory used by a fit. See the
-[developer reference](../../../dev/references/coxph-implementation-and-evidence.md#implementation-snapshot)
-for configuration details, algorithms, and their applicability.
+$$
+D_s(t)=\{i:\delta_i=1,\ b_i=t,\ s_i=s\},
+\qquad d_s(t)=|D_s(t)|.
+$$
+
+Write the total relative risk in the risk set and in the tied-event set as
+
+$$
+S_s^{(0)}(t)=\sum_{j\in R_s(t)}\exp(\eta_j),
+\qquad
+E_s^{(0)}(t)=\sum_{i\in D_s(t)}\exp(\eta_i).
+$$
+
+The three tie methods differ only in how they construct the denominator for
+this event group.
+
+**Breslow** uses the full risk-set denominator for each tied event:
+
+$$
+\ell_B(\beta)=
+\sum_{s,t}\left[
+\sum_{i\in D_s(t)}\eta_i
+-d_s(t)\log S_s^{(0)}(t)
+\right].
+$$
+
+**Efron** removes the tied-event contribution fractionally over
+$d_s(t)$ substeps:
+
+$$
+\ell_E(\beta)=
+\sum_{s,t}\left[
+\sum_{i\in D_s(t)}\eta_i
+-\sum_{q=0}^{d_s(t)-1}
+\log\left\{
+S_s^{(0)}(t)-\frac{q}{d_s(t)}E_s^{(0)}(t)
+\right\}
+\right].
+$$
+
+**Exact** sums over every size-$d_s(t)$ subset of the risk set:
+
+$$
+Z_s^{(d_s(t))}(t)=
+\sum_{\substack{A\subseteq R_s(t)\\|A|=d_s(t)}}
+\exp\left(\sum_{j\in A}\eta_j\right),
+$$
+
+$$
+\ell_X(\beta)=
+\sum_{s,t}\left[
+\sum_{i\in D_s(t)}\eta_i-\log Z_s^{(d_s(t))}(t)
+\right].
+$$
+
+When $d_s(t)=1$, the three denominators coincide. Exact ties use
+elementary-symmetric dynamic programming rather than explicit subset
+enumeration; their computational cost still grows with the risk-set size,
+maximum tied-event count, and feature count.
+
+All three methods use the same $(a_i,b_i]$ risk-set convention and compute
+each stratum separately. **CoxPH** and **CoxPHCV** accept one-dimensional
+stratum, subject, and cluster labels. When a temporary workspace exceeds its
+configured limit, the selected backend uses a lower-memory algorithm rather
+than silently switching to CPU. The 512 MiB defaults of
+**STATGPU_EXACT_NESTED_MAX_BYTES**, **STATGPU_EXACT_BATCH_MAX_BYTES**, and
+**STATGPU_COX_GROUP_MAX_BYTES** limit their respective temporary workspaces,
+not the total memory used by a fit.
+
+For the score and observed-information formulas, the Exact-tie recurrence,
+and the mapping from these calculations to GPU execution, see the
+[mathematical implementation note](../../../dev/references/coxph-implementation-and-evidence.md#implementation-snapshot).
 
 ## Formula Interface
 
@@ -717,25 +767,47 @@ three-column `Surv(start, stop, event)` response raises an error.
 
 ## Optimization and Convergence
 
-Newton iterations use line search and final-state KKT verification. A failed
-line search does not update coefficients and cannot report convergence. Public
-fitted-state fields include:
+At iteration $m$, let $J(\beta^{(m)})=-\partial U/\partial\beta$ be the
+unpenalized observed information and
+$A(\beta^{(m)})=J(\beta^{(m)})+2\lambda I_p$. The Newton direction solves
 
-- `converged_`;
-- `termination_reason_`;
-- `optimization_stop_reason_`;
-- `n_iter_`;
-- `final_kkt_inf_`;
-- `final_kkt_normalized_`.
+$$
+A(\beta^{(m)})\Delta^{(m)}
+=U(\beta^{(m)})-2\lambda\beta^{(m)},
+\qquad
+\beta^{(m+1)}=\beta^{(m)}+\alpha_m\Delta^{(m)}.
+$$
+
+The step length starts at one and is reduced until the penalized objective
+increases. Convergence is checked using the normalized KKT residual
+
+$$
+r_{\mathrm{KKT}}=
+\frac{\|U(\beta)-2\lambda\beta\|_\infty}
+{1+\|U(\beta)\|_\infty+2\lambda\|\beta\|_\infty};
+\qquad
+r_{\mathrm{KKT}}\le\texttt{tol}.
+$$
+
+A failed line search does not accept its trial coefficients. StatGPU still
+checks the final normalized KKT residual: the fit is reported as converged only
+if that residual is at most `tol`; otherwise
+`termination_reason_="line_search_failed"`. A small coefficient step or
+reaching **max_iter** alone is not a convergence certificate. Public fitted-state fields include:
+
+- **converged_**;
+- **termination_reason_**;
+- **optimization_stop_reason_**;
+- **n_iter_**;
+- **final_kkt_inf_**;
+- **final_kkt_normalized_**.
 
 The likelihood, gradient, Hessian, covariance, baseline hazard, and public
 convergence state are evaluated from the final coefficient vector.
-`termination_reason_` is the interpreted user-level category and is one of
-`kkt_converged`, `line_search_failed`, or `stalled_with_large_kkt`.
-`optimization_stop_reason_` preserves the raw solver exit, including
-`max_iter`; warnings also report this raw reason. This makes it possible to
-identify an iteration-limit exit; reaching the iteration limit does not itself
-establish convergence.
+**termination_reason_** is one of **kkt_converged**,
+**line_search_failed**, or **stalled_with_large_kkt**. **optimization_stop_reason_**
+preserves the raw solver exit, including **max_iter**; warnings also report
+this raw reason.
 
 ## Penalty Scaling and Penalized Inference
 
@@ -802,8 +874,10 @@ model.summary()
 For an unpenalized fit, nonrobust covariance is the usual inverse observed
 information. Positive-penalty covariance follows the dedicated contract above.
 
-For Breslow and Efron ties, strict robust inference uses statgpu's internal exact
-counting-process score residuals; it does not require statsmodels. Repeated rows
+For Breslow and Efron coefficient fits, strict robust inference computes
+counting-process martingale score residuals directly; it does not require
+`statsmodels`. The residual meat follows the Breslow baseline-hazard
+convention even when coefficient estimation uses Efron ties. Repeated rows
 are summed by `subject_id` before forming HC0/HC1 meat, and cluster covariance is
 summed by `cluster`.
 
@@ -833,12 +907,12 @@ distinction explicitly.
 
 `inference_mode="strict"` is the default. `inference_mode="approx"` remains
 accepted for backward compatibility, but the unified public fit path treats it
-as a compatibility-only alias and still computes the exact counting-process
-score sandwich. Consequently successful public fits report
+as a compatibility-only alias and still computes the counting-process score
+sandwich described above. Consequently successful public fits report
 `inference_approximate_=False` and no approximation fallback reason.
-Here, exact refers to computing the counting-process score residuals, not to
-finite-sample exact tests. Coefficient z tests and confidence intervals still
-use a large-sample normal approximation, including with `ties="exact"`.
+The direct residual calculation does not imply finite-sample exact tests.
+Coefficient z tests and confidence intervals still use a large-sample normal
+approximation, including with `ties="exact"`.
 
 Exact ties currently support model-based (`cov_type="nonrobust"`) inference only.
 Requesting HC0, HC1, or cluster inference with `ties="exact"` raises
