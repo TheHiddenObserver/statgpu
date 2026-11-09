@@ -911,8 +911,8 @@ as a compatibility-only alias and still computes the counting-process score
 sandwich described above. Consequently successful public fits report
 `inference_approximate_=False` and no approximation fallback reason.
 The direct residual calculation does not imply finite-sample exact tests.
-Coefficient z tests and confidence intervals still use a large-sample normal
-approximation, including with `ties="exact"`.
+Coefficient z tests and confidence intervals still use a
+large-sample normal approximation, including with `ties="exact"`.
 
 Exact ties currently support model-based (`cov_type="nonrobust"`) inference only.
 Requesting HC0, HC1, or cluster inference with `ties="exact"` raises
