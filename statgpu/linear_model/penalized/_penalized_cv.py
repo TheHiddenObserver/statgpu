@@ -58,7 +58,7 @@ _ETA_CLIP_LOGISTIC = 500.0      # Logistic (sigmoid saturates, safe range)
 _MU_LO = 1e-10                  # Standard lower bound for mu
 _MU_LO_TWEEDIE = 1e-3           # Tweedie lower bound
 _MU_HI_TWEEDIE = 1e4            # Tweedie upper bound
-_MU_LO_INVGAUSS = 5e-2          # Inverse Gaussian lower bound
+_MU_LO_INVGAUSS = 1e-10         # Inverse Gaussian lower bound
 _MU_HI_INVGAUSS = 1e3           # Inverse Gaussian upper bound
 _MU_LO_NB = 1e-300              # Negative binomial lower bound
 

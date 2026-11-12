@@ -368,7 +368,7 @@ def _fused_tweedie(eta, X, y, n, loss):
 def _fused_inverse_gaussian(eta, X, y, n, loss):
     from statgpu.backends._array_ops import _exp, _clip, _sum
     mu = _exp(_clip(eta, -30, 30))
-    mu_c = _clip(mu, 5e-2, 1e3)
+    mu_c = _clip(mu, 1e-10, 1e3)
     val = _sum(y / (2.0 * mu_c * mu_c) - 1.0 / mu_c) / n
     grad = X.T @ ((mu_c - y) / (mu_c * mu_c)) / n
     return val, grad
