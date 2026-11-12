@@ -22,7 +22,7 @@ class InverseGaussianLoss(GLMLoss):
     _skip_momentum = True
     _inverse_gaussian = True  # 1/mu^3 scaling causes Nesterov oscillation
 
-    _MU_LO = 5e-2
+    _MU_LO = 1e-10
     _MU_HI = 1e3
 
     def _mu_from_eta(self, eta):
