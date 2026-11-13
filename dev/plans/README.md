@@ -67,6 +67,7 @@ The release baseline does not imply that every historical plan item is complete.
 | `plan_krr.md` | Historical research plan | Old Nystroem/KernelPCA/kernel checklist may be stale. |
 | `plan_spline.md` | Historical research plan | Old spline/cyclic/thin-plate checklist may be stale. |
 | `plan_unsupervised.md` | Historical phase record | Benchmark/algorithm history, not current priority queue. |
+| `experimental_design_roadmap.md` | Proposed capability roadmap (not prioritized) | Maps classical DOE, optimal design, computer experiments, sequential/adaptive design, and randomized experiments; deliberately leaves V1 selection open. |
 | `plan.md` | Historical delta | Superseded by `ROADMAP.md`. |
 | `archive/` | Archive | Completed or superseded planning material. |
 
