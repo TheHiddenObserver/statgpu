@@ -74,6 +74,40 @@ def test_fista_inference_does_not_apply_the_irls_c_penalty():
     )
 
 
+def test_weighted_fista_inference_matches_unpenalized_irls():
+    X, y = _gamma_data(seed=20261034, n=300)
+    weights = np.linspace(0.5, 1.9, X.shape[0])
+    common = dict(
+        family="gamma",
+        compute_inference=True,
+        cov_type="nonrobust",
+        max_iter=1000,
+        tol=1e-9,
+        device="cpu",
+    )
+    reference = GeneralizedLinearModel(
+        solver="irls",
+        C=0.0,
+        **common,
+    ).fit(X, y, sample_weight=weights)
+    fista = GeneralizedLinearModel(
+        solver="fista",
+        C=1.0,
+        **common,
+    ).fit(X, y, sample_weight=weights)
+
+    np.testing.assert_allclose(fista.coef_, reference.coef_, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(
+        fista.intercept_, reference.intercept_, rtol=0.0, atol=1e-12
+    )
+    np.testing.assert_allclose(fista._bse, reference._bse, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(
+        fista._pvalues, reference._pvalues, rtol=0.0, atol=1e-12
+    )
+    assert fista._fit_metadata["solver_used"] == "fista+irls-inference"
+    assert fista._sample_weight_inf is not None
+
+
 def test_fit_only_fista_remains_available():
     X, y = _gamma_data(seed=20261033, n=120, p=2)
     model = GeneralizedLinearModel(
