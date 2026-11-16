@@ -107,7 +107,10 @@ class GeneralizedLinearModel(BaseEstimator):
     gpu_memory_cleanup : bool, default=False
         Best-effort GPU memory-pool cleanup.
     compute_inference : bool, default=False
-        Enable supported M-estimation coefficient inference.
+        Enable supported M-estimation coefficient inference. With
+        ``solver='fista'``, inference performs a final unpenalized IRLS
+        refit of the reported fitted state because FISTA's coefficient-change
+        stopping point is not an inference-grade covariance solution.
     cov_type : str, default='nonrobust'
         nonrobust, hc0, hc1 for ordinary GLM inference; no hac_maxlags constructor argument.
 
@@ -633,6 +636,24 @@ class GeneralizedLinearModel(BaseEstimator):
             self._fit_irls(X_arr, y_arr, sample_weight, family, backend_name)
         elif solver_name == "fista":
             self._fit_fista(X_arr, y_arr, sample_weight, family, backend_name)
+            if self._compute_inference_enabled:
+                # FISTA is a first-order fit-only solver.  Its coefficient-change
+                # stopping point can satisfy tol while covariance-based p-values
+                # remain materially different from the IRLS/Newton solution.
+                # Re-fit the same model with IRLS before publishing inference so
+                # the reported covariance, SE, and p-values are evaluated at a
+                # stationary solution.  Explicit FISTA ignores C, so the refit
+                # must stay unpenalized as well.  The fit-only path is unchanged
+                # when compute_inference=False.
+                self._fit_irls(
+                    X_arr,
+                    y_arr,
+                    sample_weight,
+                    family,
+                    backend_name,
+                    ridge_alpha=0.0,
+                )
+                solver_name = "fista+irls-inference"
         elif solver_name in ("newton", "lbfgs"):
             self._fit_smooth_solver(
                 X_arr, y_arr, sample_weight, solver_name, backend_name
@@ -710,19 +731,30 @@ class GeneralizedLinearModel(BaseEstimator):
         self._cleanup_backend_memory(backend_name)
         return self
 
-    def _fit_irls(self, X, y, sample_weight, family, backend_name="numpy"):
+    def _fit_irls(
+        self,
+        X,
+        y,
+        sample_weight,
+        family,
+        backend_name="numpy",
+        ridge_alpha=None,
+    ):
         """Fit using IRLS (per-iteration weighted least squares)."""
         # IRLSSolver solves unnormalized WLS normal equations.  The public
         # objective is normalized by n without weights and by sum(w) with
         # weights, so the normal-equation ridge term must use the same scale.
-        if sample_weight is None:
-            objective_scale = float(X.shape[0])
-        else:
-            scale_value = sample_weight.sum()
-            objective_scale = float(
-                scale_value.item() if hasattr(scale_value, "item") else scale_value
-            )
-        ridge_alpha = objective_scale * self._get_penalty_alpha()
+        if ridge_alpha is None:
+            if sample_weight is None:
+                objective_scale = float(X.shape[0])
+            else:
+                scale_value = sample_weight.sum()
+                objective_scale = float(
+                    scale_value.item()
+                    if hasattr(scale_value, "item")
+                    else scale_value
+                )
+            ridge_alpha = objective_scale * self._get_penalty_alpha()
 
         if self._effective_intercept:
             X_design = _add_intercept_column(X, backend_name)
