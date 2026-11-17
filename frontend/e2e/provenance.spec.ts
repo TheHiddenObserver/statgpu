@@ -49,6 +49,19 @@ test('upstream filter changes clear thread selections, including repeated select
   }
 });
 
+test('Torch and library pool observations both contribute to the limit', () => {
+  const value = run(1, [1, 1]);
+  value.framework = 'statgpu';
+  value.backend = 'torch';
+  value.evidence!.cpu_threads_observed_torch = [4, 4];
+  expect(cpuThreadClass(value)).toBe('conflicting');
+  expect(cpuThreadLabel(value)).toContain('Torch observed [4,4]');
+  value.evidence!.cpu_threads_observed_torch = [1, 1];
+  expect(cpuThreadClass(value)).toBe('single');
+  value.evidence!.cpu_threads_observed_torch = [1, '1'];
+  expect(cpuThreadClass(value)).toBe('unknown');
+});
+
 test('source provenance preserves raw producer identity, pointers, hashes and adapter separately', () => {
   const details = Object.fromEntries(sourceProvenance(run(1, [1])));
   expect(details['Raw producer commit (not renderer)']).toBe('c'.repeat(40));

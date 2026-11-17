@@ -4,10 +4,17 @@ export const CPU_THREAD_LABELS: Record<CpuThreadFilter, string> = {
   all: 'All CPU limits', single: '1 thread (observed limit)', multi: '>1 threads (observed limit)',
   conflicting: 'Mixed / conflicting limits', unknown: 'Not recorded / invalid',
 };
+function observedLimits(value: unknown): unknown[] {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
 /** Reported limits, not utilization or proof of parallel execution. */
 export function cpuThreadClass(run: Run): Exclude<CpuThreadFilter, 'all'> {
-  const observed = run.evidence?.cpu_threads_observed;
-  const values: unknown[] = Array.isArray(observed) ? observed : [observed];
+  const values = [
+    ...observedLimits(run.evidence?.cpu_threads_observed),
+    ...observedLimits(run.evidence?.cpu_threads_observed_torch),
+  ];
   const positiveInteger = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
   if (values.length === 0 || !values.every(positiveInteger)) return 'unknown';
   const limits = values as number[];
@@ -23,7 +30,10 @@ export function provenanceValue(value: unknown): string {
   return value == null ? 'Not recorded' : typeof value === 'string' ? value : JSON.stringify(value);
 }
 export function cpuThreadLabel(run: Run): string {
-  return `${CPU_THREAD_LABELS[cpuThreadClass(run)]}; requested ${provenanceValue(run.evidence?.cpu_threads_requested)}, observed ${provenanceValue(run.evidence?.cpu_threads_observed)}`;
+  const evidence = run.evidence;
+  const label = `${CPU_THREAD_LABELS[cpuThreadClass(run)]}; requested ${provenanceValue(evidence?.cpu_threads_requested)}, observed ${provenanceValue(evidence?.cpu_threads_observed)}`;
+  const torch = evidence?.cpu_threads_observed_torch;
+  return observedLimits(torch).length > 0 ? `${label}, Torch observed ${provenanceValue(torch)}` : label;
 }
 /** Text only: untrusted source paths must not become executable links. */
 export function sourceProvenance(run: Run): Array<[string, string]> {

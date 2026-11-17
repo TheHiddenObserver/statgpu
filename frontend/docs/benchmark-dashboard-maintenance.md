@@ -108,8 +108,8 @@ The [remaining-work plan after PR #78](../../dev/plans/statgpu_benchmark_dashboa
 
 ### Host CPU limits and source provenance
 
-The **Host CPU limits** selector uses recorded observed thread-pool limits,
-including host limits on GPU runs. It does not measure CPU utilization or prove
+The **Host CPU limits** selector uses recorded library pool and Torch host
+thread limits, including observations on GPU runs. It does not measure CPU utilization or prove
 parallel execution. Requested-only, absent, empty or invalid observations remain
 **Not recorded / invalid**. Differing observed limits or a requested/observed
 mismatch remain **Mixed / conflicting limits**; they are not counted as verified
@@ -124,8 +124,10 @@ adapter. These are text, not assumed reachable links. External rows remain an
 opt-in display, not performance comparisons; diagnostic qualification is unchanged.
 
 The external scoped-CV importer checks required record identity strings,
-configuration and thread-profile objects before alias grouping, and validates
-the matching job before normalization.
+configuration and thread-profile objects and binds each record to its job and
+campaign before alias grouping. It validates the recorded scalar against the
+embedded repeats and uses that evidence for the displayed median and sample
+count. A rejected repeat display record does not invalidate a verified median.
 Malformed external metadata is withheld per record with
 `EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID`; the raw preview and healthy
 neighbors are preserved. Job/record agreement alone does not establish valid

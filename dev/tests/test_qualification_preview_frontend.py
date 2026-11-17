@@ -855,3 +855,86 @@ def test_malformed_external_alias_does_not_poison_retained_healthy_observation(t
     assert [item["code"] for item in issues if item["message"].startswith("malformed-alias:")] == [
         "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"]
     assert doc == original
+
+
+@pytest.mark.parametrize("field,value,reason", [
+    ("cpu_thread_profile", None, "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"),
+    ("raw_sha256", "c" * 64, "EXTERNAL_ADAPTER_LINEAGE_MISMATCH"),
+    ("raw_value", 10**400, "EXTERNAL_ADAPTER_TIMING_MISMATCH"),
+])
+def test_rejected_sklearn_repeat_preserves_validated_summary(tmp_path, field, value, reason):
+    doc = sklearn_cv_preview()
+    repeat = doc["records"][2]
+    repeat[field] = value
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    issues = {issue["message"].split(":", 1)[0]: issue["code"]
+              for issue in bundle["parse_report"]["issues"]}
+    assert issues == {"repeat-0": "ALIAS_OF_RETAINED_OBSERVATIONS",
+                      "repeat-1": reason, "repeat-2": "ALIAS_OF_RETAINED_OBSERVATIONS"}
+
+
+def test_unbound_sklearn_summary_cannot_hide_matching_summary(tmp_path):
+    doc = sklearn_cv_preview()
+    duplicate = copy.deepcopy(doc["records"][0])
+    duplicate.update(record_id="unbound-summary", raw_sha256="c" * 64)
+    doc["records"].insert(0, duplicate)
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    assert [issue["code"] for issue in bundle["parse_report"]["issues"]
+            if issue["message"].startswith("unbound-summary:")] == ["EXTERNAL_ADAPTER_LINEAGE_MISMATCH"]
+
+
+def test_conflicting_sklearn_repeat_alias_cannot_hide_matching_summary(tmp_path):
+    doc = sklearn_cv_preview()
+    duplicate = copy.deepcopy(doc["records"][2])
+    duplicate.update(record_id="conflicting-repeat", raw_value=400, summary_seconds=0.4)
+    duplicate["context"]["case"]["runs"][0]["repeat_samples"][1]["cv_evaluation_ms"] = 400
+    doc["records"].append(duplicate)
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    issues = {issue["message"].split(":", 1)[0]: issue["code"]
+              for issue in bundle["parse_report"]["issues"]}
+    assert issues.pop("conflicting-repeat") == "INCONSISTENT_TIMING_ALIASES"
+    assert len(issues) == 3 and set(issues.values()) == {"ALIAS_OF_RETAINED_OBSERVATIONS"}
+
+
+def test_sklearn_display_metadata_uses_validated_repeats(tmp_path):
+    doc = sklearn_cv_preview()
+    for record in doc["records"]:
+        record["context"]["case"]["runs"][0]["repeat_samples"][1]["cv_evaluation_ms"] = 400
+    doc["records"][2].update(raw_value=400, summary_seconds=0.4)
+    doc["records"][0].update(statistic="mean", sample_count=999)
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    timing = row["metrics"]["operation_timing"]
+    assert timing["duration_ms"] == 200
+    assert timing["statistic"] == "median_of_recorded_samples"
+    assert timing["sample_count"] == 3
+    assert timing["quality"] == "measured"
+
+
+def test_unrepresentable_sklearn_sample_does_not_abort_export(tmp_path):
+    doc = sklearn_cv_preview()
+    repeat = doc["records"][1]
+    repeat["context"]["case"]["runs"][0]["repeat_samples"][0]["cv_evaluation_ms"] = 10**400
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    assert [issue["code"] for issue in bundle["parse_report"]["issues"]
+            if issue["message"].startswith("repeat-0:")] == ["EXTERNAL_ADAPTER_TIMING_MISMATCH"]
+
+
+def test_export_preserves_torch_and_library_pool_observations(tmp_path):
+    doc = preview()
+    record = doc["records"][0]
+    record["context"]["backend"] = "torch"
+    record["cpu_thread_profile"] = {"requested_cap": 1, "observed_pool_threads": [1, 1],
+                                    "observed_torch_threads": [4, 4], "cap_verified": False}
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["evidence"]["cpu_threads_observed"] == [1, 1]
+    assert row["evidence"]["cpu_threads_observed_torch"] == [4, 4]

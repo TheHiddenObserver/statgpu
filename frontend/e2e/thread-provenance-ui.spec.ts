@@ -20,7 +20,13 @@ const data: BenchmarkData = {
   frameworks: [
     { framework_id: 'statgpu', display_name: 'statgpu', external: false, backend_policy: 'required' },
     { framework_id: 'sklearn', display_name: 'sklearn', external: true, backend_policy: 'forbidden' },
-  ], comparisons: [], runs: [run, { ...run, run_id: 'external-run', framework: 'sklearn', backend: null, parameters: { ...run.parameters, external_adapter: 'sklearn-scoped-cv-v2' } }],
+  ], comparisons: [], runs: [
+    run,
+    { ...run, run_id: 'external-run', framework: 'sklearn', backend: null, parameters: { ...run.parameters, external_adapter: 'sklearn-scoped-cv-v2' } },
+    { ...run, run_id: 'torch-conflicting-run', backend: 'torch', evidence: {
+      ...run.evidence!, cpu_threads_observed_torch: [4, 4],
+    } },
+  ],
 };
 
 test('thread selector and expandable raw provenance survive repeated filters without unsafe links', async ({ page }) => {
@@ -33,6 +39,9 @@ test('thread selector and expandable raw provenance survive repeated filters wit
   // Inspect the native option state: label retargeting can check the enclosing select.
   await expect(threads.locator('option[value="multi"]')).toHaveJSProperty('disabled', true);
   await expect(threads.locator('option[value="single"]')).toHaveJSProperty('disabled', false);
+  await threads.selectOption('conflicting');
+  await expect(page.locator('.overview-table-title')).toHaveText('Showing 1 of 1 runs');
+  await expect(page.locator('td').filter({ hasText: 'Torch observed [4,4]' })).toContainText('Mixed / conflicting limits');
   await threads.selectOption('single');
   await page.getByRole('checkbox', { name: 'sklearn', exact: true }).check();
   await expect(page.locator('.overview-table-title')).toHaveText('Showing 2 of 2 runs');

@@ -53,6 +53,13 @@ def _read(filepath):
 SKLEARN_ADAPTER = "sklearn-scoped-cv-v2"
 
 
+def _array_index(value, items):
+    if len(value) > len(str(len(items))):
+        return None
+    index = int(value)
+    return index if index < len(items) else None
+
+
 def _sklearn_identity(record, context):
     """Bind an external timing to its versioned CPU run, never to host backend."""
     if record.get("source_schema") != "statgpu-scoped-cv-candidate-v2":
@@ -72,8 +79,8 @@ def _sklearn_identity(record, context):
             or ("scope_source_pointer" in context and context["scope_source_pointer"] !=
                 case_root.removesuffix("/case") + "/protocol/timing_scope")):
         return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
-    index = int(match.group(1))
-    if index >= len(case["runs"]):
+    index = _array_index(match.group(1), case["runs"])
+    if index is None:
         return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
     run = case["runs"][index]
     if (not isinstance(run, dict) or run.get("framework") != "sklearn"
@@ -113,13 +120,18 @@ def _sklearn_identity(record, context):
     samples, timing = run.get("repeat_samples"), run.get("timing")
     if (not isinstance(samples, list) or not samples or not isinstance(timing, dict)
             or type(context.get("repeats")) is not int or len(samples) != context["repeats"]
-            or not all(isinstance(item, dict) and _positive(item.get(key)) for item in samples)
-            or not _same_timing(timing.get(key), statistics.median(item[key] for item in samples))):
+            or not all(isinstance(item, dict) and _positive(item.get(key)) for item in samples)):
         return "EXTERNAL_ADAPTER_TIMING_MISMATCH"
-    sample_index = int(match.group(3)) if match.group(3) is not None else None
-    if sample_index is not None and sample_index >= len(samples):
+    # Compute the median in seconds to keep even-sample midpoint arithmetic finite.
+    median_seconds = statistics.median(item[key] / 1000 for item in samples)
+    if not _positive(timing.get(key)) or not _same_timing(timing[key] / 1000, median_seconds):
         return "EXTERNAL_ADAPTER_TIMING_MISMATCH"
-    value = timing[key] if sample_index is None else samples[sample_index][key]
+    value = timing[key]
+    if match.group(3) is not None:
+        sample_index = _array_index(match.group(3), samples)
+        if sample_index is None:
+            return "EXTERNAL_ADAPTER_TIMING_MISMATCH"
+        value = samples[sample_index][key]
     if (not _same_timing(record.get("raw_value"), value)
             or not _same_timing(record.get("summary_seconds"), value / 1000)):
         return "EXTERNAL_ADAPTER_TIMING_MISMATCH"
@@ -207,7 +219,12 @@ def _alias_context(record):
 
 
 def _positive(value):
-    return type(value) in (int, float) and math.isfinite(value) and value > 0
+    if type(value) not in (int, float) or value <= 0:
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _same_timing(left, right):
@@ -241,7 +258,10 @@ def _alias_dispositions(records):
             sample_rows = [row for row, cv in entries if cv[2] == "samples"]
             summaries = [row for row, cv in entries if cv[2] == "summary"]
             repeats = [(row, cv[3]) for row, cv in entries if cv[2] == "repeat"]
-            if len(sample_rows) > 1 or len(summaries) > 1 or len({index for _, index in repeats}) != len(repeats):
+            context = rows[0].get("context")
+            external = isinstance(context, dict) and context.get("framework") == "sklearn"
+            duplicate_repeats = len({index for _, index in repeats}) != len(repeats)
+            if len(sample_rows) > 1 or len(summaries) > 1 or (duplicate_repeats and not external):
                 mark(rows, "INCONSISTENT_TIMING_ALIASES")
                 continue
             canonical_row = sample_rows[0] if sample_rows else summaries[0] if summaries else None
@@ -253,6 +273,19 @@ def _alias_dispositions(records):
                     or canonical_row.get("correctness_status") not in ("complete", "pass", "passed", "success")
                     or canonical_row.get("evidence_errors") or identity_reason):
                 mark(rows, "UNQUALIFIED_TIMING_ALIAS_SOURCE")
+                continue
+            if external:
+                # The summary already verified its embedded sample vector.
+                # Missing or rejected display aliases cannot invalidate it.
+                parent, key, _, _ = entries[0][1]
+                run_index = int(parent.rsplit("/", 1)[1])
+                samples = canonical_row["context"]["case"]["runs"][run_index]["repeat_samples"]
+                for row, index in repeats:
+                    if (row["context"]["repeats"] != len(samples) or index >= len(samples)
+                            or not _same_timing(row["raw_value"], samples[index][key])):
+                        mark([row], "INCONSISTENT_TIMING_ALIASES")
+                    else:
+                        mark([row], "ALIAS_OF_RETAINED_OBSERVATIONS")
                 continue
             if sample_rows:
                 samples = canonical_row.get("raw_value")
@@ -399,25 +432,32 @@ def _external_framework_version(record):
     return version, None
 
 
+def _display_reason(record):
+    if (record.get("validation_status") != "validated_diagnostic"
+            or record.get("correctness_status") not in ("complete", "pass", "passed", "success")
+            or record.get("evidence_errors")):
+        return "CORRECTNESS_OR_EVIDENCE_NOT_QUALIFIED"
+    path = record.get("raw_pointer", "")
+    if (record.get("suite_or_lane") == "six-family-cv"
+            and record.get("source_schema") != "statgpu-scoped-cv-candidate-v2"
+            and isinstance(path, str)
+            and re.fullmatch(r"/results/\d+/(?:clean_public_fit/(?:raw_seconds|timing/median_seconds|repeat_samples/\d+/total_fit_ms)|case/runs/\d+/(?:timing|repeat_samples/\d+)/(?:cv_evaluation_ms|final_refit_ms|total_fit_ms))", path)):
+        return "CV_ALIAS_BINDING_REQUIRES_REEXPORT"
+    scope = record.get("timing_scope")
+    if not isinstance(scope, str) or not scope.strip():
+        return "TIMING_SCOPE_NOT_RECORDED"
+    duration = record.get("summary_seconds")
+    if not _positive(duration):
+        return "NO_POSITIVE_REPRESENTABLE_TIMING"
+    return None
+
+
 def normalize_preview(document, filepath, env_id):
     runs, models, withheld = [], {}, []
     records = document["records"]
     seen = set()
-    for record in records:
-        if not isinstance(record, dict): raise ValueError("Nonobject diagnostic record")
-        rid = record.get("record_id")
-        if not isinstance(rid, str) or not rid or rid in seen: raise ValueError("Missing/duplicate diagnostic record ID")
-        seen.add(rid)
-    ingress_reasons = {
-        row["record_id"]: _external_required_metadata_reason(row, record=True)
-        for row in records if isinstance(row.get("context"), dict)
-        and row["context"].get("framework") == "sklearn"
-    }
-    alias_reasons = _alias_dispositions([
-        row for row in records if not ingress_reasons.get(row["record_id"])
-    ])
-    source_hash = hashlib.sha256(filepath.read_bytes()).hexdigest()
-    seen = set()
+    external_checks = {}
+    alias_candidates = []
     for record in records:
         if not isinstance(record, dict): raise ValueError("Nonobject diagnostic record")
         rid = record.get("record_id")
@@ -425,35 +465,40 @@ def normalize_preview(document, filepath, env_id):
         seen.add(rid)
         if record.get("performance_eligible") is not False or record.get("canonical_dashboard_ready") is not False:
             raise ValueError("Diagnostic record attempted performance promotion")
-        reason = ingress_reasons.get(rid)
-        if reason:
-            reason = _identity(record)[1] or reason
-            withheld.append({"record_id": rid, "reason": reason, "raw_pointer": record.get("raw_pointer")})
-            continue
-        if record.get("validation_status") != "validated_diagnostic" or record.get("correctness_status") not in ("complete", "pass", "passed", "success") or record.get("evidence_errors"):
-            reason = "CORRECTNESS_OR_EVIDENCE_NOT_QUALIFIED"
-        path = record.get("raw_pointer", "")
-        if (record.get("suite_or_lane") == "six-family-cv"
-                and record.get("source_schema") != "statgpu-scoped-cv-candidate-v2"
-                and isinstance(path, str)
-                and re.fullmatch(r"/results/\d+/(?:clean_public_fit/(?:raw_seconds|timing/median_seconds|repeat_samples/\d+/total_fit_ms)|case/runs/\d+/(?:timing|repeat_samples/\d+)/(?:cv_evaluation_ms|final_refit_ms|total_fit_ms))", path)):
-            reason = reason or "CV_ALIAS_BINDING_REQUIRES_REEXPORT"
-        scope = record.get("timing_scope")
-        duration = record.get("summary_seconds")
-        if not isinstance(scope, str) or not scope.strip(): reason = reason or "TIMING_SCOPE_NOT_RECORDED"
-        if type(duration) not in (int, float) or not math.isfinite(duration) or duration <= 0:
-            reason = reason or "NO_POSITIVE_REPRESENTABLE_TIMING"
-        identity, identity_reason = _identity(record)
-        lineage_reason = (_external_lineage_reason(document, record)
-                          if identity and identity.get("framework", "statgpu") == "sklearn" else None)
-        framework_version, version_reason = (_external_framework_version(record)
-                                             if identity and identity.get("framework") == "sklearn"
-                                             else (None, None))
-        reason = reason or identity_reason or lineage_reason or version_reason or alias_reasons.get(rid)
+        context = record.get("context")
+        if isinstance(context, dict) and context.get("framework") == "sklearn":
+            identity, identity_reason = _identity(record)
+            ingress_reason = _external_required_metadata_reason(record, record=True)
+            if ingress_reason:
+                reason = identity_reason or ingress_reason
+            else:
+                reason = _display_reason(record) or identity_reason or _external_lineage_reason(document, record)
+            version, version_reason = _external_framework_version(record) if not reason else (None, None)
+            reason = reason or version_reason
+            external_checks[rid] = identity, version, reason
+            if reason:
+                continue
+        alias_candidates.append(record)
+    alias_reasons = _alias_dispositions(alias_candidates)
+    source_hash = hashlib.sha256(filepath.read_bytes()).hexdigest()
+    for record in records:
+        rid = record["record_id"]
+        external = rid in external_checks
+        if external:
+            identity, framework_version, reason = external_checks[rid]
+        else:
+            identity, identity_reason = _identity(record)
+            reason = _display_reason(record) or identity_reason
+        reason = reason or alias_reasons.get(rid)
+        if not reason:
+            duration_ms = record["raw_value"] if external else record["summary_seconds"] * 1000.0
+            if not _positive(duration_ms):
+                reason = "NO_POSITIVE_REPRESENTABLE_TIMING"
         if reason:
             withheld.append({"record_id": rid, "reason": reason, "raw_pointer": record.get("raw_pointer")})
             continue
         context = record["context"]
+        scope = record["timing_scope"]
         observation = _cv_observation(record)
         if observation and "/case/runs/" in record["raw_pointer"]:
             scope += "; recorded phase: " + observation[1].removesuffix("_ms")
@@ -470,11 +515,18 @@ def normalize_preview(document, filepath, env_id):
                     "source_fingerprint": record.get("source_fingerprint"),
                     "cpu_threads_requested": cpu.get("requested_cap"), "cpu_threads_observed": cpu.get("observed_pool_threads"),
                     "raw_performance_eligible": record.get("raw_performance_eligible"), "evidence_errors": []}
+        if "observed_torch_threads" in cpu:
+            evidence["cpu_threads_observed_torch"] = cpu["observed_torch_threads"]
         attestation = record.get("operator_attestation")
         if attestation is not None: evidence["operator_attestation"] = attestation
-        timing = {"duration_ms": duration * 1000, "scope": scope, "statistic": record.get("statistic", "not_recorded"),
-                  "unit": "ms", "quality": "measured" if "sample_count" in record else "reported", "source_file": filepath.name}
-        if "sample_count" in record: timing["sample_count"] = record["sample_count"]
+        timing = {"duration_ms": duration_ms, "scope": scope, "unit": "ms", "source_file": filepath.name}
+        if external:
+            timing.update(statistic="median_of_recorded_samples", sample_count=context["repeats"], quality="measured")
+        else:
+            timing.update(statistic=record.get("statistic", "not_recorded"),
+                          quality="measured" if "sample_count" in record else "reported")
+            if "sample_count" in record:
+                timing["sample_count"] = record["sample_count"]
         local_env = env_id + "-" + hashlib.sha256(_canonical([record.get("environment"), record.get("source_commit"), cpu]).encode()).hexdigest()[:12]
         run = {"run_id": _identifier("diagnostic", rid), "env_id": local_env, "category_ids": [CATEGORY["category_id"]],
                "model_id": model_id, "framework": identity.get("framework", "statgpu"), "backend": identity["backend"], "scale": scale,
@@ -487,7 +539,7 @@ def normalize_preview(document, filepath, env_id):
                           "original_path": str(filepath), "sha256": source_hash, "date": "unknown",
                           "parser": "qualification_preview", "parser_version": "1.0"},
                "metrics": {"operation_timing": timing}, "evidence": evidence}
-        if identity.get("framework", "statgpu") == "sklearn":
+        if external:
             run["parameters"]["external_adapter"] = SKLEARN_ADAPTER
             run["parameters"]["external_adapter_provenance"] = {
                 "source_schema": record["source_schema"], "device": "cpu",
