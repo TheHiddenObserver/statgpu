@@ -11,6 +11,8 @@ import json
 import math
 import re
 import statistics
+import sys
+from collections import Counter
 from pathlib import Path
 
 SCHEMA = "statgpu-benchmark-update-preview-v1"
@@ -51,27 +53,38 @@ def _read(filepath):
 
 
 SKLEARN_ADAPTER = "sklearn-scoped-cv-v2"
+SCOPED_CV_TIMING = re.compile(
+    r"(?P<parent>/results/(?P<result>[^/]*)/case/runs/(?P<run>[^/]*))/"
+    r"(?:timing|repeat_samples/(?P<repeat>[^/]*))/"
+    r"(?P<key>cv_evaluation_ms|final_refit_ms|total_fit_ms)"
+)
+CLEAN_CV_TIMING = re.compile(
+    r"(?P<parent>/results/(?P<result>[^/]*)/clean_public_fit)/"
+    r"(?P<field>raw_seconds|timing/median_seconds|repeat_samples/(?P<repeat>[^/]*)/total_fit_ms)"
+)
+MAX_INDEX_DIGITS = len(str(sys.maxsize))
 
 
-def _array_index(value, items):
-    if len(value) > len(str(len(items))):
+def _pointer_index(value):
+    """Parse a canonical JSON Pointer array index within the platform range."""
+    if len(value) > MAX_INDEX_DIGITS or not re.fullmatch(r"0|[1-9][0-9]*", value):
         return None
     index = int(value)
-    return index if index < len(items) else None
+    return index if index <= sys.maxsize else None
 
 
 def _sklearn_identity(record, context):
     """Bind an external timing to its versioned CPU run, never to host backend."""
     if record.get("source_schema") != "statgpu-scoped-cv-candidate-v2":
         return "EXTERNAL_FRAMEWORK_REQUIRES_EXPLICIT_ADAPTER"
-    match = re.fullmatch(r"/results/\d+/case/runs/(\d+)/(timing|repeat_samples/(\d+))/(cv_evaluation_ms|final_refit_ms|total_fit_ms)",
-                         str(record.get("raw_pointer", "")))
+    path = record.get("raw_pointer")
+    match = SCOPED_CV_TIMING.fullmatch(path) if isinstance(path, str) else None
     if not match:
         return "EXTERNAL_FRAMEWORK_REQUIRES_EXPLICIT_ADAPTER"
     case = context.get("case")
     if not isinstance(case, dict) or not isinstance(case.get("runs"), list):
         return "EXTERNAL_FRAMEWORK_REQUIRES_EXPLICIT_ADAPTER"
-    case_root = str(record["raw_pointer"]).split("/runs/", 1)[0]
+    case_root = match["parent"].rsplit("/runs/", 1)[0]
     if (record.get("row_pointer") != case_root or context.get("scope") != record.get("timing_scope")
             or not isinstance(context.get("scope"), str) or not context["scope"].strip()
             or context.get("device", "cpu") != "cpu" or context.get("instrumented", True) is not True
@@ -79,8 +92,8 @@ def _sklearn_identity(record, context):
             or ("scope_source_pointer" in context and context["scope_source_pointer"] !=
                 case_root.removesuffix("/case") + "/protocol/timing_scope")):
         return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
-    index = _array_index(match.group(1), case["runs"])
-    if index is None:
+    index = _pointer_index(match["run"])
+    if _pointer_index(match["result"]) is None or index is None or index >= len(case["runs"]):
         return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
     run = case["runs"][index]
     if (not isinstance(run, dict) or run.get("framework") != "sklearn"
@@ -88,7 +101,7 @@ def _sklearn_identity(record, context):
             or context.get("backend") is not None or context.get("requested_backend") is not None
             or run.get("status") != "success" or context.get("status") != "success"):
         return "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
-    key = match.group(4)
+    key = match["key"]
     if (record.get("unit") != "milliseconds" or record.get("timing_key") != key
             or context.get("timing_kind") != "cv_diagnostic_stage"
             or context.get("timing_phase") != key.removesuffix("_ms")
@@ -127,9 +140,9 @@ def _sklearn_identity(record, context):
     if not _positive(timing.get(key)) or not _same_timing(timing[key] / 1000, median_seconds):
         return "EXTERNAL_ADAPTER_TIMING_MISMATCH"
     value = timing[key]
-    if match.group(3) is not None:
-        sample_index = _array_index(match.group(3), samples)
-        if sample_index is None:
+    if match["repeat"] is not None:
+        sample_index = _pointer_index(match["repeat"])
+        if sample_index is None or sample_index >= len(samples):
             return "EXTERNAL_ADAPTER_TIMING_MISMATCH"
         value = samples[sample_index][key]
     if (not _same_timing(record.get("raw_value"), value)
@@ -192,18 +205,25 @@ def _identity(record):
 def _cv_observation(record):
     """Only this versioned CV layout proves the cross-parent alias relation."""
     if record.get("source_schema") != "statgpu-scoped-cv-candidate-v2":
-        return None
+        return None, None
     path = record.get("raw_pointer", "")
     if not isinstance(path, str):
-        return None
-    clean = re.fullmatch(r"(/results/\d+/clean_public_fit)/(raw_seconds|timing/median_seconds|repeat_samples/(\d+)/total_fit_ms)", path)
-    if clean:
-        role = "samples" if clean.group(2) == "raw_seconds" else "summary" if clean.group(2) == "timing/median_seconds" else "repeat"
-        return clean.group(1), "total_fit", role, int(clean.group(3)) if clean.group(3) else None
-    phase = re.fullmatch(r"(/results/\d+/case/runs/\d+)/(timing|repeat_samples/(\d+))/(cv_evaluation_ms|final_refit_ms|total_fit_ms)", path)
-    if phase:
-        return phase.group(1), phase.group(4), "summary" if phase.group(2) == "timing" else "repeat", int(phase.group(3)) if phase.group(3) else None
-    return None
+        return None, None
+    clean = CLEAN_CV_TIMING.fullmatch(path)
+    match = clean or SCOPED_CV_TIMING.fullmatch(path)
+    if not match:
+        return None, None
+    repeat = match["repeat"]
+    index = _pointer_index(repeat) if repeat is not None else None
+    if (_pointer_index(match["result"]) is None
+            or (not clean and _pointer_index(match["run"]) is None)
+            or (repeat is not None and index is None)):
+        return None, "INVALID_CV_TIMING_POINTER"
+    if repeat is not None:
+        role = "repeat"
+    else:
+        role = "samples" if clean and clean["field"] == "raw_seconds" else "summary"
+    return (match["parent"], "total_fit" if clean else match["key"], role, index), None
 
 
 def _alias_context(record):
@@ -231,9 +251,17 @@ def _same_timing(left, right):
     return _positive(left) and _positive(right) and math.isclose(left, right, rel_tol=1e-12, abs_tol=0.0)
 
 
-def _alias_dispositions(records):
+def _external_repeat_values(record, observation):
+    parent, key, _, _ = observation
+    run_index = int(parent.rsplit("/", 1)[1])
+    samples = record["context"]["case"]["runs"][run_index]["repeat_samples"]
+    return [sample[key] for sample in samples]
+
+
+def _alias_dispositions(records, observations):
     """Validate aliases before suppressing display duplicates; keep all raw rows."""
     reasons, groups = {}, {}
+    external_summaries = {}
     generic_aliases = {"raw_seconds": {"median_seconds", "mean_seconds", "seconds"},
                        "samples_seconds": {"median_seconds", "mean_seconds", "seconds"},
                        "seconds": {"median_seconds", "mean_seconds"},
@@ -241,9 +269,11 @@ def _alias_dispositions(records):
                        "times_ms": {"time_ms", "time_ms_mean"},
                        "fit_ms_all": {"fit_ms", "fit_ms_mean"}}
     for record in records:
-        if not isinstance(record, dict):
-            continue
-        cv = _cv_observation(record)
+        cv = observations[record["record_id"]]
+        context = record.get("context")
+        if cv and cv[2] == "summary" and isinstance(context, dict) and context.get("framework") == "sklearn":
+            source = record["raw_sha256"], record["raw_pointer"]
+            external_summaries.setdefault(source, []).append(record)
         parent = str(record.get("raw_pointer", "")).rsplit("/", 1)[0]
         key = _canonical([_alias_context(record), list(cv[:2]) if cv else [record.get("row_pointer"), parent]])
         groups.setdefault(key, []).append((record, cv))
@@ -251,6 +281,22 @@ def _alias_dispositions(records):
     def mark(group, reason):
         for row in group:
             reasons[row["record_id"]] = reason
+
+    for summaries in external_summaries.values():
+        if len(summaries) < 2:
+            continue
+        first = summaries[0]
+        values = _external_repeat_values(first, observations[first["record_id"]])
+        if any(row["raw_value"] != first["raw_value"]
+               or _external_repeat_values(row, observations[row["record_id"]]) != values
+               for row in summaries[1:]):
+            mark(summaries, "CONFLICTING_RAW_TIMING")
+            continue
+        # Equal observations can retain separate campaign/job provenance.
+        jobs = Counter((row["campaign_id"], row["job_id"]) for row in summaries)
+        for row in summaries:
+            if jobs[row["campaign_id"], row["job_id"]] > 1:
+                mark([row], "DUPLICATE_RAW_TIMING")
 
     for entries in groups.values():
         rows = [row for row, _ in entries]
@@ -262,11 +308,15 @@ def _alias_dispositions(records):
             external = isinstance(context, dict) and context.get("framework") == "sklearn"
             duplicate_repeats = len({index for _, index in repeats}) != len(repeats)
             if len(sample_rows) > 1 or len(summaries) > 1 or (duplicate_repeats and not external):
-                mark(rows, "INCONSISTENT_TIMING_ALIASES")
+                for row in rows:
+                    reasons.setdefault(row["record_id"], "INCONSISTENT_TIMING_ALIASES")
                 continue
             canonical_row = sample_rows[0] if sample_rows else summaries[0] if summaries else None
             if canonical_row is None or not _positive(canonical_row.get("summary_seconds")):
                 mark(rows, "UNVERIFIABLE_TIMING_ALIASES")
+                continue
+            if canonical_row["record_id"] in reasons:
+                mark([row for row, _ in repeats], "UNQUALIFIED_TIMING_ALIAS_SOURCE")
                 continue
             identity, identity_reason = _identity(canonical_row)
             if (canonical_row.get("validation_status") != "validated_diagnostic"
@@ -277,12 +327,10 @@ def _alias_dispositions(records):
             if external:
                 # The summary already verified its embedded sample vector.
                 # Missing or rejected display aliases cannot invalidate it.
-                parent, key, _, _ = entries[0][1]
-                run_index = int(parent.rsplit("/", 1)[1])
-                samples = canonical_row["context"]["case"]["runs"][run_index]["repeat_samples"]
+                samples = _external_repeat_values(canonical_row, observations[canonical_row["record_id"]])
                 for row, index in repeats:
                     if (row["context"]["repeats"] != len(samples) or index >= len(samples)
-                            or not _same_timing(row["raw_value"], samples[index][key])):
+                            or not _same_timing(row["raw_value"], samples[index])):
                         mark([row], "INCONSISTENT_TIMING_ALIASES")
                     else:
                         mark([row], "ALIAS_OF_RETAINED_OBSERVATIONS")
@@ -458,6 +506,8 @@ def normalize_preview(document, filepath, env_id):
     seen = set()
     external_checks = {}
     alias_candidates = []
+    observations = {}
+    invalid_metadata = {}
     for record in records:
         if not isinstance(record, dict): raise ValueError("Nonobject diagnostic record")
         rid = record.get("record_id")
@@ -478,8 +528,16 @@ def normalize_preview(document, filepath, env_id):
             external_checks[rid] = identity, version, reason
             if reason:
                 continue
+        elif not isinstance(record.get("cpu_thread_profile", {}), dict):
+            invalid_metadata[rid] = "INVALID_CPU_THREAD_PROFILE"
+            continue
+        observation, pointer_reason = _cv_observation(record)
+        if pointer_reason:
+            invalid_metadata[rid] = pointer_reason
+            continue
+        observations[rid] = observation
         alias_candidates.append(record)
-    alias_reasons = _alias_dispositions(alias_candidates)
+    alias_reasons = _alias_dispositions(alias_candidates, observations)
     source_hash = hashlib.sha256(filepath.read_bytes()).hexdigest()
     for record in records:
         rid = record["record_id"]
@@ -489,7 +547,7 @@ def normalize_preview(document, filepath, env_id):
         else:
             identity, identity_reason = _identity(record)
             reason = _display_reason(record) or identity_reason
-        reason = reason or alias_reasons.get(rid)
+        reason = reason or invalid_metadata.get(rid) or alias_reasons.get(rid)
         if not reason:
             duration_ms = record["raw_value"] if external else record["summary_seconds"] * 1000.0
             if not _positive(duration_ms):
@@ -499,7 +557,7 @@ def normalize_preview(document, filepath, env_id):
             continue
         context = record["context"]
         scope = record["timing_scope"]
-        observation = _cv_observation(record)
+        observation = observations[rid]
         if observation and "/case/runs/" in record["raw_pointer"]:
             scope += "; recorded phase: " + observation[1].removesuffix("_ms")
         model_id = record["suite_or_lane"] + ":" + identity["case"]

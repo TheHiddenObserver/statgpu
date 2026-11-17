@@ -938,3 +938,87 @@ def test_export_preserves_torch_and_library_pool_observations(tmp_path):
     row, = bundle["benchmark_data"]["runs"]
     assert row["evidence"]["cpu_threads_observed"] == [1, 1]
     assert row["evidence"]["cpu_threads_observed_torch"] == [4, 4]
+
+
+@pytest.mark.parametrize("conflicting", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_sklearn_source_pointer_cannot_repeat_across_context_aliases(tmp_path, conflicting, reverse):
+    from dev.benchmarks.generate_benchmark_data import generate
+
+    doc, independent, job, _ = _external_ingress_neighbors()
+    independent["raw_sha256"] = job["raw_sha256"] = "d" * 64
+    summary = doc["records"][0]
+    duplicate = copy.deepcopy(summary)
+    duplicate["record_id"] = "duplicate-pointer"
+    duplicate["context"]["case_id"] = duplicate["context"]["case"]["case_id"]
+    if conflicting:
+        duplicate.update(raw_value=300, summary_seconds=0.3)
+        run = duplicate["context"]["case"]["runs"][0]
+        run["repeat_samples"][2]["cv_evaluation_ms"] = 500
+        run["timing"]["cv_evaluation_ms"] = 300
+    doc["records"].append(duplicate)
+    if reverse:
+        doc["records"].reverse()
+
+    path = save(tmp_path / "preview.json", doc)
+    bundle = build_bundle(path)
+    rows = bundle["benchmark_data"]["runs"]
+    assert sorted((row["framework"], row["metrics"]["operation_timing"]["duration_ms"])
+                  for row in rows) == [("sklearn", 200), ("statgpu", 250)]
+    issues = {issue["message"].split(":", 1)[0]: issue["code"]
+              for issue in bundle["parse_report"]["issues"]}
+    expected = "CONFLICTING_RAW_TIMING" if conflicting else "DUPLICATE_RAW_TIMING"
+    assert issues[summary["record_id"]] == issues[duplicate["record_id"]] == expected
+    manifest = build_external_manifest(path, bundle, "2026-10-25")
+    data, _, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+    assert len(data["runs"]) == 2
+
+
+def test_sklearn_same_artifact_requires_matching_repeats_across_jobs(tmp_path):
+    doc, independent, _, _ = _external_ingress_neighbors()
+    independent["context"]["case"]["runs"][0]["repeat_samples"][1]["cv_evaluation_ms"] = 400
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    assert [row["framework"] for row in bundle["benchmark_data"]["runs"]] == ["statgpu"]
+    assert sum(issue["code"] == "CONFLICTING_RAW_TIMING"
+               for issue in bundle["parse_report"]["issues"]) == 2
+
+
+@pytest.mark.parametrize("run_index", ["00", "٠"])
+def test_noncanonical_sklearn_array_index_cannot_duplicate_summary(tmp_path, run_index):
+    doc = sklearn_cv_preview()
+    duplicate = copy.deepcopy(doc["records"][0])
+    duplicate["record_id"] = "noncanonical-pointer"
+    duplicate["raw_pointer"] = duplicate["raw_pointer"].replace("/runs/0/", f"/runs/{run_index}/")
+    doc["records"].append(duplicate)
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    assert [issue["code"] for issue in bundle["parse_report"]["issues"]
+            if issue["message"].startswith("noncanonical-pointer:")] == [
+                "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"]
+
+
+@pytest.mark.parametrize("phase", [False, True])
+def test_invalid_native_cv_repeat_index_preserves_sklearn_neighbor(tmp_path, phase):
+    doc = sklearn_cv_preview()
+    bad = cv_preview(phase=phase)["records"][-1]
+    parent, _, field = bad["raw_pointer"].rsplit("/", 2)
+    bad.update(record_id="bad-native", raw_pointer=f"{parent}/{'9' * 4500}/{field}")
+    doc["records"].append(bad)
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["framework"] == "sklearn"
+    assert [issue["code"] for issue in bundle["parse_report"]["issues"]
+            if issue["message"].startswith("bad-native:")] == ["INVALID_CV_TIMING_POINTER"]
+
+
+def test_invalid_native_thread_profile_preserves_other_records(tmp_path):
+    doc = sklearn_cv_preview()
+    good = preview()["records"][0]
+    good["record_id"] = "good-native"
+    bad = dict(good, record_id="bad-native", cpu_thread_profile=None)
+    doc["records"].extend([bad, good])
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    assert sorted(row["framework"] for row in bundle["benchmark_data"]["runs"]) == ["sklearn", "statgpu"]
+    assert [issue["code"] for issue in bundle["parse_report"]["issues"]
+            if issue["message"].startswith("bad-native:")] == ["INVALID_CPU_THREAD_PROFILE"]

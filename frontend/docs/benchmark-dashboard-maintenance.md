@@ -128,6 +128,9 @@ configuration and thread-profile objects and binds each record to its job and
 campaign before alias grouping. It validates the recorded scalar against the
 embedded repeats and uses that evidence for the displayed median and sample
 count. A rejected repeat display record does not invalidate a verified median.
+Conflicting summaries for the same artifact hash and JSON pointer are withheld,
+even when their optional context differs. Repeated summaries within a job are
+also withheld. Matching observations from distinct jobs retain their provenance.
 Malformed external metadata is withheld per record with
 `EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID`; the raw preview and healthy
 neighbors are preserved. Job/record agreement alone does not establish valid
@@ -139,3 +142,5 @@ eligibility flags must match their output types. Missing/null optional runtime
 version metadata remains unknown; malformed versions retain their separate
 `EXTERNAL_ADAPTER_VERSION_METADATA_INVALID` reason. Attempts to promote a
 diagnostic record to canonical/performance eligibility still reject the import.
+Malformed StatGPU thread profiles and invalid scoped-CV array indices are
+reported per record, so other observations can still be exported.
