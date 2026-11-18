@@ -1022,3 +1022,96 @@ def test_invalid_native_thread_profile_preserves_other_records(tmp_path):
     assert sorted(row["framework"] for row in bundle["benchmark_data"]["runs"]) == ["sklearn", "statgpu"]
     assert [issue["code"] for issue in bundle["parse_report"]["issues"]
             if issue["message"].startswith("bad-native:")] == ["INVALID_CPU_THREAD_PROFILE"]
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("kind", ["scoped", "scalar", "sample-vector"])
+def test_conflicting_native_timings_are_withheld_in_both_export_paths(tmp_path, reverse, kind):
+    from dev.benchmarks.generate_benchmark_data import generate
+
+    doc = sklearn_cv_preview()
+    native = (cv_preview(phase=True) if kind == "scoped" else preview())["records"]
+    for row in native:
+        row["record_id"] = "native-" + row["record_id"]
+        row["raw_sha256"] = "d" * 64
+        row["job_id"] = "native-job"
+    original = native[0]
+    if kind == "scalar":
+        original.pop("sample_count")
+        original.update(raw_pointer="/results/0/timing/final_refit_ms", raw_value=250, unit="milliseconds")
+    if kind == "sample-vector":
+        original.update(raw_value=[0.1, 0.25, 0.3], unit="seconds")
+    duplicate = copy.deepcopy(original)
+    duplicate["record_id"] = "conflicting-native"
+    duplicate["context"]["dtype"] = "float64"
+    if kind == "sample-vector":
+        duplicate["raw_value"][0] = 0.2
+    else:
+        duplicate.update(raw_value=300, summary_seconds=0.3)
+    doc["records"].extend([*native, duplicate])
+    if reverse:
+        doc["records"].reverse()
+
+    path = save(tmp_path / "preview.json", doc)
+    bundle = build_bundle(path)
+    assert [row["framework"] for row in bundle["benchmark_data"]["runs"]] == ["sklearn"]
+    issues = {issue["message"].split(":", 1)[0]: issue["code"]
+              for issue in bundle["parse_report"]["issues"]}
+    assert issues[original["record_id"]] == issues[duplicate["record_id"]] == "CONFLICTING_RAW_TIMING"
+    manifest = build_external_manifest(path, bundle, "2026-10-25")
+    data, _, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+    assert [row["framework"] for row in data["runs"]] == ["sklearn"]
+
+
+@pytest.mark.parametrize("field,value", [
+    ("job_id", None),
+    ("campaign_id", []),
+    ("suite_or_lane", None),
+    ("raw_path", None),
+    ("configuration", None),
+    ("raw_pointer", None),
+    ("row_pointer", None),
+    ("timing_key", []),
+    ("statistic", False),
+    ("sample_count", False),
+    ("source_commit", 42),
+    ("source_fingerprint", {}),
+    ("raw_sha256", []),
+    ("raw_performance_eligible", "false"),
+])
+def test_invalid_native_timing_metadata_isolated_before_aliases(tmp_path, field, value):
+    from dev.benchmarks.generate_benchmark_data import generate
+
+    doc = sklearn_cv_preview()
+    good = preview()["records"][0]
+    good["record_id"] = "good-native"
+    bad = dict(good, record_id="bad-native")
+    bad[field] = value
+    doc["records"].extend([bad, good])
+    path = save(tmp_path / "preview.json", doc)
+    bundle = build_bundle(path)
+    assert sorted(row["framework"] for row in bundle["benchmark_data"]["runs"]) == ["sklearn", "statgpu"]
+    issues = {issue["message"].split(":", 1)[0]: issue["code"]
+              for issue in bundle["parse_report"]["issues"]}
+    assert issues["bad-native"] == "INVALID_NATIVE_TIMING_METADATA"
+    assert "good-native" not in issues
+    manifest = build_external_manifest(path, bundle, "2026-10-25")
+    data, _, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+    assert sorted(row["framework"] for row in data["runs"]) == ["sklearn", "statgpu"]
+
+
+def test_legacy_native_timing_without_raw_hash_keeps_job_qualified_provenance(tmp_path):
+    doc = preview()
+    original = doc["records"][0]
+    original.pop("raw_sha256")
+    original.pop("cpu_thread_profile")
+    original["row_pointer"] = ""
+    original["source_commit"] = None
+    duplicate = dict(original, record_id="same-job", raw_sha256="d" * 64)
+    other_job = dict(original, record_id="other-job", job_id="different-job")
+    doc["records"].extend([duplicate, other_job])
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["comparison_id"] == "diagnostic:different-job"
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 250
+    assert {issue["code"] for issue in bundle["parse_report"]["issues"]} == {"DUPLICATE_RAW_TIMING"}

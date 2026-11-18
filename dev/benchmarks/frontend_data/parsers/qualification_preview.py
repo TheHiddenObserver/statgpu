@@ -12,7 +12,6 @@ import math
 import re
 import statistics
 import sys
-from collections import Counter
 from pathlib import Path
 
 SCHEMA = "statgpu-benchmark-update-preview-v1"
@@ -226,14 +225,14 @@ def _cv_observation(record):
     return (match["parent"], "total_fit" if clean else match["key"], role, index), None
 
 
-def _alias_context(record):
+def _alias_context(record, identity):
     context = record.get("context", {})
     if not isinstance(context, dict):
         return None
     # Never de-duplicate different frameworks, modes, or timing boundaries just
     # because numeric values happen to agree or their fields share a parent.
     return [record.get("campaign_id"), record.get("job_id"), record.get("raw_path"),
-            _identity(record), record.get("timing_scope"), {key: context.get(key) for key in
+            identity, record.get("timing_scope"), {key: context.get(key) for key in
                 ("framework", "backend", "requested_backend", "instrumented", "mode",
                  "timing_kind", "timing_phase", "case_id", "model_id", "dtype")}]
 
@@ -251,6 +250,10 @@ def _same_timing(left, right):
     return _positive(left) and _positive(right) and math.isclose(left, right, rel_tol=1e-12, abs_tol=0.0)
 
 
+def _duration_ms(record, *, external):
+    return record["raw_value"] if external else record["summary_seconds"] * 1000.0
+
+
 def _external_repeat_values(record, observation):
     parent, key, _, _ = observation
     run_index = int(parent.rsplit("/", 1)[1])
@@ -261,7 +264,8 @@ def _external_repeat_values(record, observation):
 def _alias_dispositions(records, observations):
     """Validate aliases before suppressing display duplicates; keep all raw rows."""
     reasons, groups = {}, {}
-    external_summaries = {}
+    timings_by_artifact = {}
+    timings_by_job = {}
     generic_aliases = {"raw_seconds": {"median_seconds", "mean_seconds", "seconds"},
                        "samples_seconds": {"median_seconds", "mean_seconds", "seconds"},
                        "seconds": {"median_seconds", "mean_seconds"},
@@ -270,33 +274,45 @@ def _alias_dispositions(records, observations):
                        "fit_ms_all": {"fit_ms", "fit_ms_mean"}}
     for record in records:
         cv = observations[record["record_id"]]
-        context = record.get("context")
-        if cv and cv[2] == "summary" and isinstance(context, dict) and context.get("framework") == "sklearn":
-            source = record["raw_sha256"], record["raw_pointer"]
-            external_summaries.setdefault(source, []).append(record)
+        identity, identity_reason = _identity(record)
+        if ((not cv or cv[2] != "repeat") and identity is not None
+                and not _display_reason(record)):
+            duration = _duration_ms(record, external=identity.get("framework") == "sklearn")
+            if _positive(duration):
+                artifact_hash = record.get("raw_sha256")
+                if artifact_hash and re.fullmatch(r"[0-9a-f]{64}", artifact_hash):
+                    origin = artifact_hash, record["raw_pointer"]
+                    timings_by_artifact.setdefault(origin, []).append((record, duration))
+                job_pointer = record["campaign_id"], record["job_id"], record["raw_pointer"]
+                timings_by_job.setdefault(job_pointer, []).append(record)
         parent = str(record.get("raw_pointer", "")).rsplit("/", 1)[0]
-        key = _canonical([_alias_context(record), list(cv[:2]) if cv else [record.get("row_pointer"), parent]])
+        key = _canonical([_alias_context(record, (identity, identity_reason)),
+                          list(cv[:2]) if cv else [record.get("row_pointer"), parent]])
         groups.setdefault(key, []).append((record, cv))
 
     def mark(group, reason):
         for row in group:
             reasons[row["record_id"]] = reason
 
-    for summaries in external_summaries.values():
-        if len(summaries) < 2:
+    for timings in timings_by_artifact.values():
+        if len(timings) < 2:
             continue
-        first = summaries[0]
-        values = _external_repeat_values(first, observations[first["record_id"]])
-        if any(row["raw_value"] != first["raw_value"]
-               or _external_repeat_values(row, observations[row["record_id"]]) != values
-               for row in summaries[1:]):
-            mark(summaries, "CONFLICTING_RAW_TIMING")
-            continue
-        # Equal observations can retain separate campaign/job provenance.
-        jobs = Counter((row["campaign_id"], row["job_id"]) for row in summaries)
-        for row in summaries:
-            if jobs[row["campaign_id"], row["job_id"]] > 1:
-                mark([row], "DUPLICATE_RAW_TIMING")
+        raw_values = [row["raw_value"] for row, _ in timings if row.get("raw_value") is not None]
+        external_samples = [
+            _external_repeat_values(row, observations[row["record_id"]])
+            for row, _ in timings if row["context"].get("framework") == "sklearn"
+        ]
+        if (any(duration != timings[0][1] for _, duration in timings[1:])
+                or any(value != raw_values[0] for value in raw_values[1:])
+                or any(samples != external_samples[0] for samples in external_samples[1:])):
+            mark([row for row, _ in timings], "CONFLICTING_RAW_TIMING")
+
+    # Separate jobs can retain matching observations from the same artifact.
+    # Each job owns at most one display observation at a given raw pointer.
+    for timings in timings_by_job.values():
+        if len(timings) > 1:
+            for row in timings:
+                reasons.setdefault(row["record_id"], "DUPLICATE_RAW_TIMING")
 
     for entries in groups.values():
         rows = [row for row, _ in entries]
@@ -392,16 +408,39 @@ def _alias_dispositions(records, observations):
     return reasons
 
 
+def _valid_job_metadata(item):
+    return (all(isinstance(item.get(key), str) and item[key].strip()
+                for key in ("job_id", "campaign_id", "suite_or_lane", "raw_path"))
+            and isinstance(item.get("configuration"), dict))
+
+
+def _valid_record_metadata(record):
+    """Check fields used by alias matching and normalized output."""
+    pointer = record.get("raw_pointer")
+    if not isinstance(pointer, str) or not pointer.startswith("/"):
+        return False
+    if not isinstance(record.get("row_pointer"), str):
+        return False
+    for key in ("source_commit", "source_fingerprint", "raw_sha256"):
+        value = record.get(key)
+        if value is not None and not isinstance(value, str):
+            return False
+    for key in ("timing_key", "statistic"):
+        if key in record and (not isinstance(record[key], str) or not record[key].strip()):
+            return False
+    if "sample_count" in record and (type(record["sample_count"]) is not int or record["sample_count"] < 1):
+        return False
+    raw_eligible = record.get("raw_performance_eligible")
+    return raw_eligible is None or type(raw_eligible) is bool
+
+
 def _external_required_metadata_reason(item, *, record=False):
     """Check external ingress shapes before aliases or display serialization.
 
     Equality with a job is not type validation. Unknown optional thread fields
     remain unknown; this gate does not infer thread counts or qualification.
     """
-    for key in ("job_id", "campaign_id", "suite_or_lane", "raw_path"):
-        if not isinstance(item.get(key), str) or not item[key].strip():
-            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
-    if not isinstance(item.get("configuration"), dict):
+    if not _valid_job_metadata(item):
         return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
     cpu = item.get("cpu_thread_profile")
     if not isinstance(cpu, dict):
@@ -420,16 +459,9 @@ def _external_required_metadata_reason(item, *, record=False):
             return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
     if "claim" in cpu and not isinstance(cpu["claim"], str):
         return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
-    if record:
-        if item.get("raw_performance_eligible") is not None and type(item["raw_performance_eligible"]) is not bool:
-            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
-        for key in ("raw_pointer", "row_pointer", "timing_key"):
-            if not isinstance(item.get(key), str) or not item[key].strip():
-                return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
-        if "statistic" in item and (not isinstance(item["statistic"], str) or not item["statistic"].strip()):
-            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
-        if "sample_count" in item and (type(item["sample_count"]) is not int or item["sample_count"] < 1):
-            return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+    if record and (not _valid_record_metadata(item) or not item["row_pointer"].strip()
+                   or "timing_key" not in item):
+        return "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
     return None
 
 
@@ -531,6 +563,9 @@ def normalize_preview(document, filepath, env_id):
         elif not isinstance(record.get("cpu_thread_profile", {}), dict):
             invalid_metadata[rid] = "INVALID_CPU_THREAD_PROFILE"
             continue
+        elif not _valid_job_metadata(record) or not _valid_record_metadata(record):
+            invalid_metadata[rid] = "INVALID_NATIVE_TIMING_METADATA"
+            continue
         observation, pointer_reason = _cv_observation(record)
         if pointer_reason:
             invalid_metadata[rid] = pointer_reason
@@ -549,7 +584,7 @@ def normalize_preview(document, filepath, env_id):
             reason = _display_reason(record) or identity_reason
         reason = reason or invalid_metadata.get(rid) or alias_reasons.get(rid)
         if not reason:
-            duration_ms = record["raw_value"] if external else record["summary_seconds"] * 1000.0
+            duration_ms = _duration_ms(record, external=external)
             if not _positive(duration_ms):
                 reason = "NO_POSITIVE_REPRESENTABLE_TIMING"
         if reason:
