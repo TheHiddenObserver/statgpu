@@ -40,7 +40,9 @@ def build_bundle(path):
     data = {"schema_version": "1.2.0", "generated": "1970-01-01T00:00:00+00:00",
             "meta": {"generator": "dev/benchmarks/export_qualification_preview.py", "git_sha": "diagnostic-export", "generation_id": ""},
             "environments": environments, "categories": [CATEGORY], "models": models,
-            "frameworks": [{"framework_id": "statgpu", "display_name": "statgpu", "external": False, "backend_policy": "required"}],
+            "frameworks": [{"framework_id": "statgpu", "display_name": "statgpu", "external": False, "backend_policy": "required"}] +
+                ([{"framework_id": "sklearn", "display_name": "scikit-learn", "external": True, "backend_policy": "forbidden"}]
+                 if any(run["framework"] == "sklearn" for run in runs) else []),
             "comparisons": comparisons, "runs": runs}
     report = {"report_version": "2.0", "generation_id": "", "files_seen": 1, "files_parsed": 1,
               "files_skipped": 0, "runs_generated": len(runs), "issues": [
@@ -78,7 +80,8 @@ def build_external_manifest(path, bundle, source_date):
             "diagnostic_only": True, "canonical_dashboard_ready": False,
             "source_date_semantics": "Date supplied by operator for this new diagnostic source; never rewrites measured source identity",
             "environments": environments,
-            "frameworks": {"statgpu": {"display_name": "statgpu", "external": False, "backend_policy": "required"}},
+            "frameworks": {entry["framework_id"]: {key: value for key, value in entry.items() if key != "framework_id"}
+                           for entry in bundle["benchmark_data"]["frameworks"]},
             "comparisons": {source_id: {"label": "Diagnostic display only; not a performance comparison", "env_id": "diagnostic-preview"}},
             "sources": [{"source_id": source_id, "comparison_id": source_id, "path": str(path),
                          "original_path": str(path), "sha256": sha, "parser": "qualification_preview",

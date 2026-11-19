@@ -5,6 +5,7 @@ import type {
   Run,
   SourceInventory,
 } from './schema';
+import { cpuThreadClass } from './provenance';
 import type { AppState } from './state';
 
 export { getUniqueScaleKeys } from './scales';
@@ -124,6 +125,9 @@ export function filterRuns(
       !runHasMetricScope(r, state.selectedMetricScope)
     )
       return false;
+
+    if (!opts?.ignoreCpuThreads && state.selectedCpuThreads && state.selectedCpuThreads !== 'all' &&
+        cpuThreadClass(r) !== state.selectedCpuThreads) return false;
 
     // Model filter
     if (state.selectedModelId && r.model_id !== state.selectedModelId) return false;

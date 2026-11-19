@@ -160,6 +160,7 @@ export interface Evidence {
   source_fingerprint?: string | null;
   cpu_threads_requested?: unknown;
   cpu_threads_observed?: unknown;
+  cpu_threads_observed_torch?: unknown;
   evidence_errors?: string[];
 }
 
@@ -363,6 +364,7 @@ export interface FilterContext {
 }
 
 export interface FilterOptions {
+  ignoreCpuThreads?: boolean;
   ignoreScale?: boolean;
   ignoreExternal?: boolean;
   ignoreMetricScope?: boolean;

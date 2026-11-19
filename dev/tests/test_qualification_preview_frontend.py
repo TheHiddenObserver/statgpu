@@ -373,7 +373,13 @@ def test_inconsistent_cv_alias_values_never_select_a_preferred_truth(tmp_path, p
     doc = cv_preview(phase=phase); doc["records"][index]["summary_seconds"] = 9
     bundle = build_bundle(save(tmp_path / "preview.json", doc))
     assert not bundle["benchmark_data"]["runs"]
-    assert {issue["code"] for issue in bundle["parse_report"]["issues"]} == {"INCONSISTENT_TIMING_ALIASES"}
+    issues = {issue["message"].split(":", 1)[0]: issue["code"]
+              for issue in bundle["parse_report"]["issues"]}
+    for row in doc["records"]:
+        expected = "INCONSISTENT_TIMING_ALIASES"
+        if index == 0:
+            expected = "NATIVE_TIMING_MISMATCH" if row is doc["records"][0] else "UNQUALIFIED_TIMING_ALIAS_SOURCE"
+        assert issues[row["record_id"]] == expected
 
 
 def test_inconsistent_generic_summary_is_not_silently_discarded(tmp_path):
@@ -484,3 +490,674 @@ def test_cv_alias_binding_includes_resolved_case_and_dimensions(tmp_path, change
     assert len(rows) == 2
     assert rows[0]["case_id"] != rows[1]["case_id"]
     assert not any(issue["message"].startswith("median:") for issue in result["parse_report"]["issues"])
+
+
+def sklearn_cv_preview():
+    doc = cv_preview(phase=True)
+    samples = [{"cv_evaluation_ms": value} for value in (100., 300., 200.)]
+    external = {"framework": "sklearn", "backend": None, "device": "cpu", "status": "success",
+                "timing": {"cv_evaluation_ms": 200.}, "repeat_samples": samples}
+    for row in doc["records"]:
+        row["suite_or_lane"] = "six-family-cv"
+        row["timing_key"] = "cv_evaluation_ms"
+        row["row_pointer"] = "/results/0/case"
+        row["context"]["scope"] = row["timing_scope"]
+        row["context"].update(framework="sklearn", backend=None, status="success", n_samples=20, n_features=2)
+        row["context"]["case"].update(runs=[copy.deepcopy(external)], dataset={"n_samples": 20, "n_features": 2})
+    record = doc["records"][0]
+    doc["jobs"] = [{key: copy.deepcopy(record[key]) for key in
+                    ("job_id", "campaign_id", "source_commit", "source_fingerprint", "raw_path", "raw_sha256",
+                     "suite_or_lane", "configuration", "cpu_thread_profile", "environment", "validation_status",
+                     "correctness_status", "evidence_errors", "performance_eligible", "canonical_dashboard_ready")}]
+    doc["campaigns"] = [{key: record[key] for key in ("campaign_id", "source_commit", "source_fingerprint")}]
+    return doc
+
+
+def test_explicit_sklearn_adapter_preserves_external_identity_and_real_aggregate(tmp_path):
+    from dev.benchmarks.generate_benchmark_data import generate
+    from dev.benchmarks.frontend_data.cli import validate_semantic
+    doc = sklearn_cv_preview(); path = save(tmp_path / "preview.json", doc)
+    bundle = build_bundle(path)
+    assert len(bundle["benchmark_data"]["runs"]) == 1
+    row = bundle["benchmark_data"]["runs"][0]
+    assert row["framework"] == "sklearn" and row["backend"] is None
+    assert row["parameters"]["external_adapter"] == "sklearn-scoped-cv-v2"
+    assert row["parameters"]["original_context"] == doc["records"][0]["context"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    assert row["evidence"]["raw_pointer"] == doc["records"][0]["raw_pointer"]
+    assert row["evidence"]["performance_eligible"] is False
+    assert {i["code"] for i in bundle["parse_report"]["issues"]} == {"ALIAS_OF_RETAINED_OBSERVATIONS"}
+    manifest = build_external_manifest(path, bundle, "2026-10-25")
+    assert manifest["frameworks"]["sklearn"]["backend_policy"] == "forbidden"
+    data, report, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+    assert len(data["runs"]) == 1 and data["runs"][0]["framework"] == "sklearn"
+    assert validate_semantic(data, manifest, True) == []
+
+
+@pytest.mark.parametrize("change,reason", [
+    (lambda r: r.update(source_schema="unknown"), "CV_ALIAS_BINDING_REQUIRES_REEXPORT"),
+    (lambda r: r["context"].update(requested_backend="torch"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(backend="numpy"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"]["case"]["runs"][0].update(framework="statgpu"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"]["case"]["runs"][0].update(device="cuda"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"]["case"]["runs"][0].update(status="failed"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(problem={"shape": {"n": 999, "p": 999}}), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(n=999), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(mode="clean"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(scope_source_pointer="/results/999/protocol/timing_scope"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r.update(raw_pointer=r["raw_pointer"].replace("/results/0/", "/results/999/")), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(scope="different scope"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(instrumented=False), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r.update(row_pointer="/results/7/case"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r.update(source_commit=None), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r.update(raw_sha256="unknown"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"]["case"]["dataset"].update(n_samples=40), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"].update(timing_phase="final_refit"), "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"),
+    (lambda r: r["context"]["case"]["runs"][0]["timing"].update(cv_evaluation_ms=900), "EXTERNAL_ADAPTER_TIMING_MISMATCH"),
+    (lambda r: r["context"]["case"]["runs"][0]["repeat_samples"][1].update(cv_evaluation_ms=-1), "EXTERNAL_ADAPTER_TIMING_MISMATCH"),
+    (lambda r: r["context"].update(repeats=2), "EXTERNAL_ADAPTER_TIMING_MISMATCH"),
+])
+def test_sklearn_adapter_requires_bound_versioned_cpu_evidence(tmp_path, change, reason):
+    doc = sklearn_cv_preview()
+    for record in doc["records"]: change(record)
+    result = build_bundle(save(tmp_path / "preview.json", doc))
+    assert result["benchmark_data"]["runs"] == []
+    assert {issue["code"] for issue in result["parse_report"]["issues"]} == {reason}
+
+
+def test_sklearn_pointer_cannot_bind_to_another_framework_run(tmp_path):
+    doc = sklearn_cv_preview()
+    for row in doc["records"]:
+        row["context"]["case"]["runs"].append(dict(row["context"]["case"]["runs"][0], framework="statgpu"))
+        row["raw_pointer"] = row["raw_pointer"].replace("/runs/0/", "/runs/1/")
+    result = build_bundle(save(tmp_path / "preview.json", doc))
+    assert not result["benchmark_data"]["runs"]
+    assert {issue["code"] for issue in result["parse_report"]["issues"]} == {"EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"}
+
+
+@pytest.mark.parametrize("change", [
+    lambda d: d.update(jobs=[]),
+    lambda d: d["jobs"].append(copy.deepcopy(d["jobs"][0])),
+    lambda d: d["campaigns"].append(copy.deepcopy(d["campaigns"][0])),
+    lambda d: d["campaigns"][0].update(source_commit="c" * 40),
+    lambda d: d["jobs"][0].update(raw_sha256="c" * 64),
+    lambda d: d["jobs"][0].update(raw_path="another/raw.json"),
+    lambda d: d["jobs"][0].update(campaign_id="other"),
+    lambda d: d["jobs"][0].update(cpu_thread_profile={"requested_cap": 8}),
+])
+def test_external_adapter_rejects_missing_duplicate_or_cross_batch_lineage(tmp_path, change):
+    doc = sklearn_cv_preview(); change(doc)
+    result = build_bundle(save(tmp_path / "preview.json", doc))
+    assert not result["benchmark_data"]["runs"]
+    assert {issue["code"] for issue in result["parse_report"]["issues"]} == {"EXTERNAL_ADAPTER_LINEAGE_MISMATCH"}
+
+
+@pytest.mark.parametrize("dimension", ["n_samples", "n_features"])
+@pytest.mark.parametrize("location", ["both", "dataset", "context"])
+@pytest.mark.parametrize("invalid", [
+    pytest.param("__missing__", id="missing"),
+    pytest.param(None, id="null"),
+    pytest.param(True, id="bool"),
+    pytest.param("numeric_string", id="string"),
+    pytest.param("numeric_float", id="float"),
+    pytest.param(0, id="zero"),
+    pytest.param(-1, id="negative"),
+])
+def test_sklearn_invalid_dimensions_withhold_only_malformed_record(tmp_path, dimension, location, invalid):
+    doc = sklearn_cv_preview()
+    malformed = copy.deepcopy(doc["records"][0])
+    malformed["record_id"] = "malformed-dimensions"
+    context = malformed["context"]
+    targets = [context["case"]["dataset"], context] if location == "both" else [
+        context["case"]["dataset"] if location == "dataset" else context]
+    original = context[dimension]
+    for target in targets:
+        if invalid == "__missing__":
+            target.pop(dimension)
+        else:
+            target[dimension] = (str(original) if invalid == "numeric_string" else
+                                 float(original) if invalid == "numeric_float" else invalid)
+    doc["records"].append(malformed)
+    result = build_bundle(save(tmp_path / "preview.json", doc))
+    assert len(result["benchmark_data"]["runs"]) == 1
+    row = result["benchmark_data"]["runs"][0]
+    assert row["framework"] == "sklearn" and row["backend"] is None
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    assert row["evidence"]["performance_eligible"] is False
+    issues = result["parse_report"]["issues"]
+    malformed_issues = [issue for issue in issues if issue["message"].startswith("malformed-dimensions:")]
+    assert len(malformed_issues) == 1
+    assert malformed_issues[0]["code"] == "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"
+    assert sum(issue["code"] == "ALIAS_OF_RETAINED_OBSERVATIONS" for issue in issues) == 3
+
+
+@pytest.mark.parametrize("metadata,expected_version,invalid", [
+    pytest.param({}, None, False, id="missing-packages"),
+    pytest.param({"runtime_packages": None}, None, False, id="null-packages"),
+    pytest.param({"runtime_packages": []}, None, True, id="list-packages"),
+    pytest.param({"runtime_packages": "unknown"}, None, True, id="string-packages"),
+    pytest.param({"runtime_packages": {}}, None, False, id="missing-version"),
+    pytest.param({"runtime_packages": {"scikit-learn": None}}, None, False, id="null-version"),
+    pytest.param({"runtime_packages": {"scikit-learn": []}}, None, True, id="list-version"),
+    pytest.param({"runtime_packages": {"scikit-learn": {}}}, None, True, id="object-version"),
+    pytest.param({"runtime_packages": {"scikit-learn": 123}}, None, True, id="numeric-version"),
+    pytest.param({"runtime_packages": {"scikit-learn": " "}}, None, True, id="blank-version"),
+    pytest.param({"runtime_packages": {"scikit-learn": "1.7.2"}}, "1.7.2", False, id="valid-version"),
+    pytest.param(None, None, False, id="null-environment"),
+    pytest.param([], None, True, id="list-environment"),
+    pytest.param("unknown", None, True, id="string-environment"),
+])
+def test_sklearn_optional_version_metadata_preserves_healthy_neighbors(
+        tmp_path, metadata, expected_version, invalid):
+    from dev.benchmarks.generate_benchmark_data import generate
+    from dev.benchmarks.frontend_data.cli import validate_semantic
+    doc = sklearn_cv_preview()
+    for record in doc["records"]:
+        record["environment"] = copy.deepcopy(metadata)
+    doc["jobs"][0]["environment"] = copy.deepcopy(metadata)
+    healthy = preview()["records"][0]
+    healthy.update(record_id="healthy-statgpu", job_id="healthy-job")
+    doc["records"].append(healthy)
+    original = copy.deepcopy(doc)
+    path = save(tmp_path / "preview.json", doc)
+    bundle = build_bundle(path)
+    rows = bundle["benchmark_data"]["runs"]
+    statgpu = [row for row in rows if row["framework"] == "statgpu"]
+    assert len(statgpu) == 1
+    assert statgpu[0]["metrics"]["operation_timing"]["duration_ms"] == 250
+    external = [row for row in rows if row["framework"] == "sklearn"]
+    if invalid:
+        assert external == []
+        assert len(bundle["parse_report"]["issues"]) == 4
+        assert {issue["code"] for issue in bundle["parse_report"]["issues"]} == {
+            "EXTERNAL_ADAPTER_VERSION_METADATA_INVALID"}
+    else:
+        assert len(external) == 1
+        assert external[0]["parameters"]["external_adapter_provenance"]["framework_version"] == expected_version
+        assert external[0]["metrics"]["operation_timing"]["duration_ms"] == 200
+        assert external[0]["parameters"]["original_context"] == doc["records"][0]["context"]
+        assert {issue["code"] for issue in bundle["parse_report"]["issues"]} == {
+            "ALIAS_OF_RETAINED_OBSERVATIONS"}
+    for row in rows:
+        assert row["evidence"]["qualification"] == "diagnostic_only"
+        assert row["evidence"]["performance_eligible"] is False
+        assert row["evidence"]["canonical_dashboard_ready"] is False
+        assert row["evidence"]["source_commit"] == "a" * 40
+    manifest = build_external_manifest(path, bundle, "2026-10-25")
+    data, report, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+    assert len(data["runs"]) == len(rows)
+    assert validate_semantic(data, manifest, True) == []
+    assert doc == original
+
+
+def _external_ingress_neighbors():
+    """One independent malformed candidate alongside healthy external/native rows."""
+    doc = sklearn_cv_preview()
+    malformed = copy.deepcopy(doc["records"][0])
+    malformed.update(record_id="malformed-ingress", job_id="other-job", campaign_id="other-campaign")
+    job = copy.deepcopy(doc["jobs"][0])
+    job.update(job_id="other-job", campaign_id="other-campaign")
+    campaign = copy.deepcopy(doc["campaigns"][0])
+    campaign["campaign_id"] = "other-campaign"
+    healthy = preview()["records"][0]
+    healthy.update(record_id="healthy-statgpu", job_id="native-job")
+    doc["records"].extend([malformed, healthy])
+    doc["jobs"].append(job)
+    doc["campaigns"].append(campaign)
+    return doc, malformed, job, campaign
+
+
+def _set_ingress_field(target, field, value):
+    if value == "__missing__":
+        target.pop(field, None)
+    else:
+        target[field] = copy.deepcopy(value)
+
+
+def _check_ingress_neighbors(tmp_path, doc, *, valid=False, strict=False):
+    original = copy.deepcopy(doc)
+    path = save(tmp_path / "preview.json", doc)
+    bundle = build_bundle(path)
+    rows = bundle["benchmark_data"]["runs"]
+    assert len(rows) == (3 if valid else 2)
+    assert sorted(row["framework"] for row in rows) == (["sklearn", "sklearn", "statgpu"] if valid else ["sklearn", "statgpu"])
+    assert sorted(row["metrics"]["operation_timing"]["duration_ms"] for row in rows) == ([200, 200, 250] if valid else [200, 250])
+    for row in rows:
+        assert row["evidence"]["performance_eligible"] is False
+        assert row["evidence"]["canonical_dashboard_ready"] is False
+        assert row["evidence"]["source_commit"] == "a" * 40
+    issues = bundle["parse_report"]["issues"]
+    rejected = [item for item in issues if item["message"].startswith("malformed-ingress:")]
+    assert len(rejected) == (0 if valid else 1)
+    assert sum(item["code"] == "ALIAS_OF_RETAINED_OBSERVATIONS" for item in issues) == 3
+    if strict:
+        from dev.benchmarks.generate_benchmark_data import generate
+        from dev.benchmarks.frontend_data.cli import validate_semantic
+        manifest = build_external_manifest(path, bundle, "2026-10-25")
+        data, report, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+        assert len(data["runs"]) == len(rows)
+        assert validate_semantic(data, manifest, True) == []
+    assert doc == original
+    return rejected
+
+
+_REQUIRED_INGRESS_INVALID = [
+    (field, value)
+    for field in ("job_id", "campaign_id", "suite_or_lane", "raw_path", "configuration", "cpu_thread_profile")
+    for value in (["__missing__", None, True, 17, 1.5, [], {}, "", " "]
+                  if field not in ("configuration", "cpu_thread_profile")
+                  else ["__missing__", None, True, 17, 1.5, [], "unknown"])
+]
+
+
+@pytest.mark.parametrize("field,value", _REQUIRED_INGRESS_INVALID)
+@pytest.mark.parametrize("location", ["record", "job", "both"])
+def test_external_required_ingress_shapes_isolate_only_bad_record(tmp_path, field, value, location):
+    doc, record, job, campaign = _external_ingress_neighbors()
+    for target in ([record, job] if location == "both" else [record if location == "record" else job]):
+        _set_ingress_field(target, field, value)
+    # Matching campaign metadata must not turn malformed required IDs into valid identity.
+    if field == "campaign_id" and location == "both":
+        _set_ingress_field(campaign, field, value)
+    rejected = _check_ingress_neighbors(tmp_path, doc)
+    expected = ("EXTERNAL_ADAPTER_LINEAGE_MISMATCH" if field == "job_id" and location == "job"
+                else "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID")
+    assert rejected[0]["code"] == expected
+
+
+_CPU_INGRESS_INVALID = (
+    [("requested_cap", value) for value in (True, False, 0, -1, 1.5, "1", [], {})]
+    + [(field, value) for field in ("observed_pool_threads", "observed_torch_threads")
+       for value in (True, False, 0, -1, 1.5, "1", {}, [None], [True], [0], [-1], [1.5], ["1"], [{}], [[]])]
+    + [(field, value) for field in ("cap_verified", "all_observed_equal_requested")
+       for value in (None, 0, 1, "true", [], {})]
+    + [("claim", value) for value in (None, True, 17, [], {})]
+)
+
+
+@pytest.mark.parametrize("field,value", _CPU_INGRESS_INVALID)
+@pytest.mark.parametrize("location", ["record", "job", "both"])
+def test_external_nested_cpu_ingress_shapes_isolate_only_bad_record(tmp_path, field, value, location):
+    doc, record, job, _ = _external_ingress_neighbors()
+    for target in ([record, job] if location == "both" else [record if location == "record" else job]):
+        _set_ingress_field(target["cpu_thread_profile"], field, value)
+    rejected = _check_ingress_neighbors(tmp_path, doc)
+    assert rejected[0]["code"] == "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+
+
+@pytest.mark.parametrize("profile", [
+    {}, {"requested_cap": None}, {"requested_cap": 1}, {"requested_cap": 8},
+    {"observed_pool_threads": None}, {"observed_pool_threads": []}, {"observed_pool_threads": 1},
+    {"observed_pool_threads": 8}, {"observed_pool_threads": [1, 4]},
+    {"observed_torch_threads": None}, {"observed_torch_threads": []}, {"observed_torch_threads": 1},
+    {"observed_torch_threads": [1, 4]}, {"cap_verified": False}, {"cap_verified": True},
+    {"all_observed_equal_requested": False}, {"all_observed_equal_requested": True}, {"claim": ""},
+    {"requested_cap": 4, "observed_pool_threads": [1, 4], "observed_torch_threads": [2],
+     "cap_verified": True, "all_observed_equal_requested": False, "claim": "Recorded pool bounds"},
+])
+def test_external_supported_cpu_profile_forms_remain_representable(tmp_path, profile):
+    doc, record, job, _ = _external_ingress_neighbors()
+    record["cpu_thread_profile"] = copy.deepcopy(profile)
+    job["cpu_thread_profile"] = copy.deepcopy(profile)
+    _check_ingress_neighbors(tmp_path, doc, valid=True, strict=True)
+
+
+@pytest.mark.parametrize("field,value", [
+    *[("statistic", value) for value in (None, True, 17, 1.5, [], {}, "", " ")],
+    *[("sample_count", value) for value in (None, True, 0, -1, 1.5, [], {}, "3")],
+    *[("raw_performance_eligible", value) for value in (0, 1, 1.5, [], {}, "false")],
+])
+def test_external_adjacent_output_metadata_isolated_before_bundle_validation(tmp_path, field, value):
+    doc, record, _, _ = _external_ingress_neighbors()
+    record[field] = copy.deepcopy(value)
+    rejected = _check_ingress_neighbors(tmp_path, doc, strict=True)
+    assert rejected[0]["code"] == "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("statistic", "__missing__"), ("statistic", "recorded_median"),
+    ("sample_count", "__missing__"), ("sample_count", 3),
+    ("raw_performance_eligible", "__missing__"), ("raw_performance_eligible", None),
+    ("raw_performance_eligible", False), ("raw_performance_eligible", True),
+])
+def test_external_optional_output_metadata_supported_forms(tmp_path, field, value):
+    doc, record, _, _ = _external_ingress_neighbors()
+    _set_ingress_field(record, field, value)
+    _check_ingress_neighbors(tmp_path, doc, valid=True, strict=True)
+
+
+@pytest.mark.parametrize("field", ["performance_eligible", "canonical_dashboard_ready"])
+def test_malformed_external_metadata_cannot_bypass_promotion_guard(tmp_path, field):
+    doc, record, _, _ = _external_ingress_neighbors()
+    record["cpu_thread_profile"] = None
+    record[field] = True
+    with pytest.raises(ValueError, match="attempted performance promotion"):
+        build_bundle(save(tmp_path / "preview.json", doc))
+
+
+@pytest.mark.parametrize("value", [None, True, 17, [], {}])
+def test_external_invalid_alias_metadata_does_not_crash_healthy_neighbors(tmp_path, value):
+    doc, record, _, _ = _external_ingress_neighbors()
+    record["timing_key"] = copy.deepcopy(value)
+    record["raw_pointer"] = "/results/0/unknown/raw_seconds"
+    _check_ingress_neighbors(tmp_path, doc)
+
+
+@pytest.mark.parametrize("field,value", [("cpu_thread_profile", None), ("statistic", []), ("sample_count", False)])
+def test_malformed_external_alias_does_not_poison_retained_healthy_observation(tmp_path, field, value):
+    doc = sklearn_cv_preview()
+    malformed = copy.deepcopy(doc["records"][0])
+    malformed["record_id"] = "malformed-alias"
+    malformed[field] = copy.deepcopy(value)
+    doc["records"].append(malformed)
+    original = copy.deepcopy(doc)
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    rows = bundle["benchmark_data"]["runs"]
+    assert len(rows) == 1
+    assert rows[0]["framework"] == "sklearn"
+    assert rows[0]["metrics"]["operation_timing"]["duration_ms"] == 200
+    issues = bundle["parse_report"]["issues"]
+    assert sum(item["code"] == "ALIAS_OF_RETAINED_OBSERVATIONS" for item in issues) == 3
+    assert [item["code"] for item in issues if item["message"].startswith("malformed-alias:")] == [
+        "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"]
+    assert doc == original
+
+
+@pytest.mark.parametrize("field,value,reason", [
+    ("cpu_thread_profile", None, "EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID"),
+    ("raw_sha256", "c" * 64, "EXTERNAL_ADAPTER_LINEAGE_MISMATCH"),
+    ("raw_value", 10**400, "EXTERNAL_ADAPTER_TIMING_MISMATCH"),
+])
+def test_rejected_sklearn_repeat_preserves_validated_summary(tmp_path, field, value, reason):
+    doc = sklearn_cv_preview()
+    repeat = doc["records"][2]
+    repeat[field] = value
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    issues = {issue["message"].split(":", 1)[0]: issue["code"]
+              for issue in bundle["parse_report"]["issues"]}
+    assert issues == {"repeat-0": "ALIAS_OF_RETAINED_OBSERVATIONS",
+                      "repeat-1": reason, "repeat-2": "ALIAS_OF_RETAINED_OBSERVATIONS"}
+
+
+def test_unbound_sklearn_summary_cannot_hide_matching_summary(tmp_path):
+    doc = sklearn_cv_preview()
+    duplicate = copy.deepcopy(doc["records"][0])
+    duplicate.update(record_id="unbound-summary", raw_sha256="c" * 64)
+    doc["records"].insert(0, duplicate)
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    assert [issue["code"] for issue in bundle["parse_report"]["issues"]
+            if issue["message"].startswith("unbound-summary:")] == ["EXTERNAL_ADAPTER_LINEAGE_MISMATCH"]
+
+
+def test_conflicting_sklearn_repeat_alias_cannot_hide_matching_summary(tmp_path):
+    doc = sklearn_cv_preview()
+    duplicate = copy.deepcopy(doc["records"][2])
+    duplicate.update(record_id="conflicting-repeat", raw_value=400, summary_seconds=0.4)
+    duplicate["context"]["case"]["runs"][0]["repeat_samples"][1]["cv_evaluation_ms"] = 400
+    doc["records"].append(duplicate)
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    issues = {issue["message"].split(":", 1)[0]: issue["code"]
+              for issue in bundle["parse_report"]["issues"]}
+    assert issues.pop("conflicting-repeat") == "INCONSISTENT_TIMING_ALIASES"
+    assert len(issues) == 3 and set(issues.values()) == {"ALIAS_OF_RETAINED_OBSERVATIONS"}
+
+
+def test_sklearn_display_metadata_uses_validated_repeats(tmp_path):
+    doc = sklearn_cv_preview()
+    for record in doc["records"]:
+        record["context"]["case"]["runs"][0]["repeat_samples"][1]["cv_evaluation_ms"] = 400
+    doc["records"][2].update(raw_value=400, summary_seconds=0.4)
+    doc["records"][0].update(statistic="mean", sample_count=999)
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    timing = row["metrics"]["operation_timing"]
+    assert timing["duration_ms"] == 200
+    assert timing["statistic"] == "median_of_recorded_samples"
+    assert timing["sample_count"] == 3
+    assert timing["quality"] == "measured"
+
+
+def test_unrepresentable_sklearn_sample_does_not_abort_export(tmp_path):
+    doc = sklearn_cv_preview()
+    repeat = doc["records"][1]
+    repeat["context"]["case"]["runs"][0]["repeat_samples"][0]["cv_evaluation_ms"] = 10**400
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    assert [issue["code"] for issue in bundle["parse_report"]["issues"]
+            if issue["message"].startswith("repeat-0:")] == ["EXTERNAL_ADAPTER_TIMING_MISMATCH"]
+
+
+def test_export_preserves_torch_and_library_pool_observations(tmp_path):
+    doc = preview()
+    record = doc["records"][0]
+    record["context"]["backend"] = "torch"
+    record["cpu_thread_profile"] = {"requested_cap": 1, "observed_pool_threads": [1, 1],
+                                    "observed_torch_threads": [4, 4], "cap_verified": False}
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["evidence"]["cpu_threads_observed"] == [1, 1]
+    assert row["evidence"]["cpu_threads_observed_torch"] == [4, 4]
+
+
+@pytest.mark.parametrize("conflicting", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_sklearn_source_pointer_cannot_repeat_across_context_aliases(tmp_path, conflicting, reverse):
+    from dev.benchmarks.generate_benchmark_data import generate
+
+    doc, independent, job, _ = _external_ingress_neighbors()
+    independent["raw_sha256"] = job["raw_sha256"] = "d" * 64
+    summary = doc["records"][0]
+    duplicate = copy.deepcopy(summary)
+    duplicate["record_id"] = "duplicate-pointer"
+    duplicate["context"]["case_id"] = duplicate["context"]["case"]["case_id"]
+    if conflicting:
+        duplicate.update(raw_value=300, summary_seconds=0.3)
+        run = duplicate["context"]["case"]["runs"][0]
+        run["repeat_samples"][2]["cv_evaluation_ms"] = 500
+        run["timing"]["cv_evaluation_ms"] = 300
+    doc["records"].append(duplicate)
+    if reverse:
+        doc["records"].reverse()
+
+    path = save(tmp_path / "preview.json", doc)
+    bundle = build_bundle(path)
+    rows = bundle["benchmark_data"]["runs"]
+    assert sorted((row["framework"], row["metrics"]["operation_timing"]["duration_ms"])
+                  for row in rows) == [("sklearn", 200), ("statgpu", 250)]
+    issues = {issue["message"].split(":", 1)[0]: issue["code"]
+              for issue in bundle["parse_report"]["issues"]}
+    expected = "CONFLICTING_RAW_TIMING" if conflicting else "DUPLICATE_RAW_TIMING"
+    assert issues[summary["record_id"]] == issues[duplicate["record_id"]] == expected
+    manifest = build_external_manifest(path, bundle, "2026-10-25")
+    data, _, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+    assert len(data["runs"]) == 2
+
+
+def test_sklearn_same_artifact_requires_matching_repeats_across_jobs(tmp_path):
+    doc, independent, _, _ = _external_ingress_neighbors()
+    independent["context"]["case"]["runs"][0]["repeat_samples"][1]["cv_evaluation_ms"] = 400
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    assert [row["framework"] for row in bundle["benchmark_data"]["runs"]] == ["statgpu"]
+    assert sum(issue["code"] == "CONFLICTING_RAW_TIMING"
+               for issue in bundle["parse_report"]["issues"]) == 2
+
+
+@pytest.mark.parametrize("run_index", ["00", "٠"])
+def test_noncanonical_sklearn_array_index_cannot_duplicate_summary(tmp_path, run_index):
+    doc = sklearn_cv_preview()
+    duplicate = copy.deepcopy(doc["records"][0])
+    duplicate["record_id"] = "noncanonical-pointer"
+    duplicate["raw_pointer"] = duplicate["raw_pointer"].replace("/runs/0/", f"/runs/{run_index}/")
+    doc["records"].append(duplicate)
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    assert [issue["code"] for issue in bundle["parse_report"]["issues"]
+            if issue["message"].startswith("noncanonical-pointer:")] == [
+                "EXTERNAL_ADAPTER_PROVENANCE_MISMATCH"]
+
+
+@pytest.mark.parametrize("phase", [False, True])
+def test_invalid_native_cv_repeat_index_preserves_sklearn_neighbor(tmp_path, phase):
+    doc = sklearn_cv_preview()
+    bad = cv_preview(phase=phase)["records"][-1]
+    parent, _, field = bad["raw_pointer"].rsplit("/", 2)
+    bad.update(record_id="bad-native", raw_pointer=f"{parent}/{'9' * 4500}/{field}")
+    doc["records"].append(bad)
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["framework"] == "sklearn"
+    assert [issue["code"] for issue in bundle["parse_report"]["issues"]
+            if issue["message"].startswith("bad-native:")] == ["INVALID_CV_TIMING_POINTER"]
+
+
+def test_invalid_native_thread_profile_preserves_other_records(tmp_path):
+    doc = sklearn_cv_preview()
+    good = preview()["records"][0]
+    good["record_id"] = "good-native"
+    bad = dict(good, record_id="bad-native", cpu_thread_profile=None)
+    doc["records"].extend([bad, good])
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    assert sorted(row["framework"] for row in bundle["benchmark_data"]["runs"]) == ["sklearn", "statgpu"]
+    assert [issue["code"] for issue in bundle["parse_report"]["issues"]
+            if issue["message"].startswith("bad-native:")] == ["INVALID_CPU_THREAD_PROFILE"]
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("kind", ["scoped", "scalar", "sample-vector", "clean-cv", "clean-cv-duplicate"])
+def test_conflicting_native_timings_are_withheld_in_both_export_paths(tmp_path, reverse, kind):
+    from dev.benchmarks.generate_benchmark_data import generate
+
+    doc = sklearn_cv_preview()
+    if kind == "scoped" or kind.startswith("clean-cv"):
+        native = cv_preview(phase=kind == "scoped")["records"]
+    else:
+        native = preview()["records"]
+    for row in native:
+        row["record_id"] = "native-" + row["record_id"]
+        row["raw_sha256"] = "d" * 64
+        row["job_id"] = "native-job"
+    original = native[0]
+    if kind == "scalar":
+        original.pop("sample_count")
+        original.update(raw_pointer="/results/0/timing/final_refit_ms", raw_value=250, unit="milliseconds")
+    if kind == "sample-vector":
+        original.update(raw_value=[0.1, 0.25, 0.3], unit="seconds")
+    duplicate = copy.deepcopy(original)
+    duplicate["record_id"] = "conflicting-native"
+    duplicate["context"]["dtype"] = "float64"
+    if kind == "sample-vector":
+        duplicate["raw_value"][0] = 0.2
+    elif kind == "clean-cv":
+        duplicate.update(raw_value=[0.3, 0.4, 0.5], summary_seconds=0.4)
+    elif kind != "clean-cv-duplicate":
+        duplicate.update(raw_value=300, summary_seconds=0.3)
+    doc["records"].extend([*native, duplicate])
+    if reverse:
+        doc["records"].reverse()
+
+    path = save(tmp_path / "preview.json", doc)
+    bundle = build_bundle(path)
+    assert [row["framework"] for row in bundle["benchmark_data"]["runs"]] == ["sklearn"]
+    issues = {issue["message"].split(":", 1)[0]: issue["code"]
+              for issue in bundle["parse_report"]["issues"]}
+    expected = "DUPLICATE_RAW_TIMING" if kind == "clean-cv-duplicate" else "CONFLICTING_RAW_TIMING"
+    assert issues[original["record_id"]] == issues[duplicate["record_id"]] == expected
+    if kind.startswith("clean-cv"):
+        assert issues["native-median"] == "UNQUALIFIED_TIMING_ALIAS_SOURCE"
+        assert all(issues[f"native-repeat-{index}"] == "UNQUALIFIED_TIMING_ALIAS_SOURCE" for index in range(3))
+    manifest = build_external_manifest(path, bundle, "2026-10-25")
+    data, _, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+    assert [row["framework"] for row in data["runs"]] == ["sklearn"]
+
+
+@pytest.mark.parametrize("good_values,change", [
+    ({"raw_value": 200, "unit": "milliseconds"}, {"summary_seconds": 0.35}),
+    ({"raw_value": 0.2, "unit": "seconds"}, {"summary_seconds": 0.35}),
+    ({"raw_value": 200, "unit": "milliseconds"}, {"unit": "microseconds"}),
+    ({"raw_value": 200, "unit": "milliseconds"}, {"raw_value": None}),
+    ({"raw_value": [0.1, 0.2, 0.3], "unit": "seconds", "sample_count": 3}, {"summary_seconds": 0.35}),
+    ({"raw_value": [100, 200, 300], "unit": "milliseconds", "sample_count": 3}, {"sample_count": 2}),
+])
+@pytest.mark.parametrize("scoped", [False, True])
+def test_native_raw_timing_mismatch_cannot_hide_consistent_record(tmp_path, scoped, good_values, change):
+    from dev.benchmarks.generate_benchmark_data import generate
+
+    doc = cv_preview(phase=True) if scoped else preview()
+    good = doc["records"][0]
+    good.pop("sample_count", None)
+    good.update(summary_seconds=0.2, **good_values)
+    bad = dict(good, record_id="inconsistent-native", **change)
+    doc["records"] = [bad, good]
+    path = save(tmp_path / "preview.json", doc)
+    bundle = build_bundle(path)
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    issue, = bundle["parse_report"]["issues"]
+    assert issue["code"] == "NATIVE_TIMING_MISMATCH"
+    assert issue["message"].startswith("inconsistent-native:")
+    manifest = build_external_manifest(path, bundle, "2026-10-25")
+    data, _, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+    row, = data["runs"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+
+
+@pytest.mark.parametrize("field,value", [
+    ("job_id", None),
+    ("campaign_id", []),
+    ("suite_or_lane", None),
+    ("raw_path", None),
+    ("configuration", None),
+    ("raw_pointer", None),
+    ("row_pointer", None),
+    ("timing_key", []),
+    ("statistic", False),
+    ("sample_count", False),
+    ("source_commit", 42),
+    ("source_fingerprint", {}),
+    ("raw_sha256", []),
+    ("raw_performance_eligible", "false"),
+])
+def test_invalid_native_timing_metadata_isolated_before_aliases(tmp_path, field, value):
+    from dev.benchmarks.generate_benchmark_data import generate
+
+    doc = sklearn_cv_preview()
+    good = preview()["records"][0]
+    good["record_id"] = "good-native"
+    bad = dict(good, record_id="bad-native")
+    bad[field] = value
+    doc["records"].extend([bad, good])
+    path = save(tmp_path / "preview.json", doc)
+    bundle = build_bundle(path)
+    assert sorted(row["framework"] for row in bundle["benchmark_data"]["runs"]) == ["sklearn", "statgpu"]
+    issues = {issue["message"].split(":", 1)[0]: issue["code"]
+              for issue in bundle["parse_report"]["issues"]}
+    assert issues["bad-native"] == "INVALID_NATIVE_TIMING_METADATA"
+    assert "good-native" not in issues
+    manifest = build_external_manifest(path, bundle, "2026-10-25")
+    data, _, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+    assert sorted(row["framework"] for row in data["runs"]) == ["sklearn", "statgpu"]
+
+
+def test_legacy_native_timing_without_raw_hash_keeps_job_qualified_provenance(tmp_path):
+    doc = preview()
+    original = doc["records"][0]
+    original.pop("raw_sha256")
+    original.pop("cpu_thread_profile")
+    original["row_pointer"] = ""
+    original["source_commit"] = None
+    duplicate = dict(original, record_id="same-job", raw_sha256="d" * 64)
+    other_job = dict(original, record_id="other-job", job_id="different-job")
+    doc["records"].extend([duplicate, other_job])
+    bundle = build_bundle(save(tmp_path / "preview.json", doc))
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["comparison_id"] == "diagnostic:different-job"
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 250
+    assert {issue["code"] for issue in bundle["parse_report"]["issues"]} == {"DUPLICATE_RAW_TIMING"}

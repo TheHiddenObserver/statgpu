@@ -1,3 +1,4 @@
+import { cpuThreadLabel, sourceProvenance } from '../provenance';
 import { timingValue, timingQuality, evidenceLabel, canDisplaySpeedup } from '../timing';
 import type { Run } from '../schema';
 import type { AppState } from '../state';
@@ -89,7 +90,10 @@ function buildColumns(runs: Run[]): Column[] {
     { key: 'timing_statistic', label: 'Timing statistic',
       sortValue: r => r.metrics.operation_timing?.statistic ?? '',
       render: r => r.metrics.operation_timing?.statistic ?? '-' },
-    { key: 'source', label: 'Source',
+    { key: 'cpu_threads', label: 'Host CPU limits',
+      sortValue: r => cpuThreadLabel(r),
+      render: r => cpuThreadLabel(r) },
+    { key: 'source', label: 'Source / provenance',
       sortValue: r => r.source.file,
       render: r => r.source.file },
   ];
@@ -181,7 +185,17 @@ export function renderOverviewTable(
     const row = h('tr', { style: 'border-bottom:1px solid #eee;' });
     for (const col of columns) {
       const val = col.render(r);
-      const td = h('td', {}, val);
+      const td = h('td', {}, col.key === 'source' ? '' : val);
+      if (col.key === 'source') {
+        td.classList.add('source-provenance');
+        td.appendChild(h('div', {}, `${r.source.file} · ${r.source.source_id}`));
+        td.appendChild(h('div', {}, `Run ${r.run_id} · raw commit ${r.evidence?.source_commit?.slice(0, 12) ?? 'not recorded'}`));
+        if (r.parameters?.external_adapter) td.appendChild(h('div', {}, `Adapter: ${r.parameters.external_adapter}`));
+        const details = h('details');
+        details.appendChild(h('summary', {}, 'Full source / raw provenance'));
+        for (const [label, value] of sourceProvenance(r)) details.appendChild(h('div', {}, `${label}: ${value}`));
+        td.appendChild(details);
+      }
       const extraStyle = col.style?.(r);
       if (extraStyle) {
         td.style.cssText += `; ${extraStyle}`;

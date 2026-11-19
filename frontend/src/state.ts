@@ -1,5 +1,6 @@
 /** UI state model and mutation helpers */
 
+import type { CpuThreadFilter } from './provenance';
 import type { Environment, MetricScope, Run } from './schema';
 
 // ---------------------------------------------------------------------------
@@ -11,6 +12,7 @@ export type ChartViewMode = 'focused' | 'full';
 export interface AppState {
   selectedCategoryIds: Set<string>;
   selectedEnvId: string | null;
+  selectedCpuThreads: CpuThreadFilter;
   selectedMetricScope: MetricScope;
   selectedModelId: string | null;
   selectedVariant: string | null;
@@ -56,6 +58,7 @@ export function createDefaultState(envs: Environment[], runs: Run[] = []): AppSt
   return {
     selectedCategoryIds: defaultCategory ? new Set([defaultCategory]) : new Set(),
     selectedEnvId: defaultEnvId,
+    selectedCpuThreads: 'all',
     selectedMetricScope: 'all',
     selectedModelId: null,
     selectedVariant: null,
@@ -82,6 +85,7 @@ export function createDefaultState(envs: Environment[], runs: Run[] = []): AppSt
 // ---------------------------------------------------------------------------
 
 export function resetDownstreamFilters(state: AppState, opts: {
+  clearCpuThreads?: boolean;
   clearMetricScope?: boolean;
   clearModel?: boolean;
   clearVariant?: boolean;
@@ -91,6 +95,7 @@ export function resetDownstreamFilters(state: AppState, opts: {
   clearBackend?: boolean;
   clearExternal?: boolean;
 }): void {
+  if (opts.clearCpuThreads || opts.clearMetricScope || opts.clearBackend) state.selectedCpuThreads = 'all';
   if (opts.clearMetricScope) state.selectedMetricScope = 'all';
   if (opts.clearModel)    state.selectedModelId = null;
   if (opts.clearVariant)  state.selectedVariant = null;

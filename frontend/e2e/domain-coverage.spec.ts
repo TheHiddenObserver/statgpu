@@ -32,12 +32,12 @@ test.describe('Benchmark domain coverage', () => {
   }) => {
     await page.getByRole('button', { name: 'None' }).click();
     await page.locator('#cat-robust_quantile').check();
-    await page.locator('.filter-bar select').first().selectOption('QuantileRegression');
+    await page.getByRole('combobox', { name: 'Model', exact: true }).selectOption('QuantileRegression');
 
     await expect(page.getByText('Penalty:', { exact: true })).toHaveCount(0);
     const solverLabel = page.getByText('Solver:', { exact: true });
     await expect(solverLabel).toBeVisible();
-    const solverSelect = solverLabel.locator('xpath=following-sibling::select[1]');
+    const solverSelect = page.getByRole('combobox', { name: 'Solver', exact: true });
     await expect(solverSelect.locator('option[value="irls"]')).toHaveCount(1);
   });
 
@@ -45,11 +45,11 @@ test.describe('Benchmark domain coverage', () => {
     await page.getByRole('button', { name: 'None' }).click();
     await page.locator('#cat-survival').check();
 
-    const selects = page.locator('.filter-bar select');
-    await selects.first().selectOption('CoxPH');
+    const modelSelect = page.getByRole('combobox', { name: 'Model', exact: true });
+    await modelSelect.selectOption('CoxPH');
     await expect(page.getByText('Variant:', { exact: true })).toBeVisible();
 
-    const variantSelect = page.locator('.filter-bar select').nth(1);
+    const variantSelect = page.getByRole('combobox', { name: 'Variant', exact: true });
     await expect(variantSelect.locator('option[value="breslow"]')).toHaveCount(1);
     await variantSelect.selectOption('breslow');
 
@@ -103,9 +103,9 @@ test.describe('Benchmark domain coverage', () => {
     await page.getByRole('button', { name: 'None' }).click();
     await page.locator('#cat-penalized_glm').check();
 
-    const modelSelect = page.locator('.filter-bar select').first();
+    const modelSelect = page.getByRole('combobox', { name: 'Model', exact: true });
     await modelSelect.selectOption('PenalizedLogisticRegression');
-    const logisticVariant = page.locator('.filter-bar select').nth(1);
+    const logisticVariant = page.getByRole('combobox', { name: 'Variant', exact: true });
     await expect(
       logisticVariant.locator('option[value="hc0-sandwich"]'),
     ).toHaveCount(1);
@@ -116,10 +116,9 @@ test.describe('Benchmark domain coverage', () => {
     await page.getByRole('button', { name: 'None' }).click();
     await page.locator('#cat-linear_models').check();
     await page
-      .locator('.filter-bar select')
-      .first()
+      .getByRole('combobox', { name: 'Model', exact: true })
       .selectOption('PenalizedLinearRegression');
-    const linearVariant = page.locator('.filter-bar select').nth(1);
+    const linearVariant = page.getByRole('combobox', { name: 'Variant', exact: true });
     await expect(
       linearVariant.locator('option[value="bootstrap-inference"]'),
     ).toHaveCount(1);
@@ -136,10 +135,10 @@ test.describe('Benchmark domain coverage', () => {
     await page.getByRole('button', { name: 'None' }).click();
     await page.locator('#cat-nonparametric').check();
 
-    const modelSelect = page.locator('.filter-bar select').first();
+    const modelSelect = page.getByRole('combobox', { name: 'Model', exact: true });
     await modelSelect.selectOption('GAM');
 
-    const variantSelect = page.locator('.filter-bar select').nth(1);
+    const variantSelect = page.getByRole('combobox', { name: 'Variant', exact: true });
     await expect(
       variantSelect.locator('option[value="pygam-comparison"]'),
     ).toHaveCount(1);
@@ -160,7 +159,7 @@ test.describe('Benchmark domain coverage', () => {
     await page.getByRole('button', { name: 'None' }).click();
     await page.locator('#cat-unsupervised').check();
 
-    await page.locator('.filter-bar select').first().selectOption('PCA');
+    await page.getByRole('combobox', { name: 'Model', exact: true }).selectOption('PCA');
     const chips = page.locator('.scale-chip');
     await expect(chips.filter({ hasText: '1K×20' })).toHaveCount(1);
     await expect(chips.filter({ hasText: '10K×50' })).toHaveCount(1);
@@ -173,8 +172,8 @@ test.describe('Benchmark domain coverage', () => {
     await page.getByRole('button', { name: 'None' }).click();
     await page.locator('#cat-unsupervised').check();
 
-    await page.locator('.filter-bar select').first().selectOption('DBSCAN');
-    const variantSelect = page.locator('.filter-bar select').nth(1);
+    await page.getByRole('combobox', { name: 'Model', exact: true }).selectOption('DBSCAN');
+    const variantSelect = page.getByRole('combobox', { name: 'Variant', exact: true });
     await expect(variantSelect.locator('option[value="10d"]')).toHaveCount(1);
     await expect(variantSelect.locator('option[value="50d"]')).toHaveCount(1);
     await variantSelect.selectOption('10d');
@@ -189,7 +188,7 @@ test.describe('Benchmark domain coverage', () => {
     await page.getByRole('button', { name: 'None' }).click();
     await page.locator('#cat-panel').check();
 
-    const modelSelect = page.locator('.filter-bar select').first();
+    const modelSelect = page.getByRole('combobox', { name: 'Model', exact: true });
     await modelSelect.selectOption('PanelOLS');
 
     const chips = page.locator('.scale-chip');
@@ -224,7 +223,7 @@ test.describe('Benchmark domain coverage', () => {
     await page.getByRole('button', { name: 'None' }).click();
     await page.locator('#cat-linear_models').check();
 
-    const modelSelect = page.locator('.filter-bar select').first();
+    const modelSelect = page.getByRole('combobox', { name: 'Model', exact: true });
     await modelSelect.selectOption('PenalizedLinearRegression');
     await expect(page.locator('.table-container')).toContainText(
       /penalized_glm_perf_20260622\.json|glm_solver_20260623\.json/,

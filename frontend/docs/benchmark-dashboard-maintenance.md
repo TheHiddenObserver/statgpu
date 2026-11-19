@@ -105,3 +105,48 @@ The [remaining-work plan after PR #78](../../dev/plans/statgpu_benchmark_dashboa
 - [Remaining-module audit](../../docs/benchmark-dashboard/remaining-module-audit.md)
 - [Robust-loss comparison plan](../../docs/benchmark-dashboard/robust-loss-comparison-plan.md)
 - [Penalized robust/quantile plan](../../docs/benchmark-dashboard/penalized-robust-quantile-plan.md)
+
+### Host CPU limits and source provenance
+
+The **Host CPU limits** selector uses recorded library pool and Torch host
+thread limits, including observations on GPU runs. It does not measure CPU utilization or prove
+parallel execution. Requested-only, absent, empty or invalid observations remain
+**Not recorded / invalid**. Differing observed limits or a requested/observed
+mismatch remain **Mixed / conflicting limits**; they are not counted as verified
+single- or multi-thread settings. Legacy rows without this evidence are retained
+under **All CPU limits**. Upstream category/environment/model/scale changes reset
+the selector to avoid stale hidden selections.
+
+The overview's **Source / provenance** cell shows source/run identity and the raw
+producer commit (not the renderer build commit). Expand it for full source/raw
+paths, raw JSON pointer, hashes, parser and any explicitly recorded external
+adapter. These are text, not assumed reachable links. External rows remain an
+opt-in display, not performance comparisons; diagnostic qualification is unchanged.
+
+The external scoped-CV importer checks required record identity strings,
+configuration and thread-profile objects and binds each record to its job and
+campaign before alias grouping. It validates the recorded scalar against the
+embedded repeats and uses that evidence for the displayed median and sample
+count. A rejected repeat display record does not invalidate a verified median.
+StatGPU and sklearn timing records are checked for conflicting values at the
+same artifact hash and JSON pointer. Repeated timing records at the same pointer
+within a job are also withheld. Matching observations from distinct jobs retain
+their provenance. When a clean-fit CV sample record is withheld for a conflict
+or duplicate pointer, its dependent median and repeat rows are withheld too.
+StatGPU timing records with raw values must match the reported scalar or sample
+median after unit conversion. Sample vectors must match the recorded count.
+Standalone mismatches are reported as `NATIVE_TIMING_MISMATCH`. Legacy summaries
+with no raw field can still be displayed.
+Malformed external metadata is withheld per record with
+`EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID`; the raw preview and healthy
+neighbors are preserved. Job/record agreement alone does not establish valid
+metadata types. Optional thread counts may remain absent/null; observed limits
+may be a positive integer or a list of positive integers (including an empty
+list for unrecorded observations). Differing valid limits are preserved, not
+reclassified as verified. Present timing statistics, sample counts and raw
+eligibility flags must match their output types. Missing/null optional runtime
+version metadata remains unknown; malformed versions retain their separate
+`EXTERNAL_ADAPTER_VERSION_METADATA_INVALID` reason. Attempts to promote a
+diagnostic record to canonical/performance eligibility still reject the import.
+Malformed StatGPU record metadata, thread profiles and scoped-CV array indices
+are reported per record, so other observations can still be exported.
