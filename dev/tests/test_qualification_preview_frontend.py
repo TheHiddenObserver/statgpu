@@ -373,7 +373,13 @@ def test_inconsistent_cv_alias_values_never_select_a_preferred_truth(tmp_path, p
     doc = cv_preview(phase=phase); doc["records"][index]["summary_seconds"] = 9
     bundle = build_bundle(save(tmp_path / "preview.json", doc))
     assert not bundle["benchmark_data"]["runs"]
-    assert {issue["code"] for issue in bundle["parse_report"]["issues"]} == {"INCONSISTENT_TIMING_ALIASES"}
+    issues = {issue["message"].split(":", 1)[0]: issue["code"]
+              for issue in bundle["parse_report"]["issues"]}
+    for row in doc["records"]:
+        expected = "INCONSISTENT_TIMING_ALIASES"
+        if index == 0:
+            expected = "NATIVE_TIMING_MISMATCH" if row is doc["records"][0] else "UNQUALIFIED_TIMING_ALIAS_SOURCE"
+        assert issues[row["record_id"]] == expected
 
 
 def test_inconsistent_generic_summary_is_not_silently_discarded(tmp_path):
@@ -1025,12 +1031,15 @@ def test_invalid_native_thread_profile_preserves_other_records(tmp_path):
 
 
 @pytest.mark.parametrize("reverse", [False, True])
-@pytest.mark.parametrize("kind", ["scoped", "scalar", "sample-vector"])
+@pytest.mark.parametrize("kind", ["scoped", "scalar", "sample-vector", "clean-cv", "clean-cv-duplicate"])
 def test_conflicting_native_timings_are_withheld_in_both_export_paths(tmp_path, reverse, kind):
     from dev.benchmarks.generate_benchmark_data import generate
 
     doc = sklearn_cv_preview()
-    native = (cv_preview(phase=True) if kind == "scoped" else preview())["records"]
+    if kind == "scoped" or kind.startswith("clean-cv"):
+        native = cv_preview(phase=kind == "scoped")["records"]
+    else:
+        native = preview()["records"]
     for row in native:
         row["record_id"] = "native-" + row["record_id"]
         row["raw_sha256"] = "d" * 64
@@ -1046,7 +1055,9 @@ def test_conflicting_native_timings_are_withheld_in_both_export_paths(tmp_path, 
     duplicate["context"]["dtype"] = "float64"
     if kind == "sample-vector":
         duplicate["raw_value"][0] = 0.2
-    else:
+    elif kind == "clean-cv":
+        duplicate.update(raw_value=[0.3, 0.4, 0.5], summary_seconds=0.4)
+    elif kind != "clean-cv-duplicate":
         duplicate.update(raw_value=300, summary_seconds=0.3)
     doc["records"].extend([*native, duplicate])
     if reverse:
@@ -1057,10 +1068,45 @@ def test_conflicting_native_timings_are_withheld_in_both_export_paths(tmp_path, 
     assert [row["framework"] for row in bundle["benchmark_data"]["runs"]] == ["sklearn"]
     issues = {issue["message"].split(":", 1)[0]: issue["code"]
               for issue in bundle["parse_report"]["issues"]}
-    assert issues[original["record_id"]] == issues[duplicate["record_id"]] == "CONFLICTING_RAW_TIMING"
+    expected = "DUPLICATE_RAW_TIMING" if kind == "clean-cv-duplicate" else "CONFLICTING_RAW_TIMING"
+    assert issues[original["record_id"]] == issues[duplicate["record_id"]] == expected
+    if kind.startswith("clean-cv"):
+        assert issues["native-median"] == "UNQUALIFIED_TIMING_ALIAS_SOURCE"
+        assert all(issues[f"native-repeat-{index}"] == "UNQUALIFIED_TIMING_ALIAS_SOURCE" for index in range(3))
     manifest = build_external_manifest(path, bundle, "2026-10-25")
     data, _, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
     assert [row["framework"] for row in data["runs"]] == ["sklearn"]
+
+
+@pytest.mark.parametrize("good_values,change", [
+    ({"raw_value": 200, "unit": "milliseconds"}, {"summary_seconds": 0.35}),
+    ({"raw_value": 0.2, "unit": "seconds"}, {"summary_seconds": 0.35}),
+    ({"raw_value": 200, "unit": "milliseconds"}, {"unit": "microseconds"}),
+    ({"raw_value": 200, "unit": "milliseconds"}, {"raw_value": None}),
+    ({"raw_value": [0.1, 0.2, 0.3], "unit": "seconds", "sample_count": 3}, {"summary_seconds": 0.35}),
+    ({"raw_value": [100, 200, 300], "unit": "milliseconds", "sample_count": 3}, {"sample_count": 2}),
+])
+@pytest.mark.parametrize("scoped", [False, True])
+def test_native_raw_timing_mismatch_cannot_hide_consistent_record(tmp_path, scoped, good_values, change):
+    from dev.benchmarks.generate_benchmark_data import generate
+
+    doc = cv_preview(phase=True) if scoped else preview()
+    good = doc["records"][0]
+    good.pop("sample_count", None)
+    good.update(summary_seconds=0.2, **good_values)
+    bad = dict(good, record_id="inconsistent-native", **change)
+    doc["records"] = [bad, good]
+    path = save(tmp_path / "preview.json", doc)
+    bundle = build_bundle(path)
+    row, = bundle["benchmark_data"]["runs"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
+    issue, = bundle["parse_report"]["issues"]
+    assert issue["code"] == "NATIVE_TIMING_MISMATCH"
+    assert issue["message"].startswith("inconsistent-native:")
+    manifest = build_external_manifest(path, bundle, "2026-10-25")
+    data, _, _ = generate(tmp_path, deterministic=True, manifest=manifest, strict_sources=True)
+    row, = data["runs"]
+    assert row["metrics"]["operation_timing"]["duration_ms"] == 200
 
 
 @pytest.mark.parametrize("field,value", [

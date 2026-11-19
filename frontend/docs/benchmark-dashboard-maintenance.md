@@ -131,7 +131,12 @@ count. A rejected repeat display record does not invalidate a verified median.
 StatGPU and sklearn timing records are checked for conflicting values at the
 same artifact hash and JSON pointer. Repeated timing records at the same pointer
 within a job are also withheld. Matching observations from distinct jobs retain
-their provenance.
+their provenance. When a clean-fit CV sample record is withheld for a conflict
+or duplicate pointer, its dependent median and repeat rows are withheld too.
+StatGPU timing records with raw values must match the reported scalar or sample
+median after unit conversion. Sample vectors must match the recorded count.
+Standalone mismatches are reported as `NATIVE_TIMING_MISMATCH`. Legacy summaries
+with no raw field can still be displayed.
 Malformed external metadata is withheld per record with
 `EXTERNAL_ADAPTER_REQUIRED_METADATA_INVALID`; the raw preview and healthy
 neighbors are preserved. Job/record agreement alone does not establish valid

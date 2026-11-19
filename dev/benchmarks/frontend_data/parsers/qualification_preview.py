@@ -254,6 +254,26 @@ def _duration_ms(record, *, external):
     return record["raw_value"] if external else record["summary_seconds"] * 1000.0
 
 
+def _native_timing_matches(record):
+    """Check the producer's scalar or sample median when raw evidence is present."""
+    if "raw_value" not in record:
+        return True  # Legacy summaries can lack the raw field.
+    unit = record.get("unit")
+    if unit not in ("seconds", "milliseconds"):
+        return False
+    factor = 1000 if unit == "milliseconds" else 1
+    raw = record["raw_value"]
+    if isinstance(raw, list):
+        if not raw or record.get("sample_count") != len(raw) or not all(_positive(value) for value in raw):
+            return False
+        duration = statistics.median(value / factor for value in raw)
+    elif _positive(raw):
+        duration = raw / factor
+    else:
+        return False
+    return _same_timing(record["summary_seconds"], duration)
+
+
 def _external_repeat_values(record, observation):
     parent, key, _, _ = observation
     run_index = int(parent.rsplit("/", 1)[1])
@@ -275,10 +295,12 @@ def _alias_dispositions(records, observations):
     for record in records:
         cv = observations[record["record_id"]]
         identity, identity_reason = _identity(record)
-        if ((not cv or cv[2] != "repeat") and identity is not None
-                and not _display_reason(record)):
-            duration = _duration_ms(record, external=identity.get("framework") == "sklearn")
-            if _positive(duration):
+        if identity is not None and not _display_reason(record):
+            external = identity.get("framework") == "sklearn"
+            if not external and not _native_timing_matches(record):
+                reasons[record["record_id"]] = "NATIVE_TIMING_MISMATCH"
+            elif ((not cv or cv[2] != "repeat")
+                  and _positive(duration := _duration_ms(record, external=external))):
                 artifact_hash = record.get("raw_sha256")
                 if artifact_hash and re.fullmatch(r"[0-9a-f]{64}", artifact_hash):
                     origin = artifact_hash, record["raw_pointer"]
@@ -315,6 +337,15 @@ def _alias_dispositions(records, observations):
                 reasons.setdefault(row["record_id"], "DUPLICATE_RAW_TIMING")
 
     for entries in groups.values():
+        # A malformed copy cannot disqualify a verified observation at the
+        # same pointer. An unreplaced source still blocks dependent aliases.
+        verified_sources = {
+            (row.get("raw_sha256"), row["raw_pointer"]) for row, _ in entries
+            if row["record_id"] not in reasons and "raw_value" in row and not _display_reason(row)
+        }
+        entries = [(row, cv) for row, cv in entries
+                   if reasons.get(row["record_id"]) != "NATIVE_TIMING_MISMATCH"
+                   or (row.get("raw_sha256"), row["raw_pointer"]) not in verified_sources]
         rows = [row for row, _ in entries]
         if entries[0][1]:
             sample_rows = [row for row, cv in entries if cv[2] == "samples"]
@@ -332,7 +363,8 @@ def _alias_dispositions(records, observations):
                 mark(rows, "UNVERIFIABLE_TIMING_ALIASES")
                 continue
             if canonical_row["record_id"] in reasons:
-                mark([row for row, _ in repeats], "UNQUALIFIED_TIMING_ALIAS_SOURCE")
+                for row in rows:
+                    reasons.setdefault(row["record_id"], "UNQUALIFIED_TIMING_ALIAS_SOURCE")
                 continue
             identity, identity_reason = _identity(canonical_row)
             if (canonical_row.get("validation_status") != "validated_diagnostic"
