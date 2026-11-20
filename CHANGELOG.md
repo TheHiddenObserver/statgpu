@@ -2,7 +2,9 @@
 
 All notable changes to statgpu are documented here, organized by release and date.
 
-## Unreleased — internal simplification (2026-10-29–2026-10-31)
+## Unreleased — internal simplification (2026-10-29–2026-11-20)
+
+- Consolidated PGLM finite-validation cleanup in the reset contract without changing fit wrapper order or failure rollback.
 
 - Moved Gaussian inference device defaults, Quantile IRLS validation, low-degree Student-t routing, and Adaptive Group Lasso curvature handling into their owning definitions without changing numerical kernels or public call signatures.
 - Defined LinearRegression and Ridge refit-boundary composition alongside their classes, preserving finite-validation, device-provenance, cleanup, and failure-state ordering instead of installing these layers through package imports.

@@ -1,11 +1,15 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-31<br>
+> Last updated: 2026-11-20<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
 This page records user-visible changes for current and recent statgpu releases.
+
+### Improved (2026-11-20, unreleased)
+
+- **Penalized GLM finite-validation cleanup**: Consolidated cleanup after a rejected fit in the validation reset contract. Cleanup still uses the failing validation’s backend and device rather than a previous fit’s state, and a rejected refit still clears stale fitted results where required. Fit ordering, public signatures, and numerical methods are unchanged.
 
 ### Improved (2026-10-31, unreleased)
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import functools
-import sys
 
 import numpy as np
 
@@ -13,6 +12,9 @@ from ..wrappers._linear import LinearRegression
 from ._base import PenalizedGeneralizedLinearModel
 from ._inference_mixin import _PenalizedInferenceMixin
 from . import _no_inference_public_validation_reset_contract as _public_reset_contract
+from ._no_inference_public_validation_reset_contract import (
+    _best_effort_cleanup as _best_effort_cleanup,
+)
 
 
 _MISSING = object()
@@ -145,68 +147,15 @@ def _install_pglm_attempt_device_contract() -> None:
     PenalizedGeneralizedLinearModel.fit = _fit_with_attempt_device
 
 
-def _best_effort_cleanup(cleanup) -> None:
-    try:
-        cleanup()
-    except Exception:
-        # Cleanup is advisory; never replace the public validation exception.
-        return None
-    return None
-
-
 def _cleanup_failed_public_finite_validation_safe(estimator) -> None:
-    """Preserve the validation exception if CuPy cleanup context entry fails."""
-    exc = sys.exc_info()[1]
-    backend = _backend_name(getattr(exc, "_statgpu_finite_backend", None))
-    device = _backend_name(getattr(exc, "_statgpu_finite_device", None))
-
-    if backend == "torch":
-        _best_effort_cleanup(estimator._cleanup_torch_memory)
-        return
-
-    if backend != "cupy":
-        return
-
-    cleanup = estimator._cleanup_cuda_memory
-    if not device.startswith("cuda:"):
-        _best_effort_cleanup(cleanup)
-        return
-
-    try:
-        device_id = int(device.split(":", 1)[1])
-    except (TypeError, ValueError):
-        _best_effort_cleanup(cleanup)
-        return
-
-    try:
-        import cupy as cp
-    except ImportError:
-        _best_effort_cleanup(cleanup)
-        return
-
-    try:
-        context = cp.cuda.Device(device_id)
-        context.__enter__()
-    except Exception:
-        # The concrete device can itself be unavailable during error recovery.
-        # Fall back to the captured cleanup semantics once and preserve the
-        # original finite-validation exception.
-        _best_effort_cleanup(cleanup)
-        return
-
-    try:
-        _best_effort_cleanup(cleanup)
-    finally:
-        try:
-            context.__exit__(None, None, None)
-        except Exception:
-            pass
+    """Compatibility entry point using the estimator's current methods."""
+    _public_reset_contract._cleanup_public_finite_validation(
+        estimator, use_captured=False
+    )
 
 
 def _install_public_validation_cleanup_contract() -> None:
-    _public_reset_contract._cleanup_failed_public_finite_validation = (
-        _cleanup_failed_public_finite_validation_safe
-    )
+    """Compatibility no-op; the reset module owns finite-validation cleanup."""
 
 
 def _precompute_exact_l2_inference_cupy_raw_y(
@@ -553,6 +502,5 @@ def _install_exact_raw_response_contract() -> None:
     )
 
 
-_install_public_validation_cleanup_contract()
 _install_exact_raw_response_contract()
 _install_pglm_attempt_device_contract()
