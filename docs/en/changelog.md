@@ -1,11 +1,23 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-10-24<br>
+> Last updated: 2026-11-20<br>
 > This page: Release history  
 > Switch: [Chinese](../cn/changelog.md)
 
 This page records user-visible changes for current and recent statgpu releases.
+
+### Improved (2026-11-20, unreleased)
+
+- **Penalized GLM finite-validation cleanup**: Consolidated cleanup after a rejected fit in the validation reset contract. Cleanup still uses the failing validation’s backend and device rather than a previous fit’s state, and a rejected refit still clears stale fitted results where required. Fit ordering, public signatures, and numerical methods are unchanged.
+
+### Improved (2026-10-31, unreleased)
+
+- **LassoCV internal ownership**: Made CPU conversion and concrete GPU-device alignment part of the class-owned input preparation method, and made the shared selector device/uniform-weight/weighted delegation explicit. Numerical kernels, knockoff consumers, AUTO final-refit behavior and historical compatibility entries remain unchanged. This refactor changes no public parameters or statistical behavior and makes no new performance or physical-GPU validation claim.
+
+### Fixed (2026-10-30, unreleased)
+
+- **CoxPHCV split-lifecycle reload**: Reloading the private `_cox_cv_split_lifecycle_contract` module previously recaptured its installed constructor and CV wrappers as their own originals, causing `RecursionError` on construction or CV execution. The installation now remains stable for the same estimator class, preserving one-shot split reuse, clone/pickle behavior, and later user-added wrappers. Ordinary imports, numerical fitting, and public signatures are unchanged. Regression coverage: `dev/tests/test_pr261_cox_cv_reload.py`.
 
 ### Fixed (2026-10-25)
 

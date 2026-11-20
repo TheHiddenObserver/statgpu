@@ -7,6 +7,7 @@ parameter for Cox PH models.
 
 from typing import Optional, Union, Tuple, Dict, Any, List
 import copy
+from functools import wraps
 import numbers
 import hashlib
 import os
@@ -38,6 +39,45 @@ from statgpu.survival._cox_fit_adapter import (
     _PreencodedCoxLabels,
 )
 from statgpu.survival._risk_sets import cox_counting_process_objective
+
+
+# Capture the same inherited parameter implementations that the historical
+# lifecycle wrapper used. Do not turn these calls into dynamic ``super()``
+# dispatch: later changes to a base method must not alter this boundary.
+_COXPHCV_BASE_GET_PARAMS = CVEstimatorBase.get_params
+_COXPHCV_BASE_SET_PARAMS = CVEstimatorBase.set_params
+
+
+def _is_one_shot_iterator(value) -> "bool":
+    """Return whether ``value`` is consumed by iterating it once."""
+    if value is None:
+        return False
+    try:
+        return iter(value) is value
+    except TypeError:
+        return False
+
+
+def _clear_materialized_split_state(estimator) -> "None":
+    estimator._cox_cv_split_source = None
+    estimator._cox_cv_split_snapshot = None
+
+
+def _materialize_cv_splits(estimator):
+    """Materialize a one-shot splitter once and reuse it across estimator use."""
+    splits = estimator.cv_splits
+    if splits is None or not _is_one_shot_iterator(splits):
+        return splits
+
+    source = getattr(estimator, "_cox_cv_split_source", None)
+    snapshot = getattr(estimator, "_cox_cv_split_snapshot", None)
+    if source is splits and snapshot is not None:
+        return snapshot
+
+    snapshot = list(splits)
+    estimator._cox_cv_split_source = splits
+    estimator._cox_cv_split_snapshot = snapshot
+    return snapshot
 
 
 # =============================================================================
@@ -1653,6 +1693,57 @@ class CoxPHCV(CVEstimatorBase):
         self._conf_int = None
         self._inference_result = None
         self._fit_controls = None
+
+    @wraps(_COXPHCV_BASE_GET_PARAMS)
+    def get_params(self, deep=True):
+        """Expose a reusable equivalent of a one-shot constructor iterator."""
+        params = _COXPHCV_BASE_GET_PARAMS(self, deep=deep)
+        if _is_one_shot_iterator(params.get("cv_splits")):
+            params["cv_splits"] = _materialize_cv_splits(self)
+        return params
+
+    @wraps(_COXPHCV_BASE_SET_PARAMS)
+    def set_params(self, **params):
+        result = _COXPHCV_BASE_SET_PARAMS(self, **params)
+        if "cv_splits" in params:
+            _clear_materialized_split_state(self)
+        return result
+
+    def __sklearn_clone__(self):
+        """Return an unfitted clone even when ``cv_splits`` is a generator."""
+        params = self.get_params(deep=False).copy()
+        if _is_one_shot_iterator(params.get("cv_splits")):
+            params["cv_splits"] = _materialize_cv_splits(self)
+        return type(self)(**copy.deepcopy(params))
+
+    def __getstate__(self):
+        """Serialize one-shot custom folds as a reusable constructor sequence."""
+        state = self.__dict__.copy()
+
+        raw_params = state.get("_constructor_params_raw")
+        public_one_shot = _is_one_shot_iterator(state.get("cv_splits"))
+        raw_one_shot = isinstance(raw_params, dict) and _is_one_shot_iterator(
+            raw_params.get("cv_splits")
+        )
+        if public_one_shot or raw_one_shot:
+            reusable_splits = copy.deepcopy(_materialize_cv_splits(self))
+            state["cv_splits"] = reusable_splits
+            if isinstance(raw_params, dict):
+                raw_params = raw_params.copy()
+                raw_params["cv_splits"] = copy.deepcopy(reusable_splits)
+                state["_constructor_params_raw"] = raw_params
+
+        state["_cox_cv_split_source"] = None
+        state["_cox_cv_split_snapshot"] = None
+        return state
+
+    # These two callables were globally pickleable under the compatibility
+    # module before becoming class-owned methods. Preserve those serialized
+    # identities; that module re-exports the exact functions without rebinding.
+    __sklearn_clone__.__module__ = "statgpu.survival._cox_cv_split_lifecycle_contract"
+    __sklearn_clone__.__name__ = __sklearn_clone__.__qualname__ = "_clone_with_reusable_splits"
+    __getstate__.__module__ = "statgpu.survival._cox_cv_split_lifecycle_contract"
+    __getstate__.__name__ = __getstate__.__qualname__ = "_getstate_with_reusable_splits"
 
     def _reset_fit_state(self):
         """Remove every fitted/CV artifact before a new public fit attempt."""

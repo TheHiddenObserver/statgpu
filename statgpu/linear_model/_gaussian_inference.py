@@ -123,6 +123,12 @@ def _as_backend_array(value, backend: str, *, like=None, device: Optional[str] =
             target_dtype = value.dtype if value.dtype.is_floating_point else torch.float64
         else:
             target_device = device or "cuda"
+            # Host-only shared inference has no native device authority. Keep
+            # its existing availability-based default here, not in an import-
+            # time wrapper. Explicit devices and native operands never use this
+            # default; public estimators still own their strict device policy.
+            if device is None:
+                target_device = "cuda" if torch.cuda.is_available() else "cpu"
             target_dtype = torch.float64
         if isinstance(value, torch.Tensor):
             return value.to(device=target_device, dtype=target_dtype)

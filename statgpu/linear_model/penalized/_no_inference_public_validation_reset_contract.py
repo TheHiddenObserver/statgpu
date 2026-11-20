@@ -1,4 +1,4 @@
-"""Fail-closed public finite-validation reset for estimation-only PGLM fits."""
+"""Cleanup and fail-closed reset for PGLM public finite validation."""
 
 from __future__ import annotations
 
@@ -7,6 +7,10 @@ import sys
 
 from ._base import PenalizedGeneralizedLinearModel
 from ._no_inference_cleanup_contract import _invalidate_failed_no_inference_fit
+
+
+_DIRECT_CUDA_CLEANUP = "_statgpu_finite_direct_cleanup_cuda"
+_DIRECT_TORCH_CLEANUP = "_statgpu_finite_direct_cleanup_torch"
 
 
 def _cupy_device_id(device_label: str) -> int | None:
@@ -19,30 +23,71 @@ def _cupy_device_id(device_label: str) -> int | None:
         return None
 
 
-def _cleanup_failed_public_finite_validation(estimator) -> None:
-    """Release accelerator temporaries created by the outer finite-input guard."""
-    exc = sys.exc_info()[1]
-    backend = str(
-        getattr(exc, "_statgpu_finite_backend", "") or ""
-    ).lower()
-    device = str(
-        getattr(exc, "_statgpu_finite_device", "") or ""
-    ).lower()
-    if backend == "cupy":
-        device_id = _cupy_device_id(device)
-        if device_id is None:
-            estimator._cleanup_cuda_memory()
-            return
-        try:
-            import cupy as cp
-        except ImportError:
-            estimator._cleanup_cuda_memory()
-            return
+def _best_effort_cleanup(cleanup) -> None:
+    try:
+        cleanup()
+    except Exception:
+        # Cleanup is advisory and must never replace the validation exception.
+        return None
 
-        with cp.cuda.Device(device_id):
-            estimator._cleanup_cuda_memory()
-    elif backend == "torch":
-        estimator._cleanup_torch_memory()
+
+def _direct_cleanup(estimator, attr_name, fallback_name):
+    cleanup = getattr(estimator, attr_name, None)
+    if callable(cleanup):
+        return cleanup
+    return getattr(estimator, fallback_name)
+
+
+def _cleanup_public_finite_validation(estimator, *, use_captured: bool) -> None:
+    exc = sys.exc_info()[1]
+    backend = str(getattr(exc, "_statgpu_finite_backend", None) or "").lower().strip()
+    device = str(getattr(exc, "_statgpu_finite_device", None) or "").lower().strip()
+
+    if backend == "torch":
+        attr_name, fallback_name = _DIRECT_TORCH_CLEANUP, "_cleanup_torch_memory"
+    elif backend == "cupy":
+        attr_name, fallback_name = _DIRECT_CUDA_CLEANUP, "_cleanup_cuda_memory"
+    else:
+        return
+
+    # Generic fits can use the methods captured before the inner transactions
+    # wrapped them. Typed fits may fail before that capture; use their methods.
+    cleanup = (
+        _direct_cleanup(estimator, attr_name, fallback_name)
+        if use_captured
+        else getattr(estimator, fallback_name)
+    )
+    device_id = _cupy_device_id(device) if backend == "cupy" else None
+    if device_id is None:
+        _best_effort_cleanup(cleanup)
+        return
+
+    try:
+        import cupy as cp
+    except ImportError:
+        _best_effort_cleanup(cleanup)
+        return
+
+    try:
+        context = cp.cuda.Device(device_id)
+        context.__enter__()
+    except Exception:
+        # The recorded device can itself be unavailable during error recovery.
+        _best_effort_cleanup(cleanup)
+        return
+
+    try:
+        _best_effort_cleanup(cleanup)
+    finally:
+        try:
+            context.__exit__(None, None, None)
+        except Exception:
+            pass
+
+
+def _cleanup_failed_public_finite_validation(estimator) -> None:
+    """Clean finite-check temporaries on their device, not the last fit's."""
+    _cleanup_public_finite_validation(estimator, use_captured=True)
 
 
 def _install_no_inference_public_validation_reset_contract() -> None:

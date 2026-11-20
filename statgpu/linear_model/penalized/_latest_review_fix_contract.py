@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import functools
-import sys
 
 import numpy as np
 
@@ -13,6 +12,9 @@ from ..wrappers._linear import LinearRegression
 from ._base import PenalizedGeneralizedLinearModel
 from ._inference_mixin import _PenalizedInferenceMixin
 from . import _no_inference_public_validation_reset_contract as _public_reset_contract
+from ._no_inference_public_validation_reset_contract import (
+    _best_effort_cleanup as _best_effort_cleanup,
+)
 
 
 _MISSING = object()
@@ -68,74 +70,7 @@ def _restore_instance_attr(instance, name, previous):
 
 
 def _install_linear_attempt_device_contract() -> None:
-    """Publish the current LinearRegression attempt device before y conversion."""
-    current = LinearRegression.fit
-    if getattr(current, "_statgpu_attempt_device_contract", False):
-        return
-
-    @functools.wraps(current)
-    def _fit_with_attempt_device(
-        self,
-        X=None,
-        y=None,
-        sample_weight=None,
-        formula=None,
-        data=None,
-    ):
-        original_get_backend = self._get_backend
-        original_to_array = self._to_array
-        saved_get_backend = self.__dict__.get("_get_backend", _MISSING)
-        saved_to_array = self.__dict__.get("_to_array", _MISSING)
-        direct_X = X
-        selected_backend = {"name": None}
-
-        def _get_backend_tracked(*args, **kwargs):
-            backend = original_get_backend(*args, **kwargs)
-            name = _backend_name(getattr(backend, "name", None))
-            selected_backend["name"] = name
-            self._selected_backend_name = name
-            # Clear stale provenance from a previous fit before any conversion.
-            self._selected_backend_device = None
-            label = _device_label(
-                direct_X,
-                name,
-                allow_runtime_fallback=True,
-            )
-            if label is not None:
-                self._selected_backend_device = label
-            return backend
-
-        def _to_array_tracked(value, *args, **kwargs):
-            arr = original_to_array(value, *args, **kwargs)
-            # In the direct X/y path, X is the first converted public operand.
-            # Publish its actual device before y conversion/alignment can fail.
-            if direct_X is not None and value is direct_X:
-                name = _backend_name(
-                    kwargs.get("backend") or selected_backend["name"]
-                )
-                label = _device_label(arr, name)
-                if label is not None:
-                    self._selected_backend_device = label
-            return arr
-
-        self._get_backend = _get_backend_tracked
-        self._to_array = _to_array_tracked
-        try:
-            return current(
-                self,
-                X=X,
-                y=y,
-                sample_weight=sample_weight,
-                formula=formula,
-                data=data,
-            )
-        finally:
-            _restore_instance_attr(self, "_get_backend", saved_get_backend)
-            _restore_instance_attr(self, "_to_array", saved_to_array)
-
-    _fit_with_attempt_device._statgpu_attempt_device_contract = True
-    _fit_with_attempt_device._statgpu_original = current
-    LinearRegression.fit = _fit_with_attempt_device
+    """Compatibility no-op; LinearRegression owns attempt provenance at definition."""
 
 
 def _install_pglm_attempt_device_contract() -> None:
@@ -212,68 +147,15 @@ def _install_pglm_attempt_device_contract() -> None:
     PenalizedGeneralizedLinearModel.fit = _fit_with_attempt_device
 
 
-def _best_effort_cleanup(cleanup) -> None:
-    try:
-        cleanup()
-    except Exception:
-        # Cleanup is advisory; never replace the public validation exception.
-        return None
-    return None
-
-
 def _cleanup_failed_public_finite_validation_safe(estimator) -> None:
-    """Preserve the validation exception if CuPy cleanup context entry fails."""
-    exc = sys.exc_info()[1]
-    backend = _backend_name(getattr(exc, "_statgpu_finite_backend", None))
-    device = _backend_name(getattr(exc, "_statgpu_finite_device", None))
-
-    if backend == "torch":
-        _best_effort_cleanup(estimator._cleanup_torch_memory)
-        return
-
-    if backend != "cupy":
-        return
-
-    cleanup = estimator._cleanup_cuda_memory
-    if not device.startswith("cuda:"):
-        _best_effort_cleanup(cleanup)
-        return
-
-    try:
-        device_id = int(device.split(":", 1)[1])
-    except (TypeError, ValueError):
-        _best_effort_cleanup(cleanup)
-        return
-
-    try:
-        import cupy as cp
-    except ImportError:
-        _best_effort_cleanup(cleanup)
-        return
-
-    try:
-        context = cp.cuda.Device(device_id)
-        context.__enter__()
-    except Exception:
-        # The concrete device can itself be unavailable during error recovery.
-        # Fall back to the captured cleanup semantics once and preserve the
-        # original finite-validation exception.
-        _best_effort_cleanup(cleanup)
-        return
-
-    try:
-        _best_effort_cleanup(cleanup)
-    finally:
-        try:
-            context.__exit__(None, None, None)
-        except Exception:
-            pass
+    """Compatibility entry point using the estimator's current methods."""
+    _public_reset_contract._cleanup_public_finite_validation(
+        estimator, use_captured=False
+    )
 
 
 def _install_public_validation_cleanup_contract() -> None:
-    _public_reset_contract._cleanup_failed_public_finite_validation = (
-        _cleanup_failed_public_finite_validation_safe
-    )
+    """Compatibility no-op; the reset module owns finite-validation cleanup."""
 
 
 def _precompute_exact_l2_inference_cupy_raw_y(
@@ -620,7 +502,5 @@ def _install_exact_raw_response_contract() -> None:
     )
 
 
-_install_public_validation_cleanup_contract()
 _install_exact_raw_response_contract()
-_install_linear_attempt_device_contract()
 _install_pglm_attempt_device_contract()
