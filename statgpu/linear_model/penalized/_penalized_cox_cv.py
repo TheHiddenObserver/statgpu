@@ -22,6 +22,7 @@ from statgpu.cross_validation._base import (
     kfold_indices,
 )
 from statgpu.solvers import ConvergenceWarning
+from statgpu.cross_validation._grid_validation import coerce_real_numeric_grid
 
 
 def _shape(value):
@@ -150,6 +151,11 @@ def _penalty_for_alpha(penalty, alpha):
 
 
 def _validate_alpha_grid(alpha_grid, penalty_name):
+    grid = coerce_real_numeric_grid(alpha_grid, name="alpha_grid")
+    return _validate_alpha_grid_unchecked(grid, penalty_name)
+
+
+def _validate_alpha_grid_unchecked(alpha_grid, penalty_name):
     grid = np.asarray(alpha_grid, dtype=np.float64)
     if grid.ndim != 1 or grid.size == 0:
         raise ValueError("alpha_grid must be a non-empty one-dimensional array")
@@ -158,6 +164,10 @@ def _validate_alpha_grid(alpha_grid, penalty_name):
     if penalty_name in {"scad", "mcp"} and np.any(grid <= 0.0):
         raise ValueError("SCAD/MCP alpha_grid values must be strictly positive")
     return grid
+
+
+# Retain the historical unchecked introspection/call path without an installer.
+_validate_alpha_grid.__wrapped__ = _validate_alpha_grid_unchecked
 
 
 def _alpha_grid_from_zero_score(

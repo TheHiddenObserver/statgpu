@@ -183,7 +183,7 @@ jobs:
   smoke-install-wheel:
     name: ${{ matrix.job-name }}
     needs: validate-distributions
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && matrix.python == '3.9' && 'ubuntu-24.04' || matrix.os }}
     strategy:
       fail-fast: false
       matrix:

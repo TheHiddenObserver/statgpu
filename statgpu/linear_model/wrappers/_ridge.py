@@ -21,6 +21,66 @@ from statgpu._config import Device
 from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression as _PenalizedLinearRegression
 
 
+def _with_ridge_failed_refit(cls):
+    """Reset optimized direct-fit state and fail closed on Ridge refit errors."""
+    current = cls.fit
+
+    @functools.wraps(current)
+    def _fit_with_failed_refit_contract(
+        self, X=None, y=None, sample_weight=None, formula=None, data=None
+    ):
+        try:
+            optimized_direct = (
+                formula is None
+                and self._get_compute_device() == Device.CPU
+                and self._solver == "exact"
+            )
+            if optimized_direct:
+                # The optimized override bypasses the generic PGLM fit preamble.
+                # Reset formula-derived intercept semantics and all previous
+                # inference/reporting state before a successful direct refit so a
+                # prior formula/no-intercept fit or inference-enabled fit cannot
+                # contaminate this fit.
+                self._feature_names = None
+                self._design_info = None
+                self._formula_has_intercept = None
+                self._use_intercept = None
+                self._native_fit_coef = None
+                self._native_fit_intercept = None
+                self._inference_precomputed = False
+                self._precomputed_gaussian_state = None
+                self._clear_inference_state()
+                self._selected_solver = "exact"
+                self._selected_backend_name = "numpy"
+                self._selected_backend_device = "cpu"
+                self._fitted = False
+
+            return current(
+                self,
+                X=X,
+                y=y,
+                sample_weight=sample_weight,
+                formula=formula,
+                data=data,
+            )
+        except Exception:
+            # The optimized CPU-exact override bypasses the generic Gaussian fit
+            # transaction, so shape/weight validation errors can otherwise leave
+            # coefficients from an earlier successful fit reachable by predict().
+            from statgpu.linear_model.penalized._gaussian_fit_transaction_contract import (
+                _invalidate_failed_fit_state,
+            )
+
+            _invalidate_failed_fit_state(self)
+            raise
+
+    _fit_with_failed_refit_contract._statgpu_ridge_failed_refit_contract = True
+    _fit_with_failed_refit_contract._statgpu_original = current
+    cls.fit = _fit_with_failed_refit_contract
+    return cls
+
+
+@_with_ridge_failed_refit
 class Ridge(_PenalizedLinearRegression):
     """L2 regression under an average weighted squared-loss objective.
 
@@ -298,63 +358,4 @@ class Ridge(_PenalizedLinearRegression):
 
 
 def _install_ridge_failed_refit_contract() -> None:
-    """Reset optimized direct-fit state and fail closed on Ridge refit errors."""
-    current = Ridge.fit
-    if getattr(current, "_statgpu_ridge_failed_refit_contract", False):
-        return
-
-    @functools.wraps(current)
-    def _fit_with_failed_refit_contract(
-        self, X=None, y=None, sample_weight=None, formula=None, data=None
-    ):
-        try:
-            optimized_direct = (
-                formula is None
-                and self._get_compute_device() == Device.CPU
-                and self._solver == "exact"
-            )
-            if optimized_direct:
-                # The optimized override bypasses the generic PGLM fit preamble.
-                # Reset formula-derived intercept semantics and all previous
-                # inference/reporting state before a successful direct refit so a
-                # prior formula/no-intercept fit or inference-enabled fit cannot
-                # contaminate this fit.
-                self._feature_names = None
-                self._design_info = None
-                self._formula_has_intercept = None
-                self._use_intercept = None
-                self._native_fit_coef = None
-                self._native_fit_intercept = None
-                self._inference_precomputed = False
-                self._precomputed_gaussian_state = None
-                self._clear_inference_state()
-                self._selected_solver = "exact"
-                self._selected_backend_name = "numpy"
-                self._selected_backend_device = "cpu"
-                self._fitted = False
-
-            return current(
-                self,
-                X=X,
-                y=y,
-                sample_weight=sample_weight,
-                formula=formula,
-                data=data,
-            )
-        except Exception:
-            # The optimized CPU-exact override bypasses the generic Gaussian fit
-            # transaction, so shape/weight validation errors can otherwise leave
-            # coefficients from an earlier successful fit reachable by predict().
-            from statgpu.linear_model.penalized._gaussian_fit_transaction_contract import (
-                _invalidate_failed_fit_state,
-            )
-
-            _invalidate_failed_fit_state(self)
-            raise
-
-    _fit_with_failed_refit_contract._statgpu_ridge_failed_refit_contract = True
-    _fit_with_failed_refit_contract._statgpu_original = current
-    Ridge.fit = _fit_with_failed_refit_contract
-
-
-_install_ridge_failed_refit_contract()
+    """Compatibility no-op; Ridge owns failed-refit handling at definition."""

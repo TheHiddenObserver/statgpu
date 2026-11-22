@@ -34,7 +34,7 @@ from statgpu.linear_model.wrappers import _lasso as _lasso_impl
 
 
 _WEIGHTED_LASSOCV_MARKER = "__statgpu_pr138_weighted_lassocv_objective__"
-_ORIGINAL_SELECT = _lasso_impl._select_lasso_alpha_cv
+_ORIGINAL_SELECT = _lasso_impl._select_lasso_alpha_cv_unweighted
 
 
 def _weight_sum(value) -> float:
@@ -493,12 +493,12 @@ def _weighted_select_lasso_alpha_cv(
     return details if return_details else float(best_alpha)
 
 
+# The numerical weighted path is an explicit delegate, not a runtime replacement.
+setattr(_weighted_select_lasso_alpha_cv, _WEIGHTED_LASSOCV_MARKER, True)
+
+
 def install_weighted_lassocv_review_contract():
-    current = _lasso_impl._select_lasso_alpha_cv
-    if getattr(current, _WEIGHTED_LASSOCV_MARKER, False):
-        return
-    setattr(_weighted_select_lasso_alpha_cv, _WEIGHTED_LASSOCV_MARKER, True)
-    _lasso_impl._select_lasso_alpha_cv = _weighted_select_lasso_alpha_cv
+    """Compatibility no-op; the canonical selector owns composition."""
 
 
 __all__ = [

@@ -23,11 +23,11 @@ from statgpu.linear_model.cv._device import (
     resolve_cv_backend,
     validate_cv_sample_weight,
 )
-from statgpu.linear_model.wrappers import _lasso as _lasso_impl
+from statgpu.linear_model import _weighted_lassocv_review_contract as _weighted
 
 
 _UNIFORM_WEIGHT_MARKER = "__statgpu_pr138_lassocv_uniform_weight_identity__"
-_REVIEWED_SELECT = _lasso_impl._select_lasso_alpha_cv
+_REVIEWED_SELECT = _weighted._weighted_select_lasso_alpha_cv
 
 
 def _uniform_positive_weight(X, sample_weight, device) -> bool:
@@ -110,12 +110,11 @@ def _select_lasso_alpha_cv(
     )
 
 
+setattr(_select_lasso_alpha_cv, _UNIFORM_WEIGHT_MARKER, True)
+
+
 def install_lassocv_uniform_weight_identity_contract():
-    current = _lasso_impl._select_lasso_alpha_cv
-    if getattr(current, _UNIFORM_WEIGHT_MARKER, False):
-        return
-    setattr(_select_lasso_alpha_cv, _UNIFORM_WEIGHT_MARKER, True)
-    _lasso_impl._select_lasso_alpha_cv = _select_lasso_alpha_cv
+    """Compatibility no-op; the canonical selector owns composition."""
 
 
 __all__ = [
